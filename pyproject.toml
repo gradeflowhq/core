@@ -1,0 +1,85 @@
+[project]
+name = "gradeflow-core"
+version = "0.1.0"
+description = "A Python library for marking students' answers with composable marking methods."
+readme = "README.md"
+authors = [{ name = "GradeFlow Team" }]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.14"
+classifiers = [
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Education",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+keywords = ["grading", "assessment", "education", "examplify"]
+dependencies = [
+    "jinja2~=3.1",
+    "natsort~=8.4",
+    "pydantic~=2.14",
+    "pyeryx~=0.12.1",
+    "rapidfuzz~=3.14",
+    "ruamel.yaml~=0.18",
+]
+
+[project.urls]
+Repository = "https://github.com/gradeflowhq/core"
+Issues = "https://github.com/gradeflowhq/core/issues"
+
+[project.optional-dependencies]
+llm = ["openai~=3.40"]
+ml = [
+    "fastembed~=0.9",
+    "huggingface-hub~=1.33",
+    "numpy~=2.4",
+    "onnxruntime~=1.31",
+    "scipy~=1.18",
+    "tokenizers~=0.23",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4",
+    "pytest>=9.1",
+    "pytest-cov>=7.1",
+    "ruff>=0.17",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "PT", "C90", "FURB", "PERF", "PIE", "RET", "SLF"]
+allowed-confusables = ["×"]  # 6.02 × 10^23
+
+[tool.ruff.lint.per-file-ignores]
+"src/gradeflow_core/methods/check.py" = ["SLF001"]  # a scoped copy's _scope, a validated check's _methods
+"tests/**" = ["SLF001"]  # tests access internals
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["fastembed.*", "onnxruntime.*", "scipy.*"]  # the ml extra, which may not be installed
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["ml: tests running the language models of the ml extra"]
+
+[tool.coverage.run]
+source = ["gradeflow_core"]
+patch = ["subprocess"]  # the code runner's worker
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true

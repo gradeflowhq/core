@@ -1,0 +1,28 @@
+examples:
+  - title: What is 7 × 8? None of the options is right.
+    description: Full marks for every answer.
+    questions:
+      Q1: {type: choice, options: ['54', '55', '57']}
+    with: {}
+    rows:
+      - answers:
+          Q1: '54'
+        expected: {Q1: {marks: 1.0, feedback: Full marks.}}
+      - answers:
+          Q1: '57'
+        expected: {Q1: {marks: 1.0, feedback: Full marks.}}
+      - answers:
+          Q1: ''
+        expected: {Q1: {marks: 1.0, feedback: Full marks.}}
+  - title: Explain the result of the experiment in question 3, which was left out of the paper.
+    description: Full marks for every answer.
+    questions:
+      Q1: {type: text, max_marks: 2}
+    with: {}
+    rows:
+      - answers:
+          Q1: I couldn't find question 3
+        expected: {Q1: {marks: 2.0, feedback: Full marks.}}
+      - answers:
+          Q1: ''
+        expected: {Q1: {marks: 2.0, feedback: Full marks.}}

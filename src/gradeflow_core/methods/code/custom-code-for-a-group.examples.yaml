@@ -1,0 +1,99 @@
+examples:
+  - title: Name two different primary colours.
+    description: |-
+      Python code decides the marks for `Q1` and `Q2`:
+
+      ```python
+      def result(right, expected):
+          return {"correct": right, "feedback": "Correct." if right else expected}
+
+      primary = {"red", "yellow", "blue"}
+      first, second = answers["Q1"], answers["Q2"]
+      results = {
+          "Q1": result(first in primary, "Expected red, yellow or blue."),
+          "Q2": result(second in primary and second != first, "Expected a different primary colour."),
+      }
+      ```
+    questions:
+      Q1: {type: text, description: A primary colour.}
+      Q2: {type: text, description: A different primary colour.}
+    with:
+      questions: [Q1, Q2]
+      code: |
+        def result(right, expected):
+            return {"correct": right, "feedback": "Correct." if right else expected}
+
+        primary = {"red", "yellow", "blue"}
+        first, second = answers["Q1"], answers["Q2"]
+        results = {
+            "Q1": result(first in primary, "Expected red, yellow or blue."),
+            "Q2": result(second in primary and second != first, "Expected a different primary colour."),
+        }
+    rows:
+      - answers:
+          Q1: red
+          Q2: blue
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: red
+          Q2: red
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 0.0, feedback: Expected a different primary colour.}
+      - answers:
+          Q1: green
+          Q2: blue
+        expected:
+          Q1: {marks: 0.0, feedback: 'Expected red, yellow or blue.'}
+          Q2: {marks: 1.0, feedback: Correct.}
+  - title: Count the sides of a hexagon.
+    description: |-
+      Python code decides the marks for `Q1` and `Q2`:
+
+      ```python
+      def result(right, expected):
+          return {"correct": right, "feedback": "Correct." if right else expected}
+
+      words = {5: "five", 6: "six", 7: "seven"}
+      sides, written = answers["Q1"], answers["Q2"]
+      results = {
+          "Q1": result(sides == 6, "Expected 6."),
+          "Q2": result(words.get(sides) == written, "Expected your answer to Q1 in words."),
+      }
+      ```
+    questions:
+      Q1: {type: number, description: How many sides does it have?}
+      Q2: {type: text, description: Write that number in words.}
+    with:
+      questions: [Q1, Q2]
+      code: |
+        def result(right, expected):
+            return {"correct": right, "feedback": "Correct." if right else expected}
+
+        words = {5: "five", 6: "six", 7: "seven"}
+        sides, written = answers["Q1"], answers["Q2"]
+        results = {
+            "Q1": result(sides == 6, "Expected 6."),
+            "Q2": result(words.get(sides) == written, "Expected your answer to Q1 in words."),
+        }
+    rows:
+      - answers:
+          Q1: '6'
+          Q2: six
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: '5'
+          Q2: five
+        expected:
+          Q1: {marks: 0.0, feedback: Expected 6.}
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: '6'
+          Q2: seven
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 0.0, feedback: Expected your answer to Q1 in words.}

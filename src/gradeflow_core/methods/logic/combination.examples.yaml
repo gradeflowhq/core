@@ -1,0 +1,58 @@
+examples:
+  - title: Where in a cell is energy released? Answer in 10 words or fewer.
+    description: |-
+      **All must be correct**
+
+      - Includes `mitochondria`.
+      - Has at most `10` words.
+    questions:
+      Q1: {type: text}
+    with:
+      checks:
+        - uses: gradeflow/key-points@1
+          with: {points: [mitochondria]}
+        - uses: gradeflow/length@1
+          with: {max_length: 10, count: words}
+    rows:
+      - answers:
+          Q1: In the mitochondria
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Has “mitochondria”.
+              Right length.
+      - answers:
+          Q1: In the mitochondria, where respiration releases energy from glucose all the time
+        expected: {Q1: {marks: 0.0, feedback: 'Too long: 12 words. Expected at most 10.'}}
+      - answers:
+          Q1: In the nucleus
+        expected: {Q1: {marks: 0.0, feedback: Missing “mitochondria”.}}
+  - title: What is the largest planet?
+    description: |-
+      **Any one must be correct**
+
+      - **Largest:** Matches `Jupiter`.
+      - **Second largest** (50% of the marks): Matches `Saturn`.
+    questions:
+      Q1: {type: text, max_marks: 2}
+    with:
+      combine: any
+      checks:
+        - name: Largest
+          uses: gradeflow/accepted-answers@1
+          with: {answers: [Jupiter]}
+        - name: Second largest
+          weight: 0.5
+          uses: gradeflow/accepted-answers@1
+          with: {answers: [Saturn]}
+    rows:
+      - answers:
+          Q1: Jupiter
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: Saturn
+        expected: {Q1: {marks: 1.0, feedback: Second largest (50% of the marks).}}
+      - answers:
+          Q1: Mars
+        expected: {Q1: {marks: 0.0, feedback: Expected “Jupiter”.}}

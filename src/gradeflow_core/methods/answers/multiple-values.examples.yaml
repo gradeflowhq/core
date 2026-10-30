@@ -1,0 +1,67 @@
+examples:
+  - title: Name the highest mountain on Earth and its height in metres.
+    description: |-
+      **Each one counts**
+
+      - **Value 1:** Matches `Everest`.
+      - **Value 2:** Is between `8800` and `8900`.
+    questions:
+      Q1: {type: values, max_marks: 2, value_types: [text, number]}
+    with:
+      combine: proportional
+      checks:
+        - uses: gradeflow/accepted-answers@1
+          with: {answers: [Everest]}
+        - uses: gradeflow/number-range@1
+          with: {min_value: 8800, max_value: 8900}
+    rows:
+      - answers:
+          Q1: Everest, 8849
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: Everest, 8000
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Value 1: Correct.
+              Value 2: Too low. Expected between 8800 and 8900.
+      - answers:
+          Q1: K2, 8611
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: |-
+              Value 1: Expected “Everest”.
+              Value 2: Too low. Expected between 8800 and 8900.
+  - title: What are the roots of x² + x - 6 = 0?
+    description: |-
+      **Each one counts, in any order**
+
+      - **Value 1:** Matches `2`.
+      - **Value 2:** Matches `-3`.
+    questions:
+      Q1: {type: values, max_marks: 2, value_types: [number, number]}
+    with:
+      combine: proportional
+      any_order: true
+      checks:
+        - uses: gradeflow/accepted-answers@1
+          with: {answers: ['2']}
+        - uses: gradeflow/accepted-answers@1
+          with: {answers: ['-3']}
+    rows:
+      - answers:
+          Q1: 2, -3
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: -3, 2
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: 2, 5
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Value 1: Correct.
+              Value 2: Expected -3.

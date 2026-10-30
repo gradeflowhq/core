@@ -1,0 +1,58 @@
+version: 1
+label: Not Allowed
+summary: Full marks unless the answer does what you forbid.
+level: advanced
+question_types: all
+guide: |-
+  **Use it when:** An answer must not do something, such as make a common mistake or use a forbidden construct.
+
+  **How it marks:** The check inside is marked and its result reversed: full marks if it isn't correct, none if it is.
+
+  **Good to know:** On its own it gives marks to any answer that avoids the mistake. Put it in a Combination with **All must be correct**, beside the check for the right answer.
+
+  **Related:** To forbid words or points, Key Points with **None may be correct** is simpler.
+inputs:
+  check:
+    title: Check
+    description: The check for what the answer must not do.
+combine: none
+checks:
+  - "{{ inputs.check }}"
+description: "**Not allowed:** {{ parts | first }}"
+examples:
+  - title: Write total(numbers), which returns the sum of a list, without a loop.
+    description: |-
+      **Not allowed:** Uses a loop.
+    questions:
+      Q1: {type: code}
+    with:
+      check:
+        uses: gradeflow/code-uses@1
+        with: {looks_for: loop}
+    rows:
+      - answers:
+          Q1: "def total(numbers):\n    return sum(numbers)"
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: "def total(numbers):\n    result = 0\n    for n in numbers:\n        result += n\n    return result"
+        expected:
+          Q1: {marks: 0.0, feedback: Not allowed. Uses a loop.}
+  - title: Write sort_list(items), which returns the items in order, without calling sorted.
+    description: |-
+      **Not allowed:** Calls `sorted`.
+    questions:
+      Q1: {type: code}
+    with:
+      check:
+        uses: gradeflow/code-uses@1
+        with: {looks_for: call, function: sorted}
+    rows:
+      - answers:
+          Q1: "def sort_list(items):\n    items = list(items)\n    items.sort()\n    return items"
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: "def sort_list(items):\n    return sorted(items)"
+        expected:
+          Q1: {marks: 0.0, feedback: Not allowed. Calls “sorted”.}

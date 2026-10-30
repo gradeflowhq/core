@@ -1,0 +1,35 @@
+examples:
+  - title: Sum up the poem in 3 to 10 words.
+    description: Has `3` to `10` words.
+    questions:
+      Q1: {type: text}
+    with:
+      min_length: 3
+      max_length: 10
+      count: words
+    rows:
+      - answers:
+          Q1: A soldier remembers the friends he lost in the war
+        expected: {Q1: {marks: 1.0, feedback: Right length.}}
+      - answers:
+          Q1: War is sad
+        expected: {Q1: {marks: 1.0, feedback: Right length.}}
+      - answers:
+          Q1: It is about a soldier who comes home and remembers his friends from the war
+        expected: {Q1: {marks: 0.0, feedback: 'Too long: 15 words. Expected at most 10.'}}
+      - answers:
+          Q1: War
+        expected: {Q1: {marks: 0.0, feedback: 'Too short: 1 word. Expected at least 3.'}}
+  - title: Explain your answer to part (a).
+    description: Has at least `1` character.
+    questions:
+      Q1: {type: text}
+    with:
+      min_length: 1
+    rows:
+      - answers:
+          Q1: Because the reaction gives out heat
+        expected: {Q1: {marks: 1.0, feedback: Right length.}}
+      - answers:
+          Q1: ''
+        expected: {Q1: {marks: 0.0, feedback: No answer.}}

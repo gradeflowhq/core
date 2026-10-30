@@ -1,0 +1,34 @@
+examples:
+  - title: Estimate the height of a door, in metres.
+    description: Is between `1.8` and `2.5`.
+    questions:
+      Q1: {type: number}
+    with:
+      min_value: 1.8
+      max_value: 2.5
+    rows:
+      - answers:
+          Q1: '2'
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '2.5'
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '1.5'
+        expected: {Q1: {marks: 0.0, feedback: Too low. Expected between 1.8 and 2.5.}}
+      - answers:
+          Q1: '3'
+        expected: {Q1: {marks: 0.0, feedback: Too high. Expected between 1.8 and 2.5.}}
+  - title: What percentage of the class correct?
+    description: Is at most `100`.
+    questions:
+      Q1: {type: number}
+    with:
+      max_value: 100
+    rows:
+      - answers:
+          Q1: '86'
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '120'
+        expected: {Q1: {marks: 0.0, feedback: Too high. Expected at most 100.}}

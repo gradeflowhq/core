@@ -1,0 +1,125 @@
+version: 1
+label: Answer Sets
+summary: Marks for the best of several sets of answers.
+level: advanced
+group: true
+guide: |-
+  **Use it when:** More than one consistent set of answers deserves marks: the expected answers, an early mistake carried through later parts, or a second valid reading or method.
+
+  **How it marks:** Each set has checks for the questions it covers and a share of the marks. Every set is tried, and the one that gives the most marks counts.
+
+  **Good to know:** The first set holds the expected answers. Add a set for each common mistake or reading, worked through to the later questions, with a share such as 50%.
+
+  **Related:** When a later number follows from earlier answers by a formula, Formula of Answers covers every mistake at once.
+inputs:
+  sets:
+    title: Sets
+    description: Each set checks the questions it covers, with its share of the marks.
+    default:
+      - {name: Expected, uses: gradeflow/combination@1, with: {checks: []}}
+combine: any
+checks: "{{ inputs.sets }}"
+examples:
+  - title: A rectangle is 6 cm by 4 cm.
+    description: |-
+      **Any one must be correct**
+
+      - **Expected:** **All must be correct**
+
+        - **Q1:** Matches `20`.
+        - **Q2:** Matches `25`.
+      - **Perimeter as 6 + 4** (50% of the marks): **All must be correct**
+
+        - **Q1:** Matches `10`.
+        - **Q2:** Matches `6.25`.
+    questions:
+      Q1: {type: number, description: What is its perimeter?}
+      Q2: {type: number, description: What is the area of a square with the same perimeter?}
+    with:
+      sets:
+        - name: Expected
+          uses: gradeflow/combination@1
+          with:
+            checks:
+              - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['20']}}
+              - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['25']}}
+        - name: Perimeter as 6 + 4
+          weight: 0.5
+          uses: gradeflow/combination@1
+          with:
+            checks:
+              - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['10']}}
+              - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['6.25']}}
+    rows:
+      - answers:
+          Q1: '20'
+          Q2: '25'
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: '10'
+          Q2: '6.25'
+        expected:
+          Q1: {marks: 0.5, feedback: Perimeter as 6 + 4 (50% of the marks).}
+          Q2: {marks: 0.5, feedback: Perimeter as 6 + 4 (50% of the marks).}
+      - answers:
+          Q1: '20'
+          Q2: '6.25'
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 0.0, feedback: Expected 25.}
+      - answers:
+          Q1: '24'
+          Q2: '36'
+        expected:
+          Q1: {marks: 0.0, feedback: Expected 20.}
+          Q2: {marks: 0.0, feedback: Expected 25.}
+  - title: Work out 6 ÷ 2(1 + 2).
+    description: |-
+      **Any one must be correct**
+
+      - **Left to right:** **All must be correct**
+
+        - **Q1:** Matches `9`.
+        - **Q2:** Matches `81`.
+      - **Brackets first:** **All must be correct**
+
+        - **Q1:** Matches `1`.
+        - **Q2:** Matches `1`.
+    questions:
+      Q1: {type: number, description: What is the answer?}
+      Q2: {type: number, description: What is your answer to Q1, squared?}
+    with:
+      sets:
+        - name: Left to right
+          uses: gradeflow/combination@1
+          with:
+            checks:
+              - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['9']}}
+              - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['81']}}
+        - name: Brackets first
+          uses: gradeflow/combination@1
+          with:
+            checks:
+              - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['1']}}
+              - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['1']}}
+    rows:
+      - answers:
+          Q1: '9'
+          Q2: '81'
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: '1'
+          Q2: '1'
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: '9'
+          Q2: '1'
+        expected:
+          Q1: {marks: 1.0, feedback: Correct.}
+          Q2: {marks: 0.0, feedback: Expected 81.}

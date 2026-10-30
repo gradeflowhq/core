@@ -1,0 +1,33 @@
+examples:
+  - title: Write today's date as DD/MM/YYYY.
+    description: Matches the pattern `^\d{2}/\d{2}/\d{4}$`.
+    questions:
+      Q1: {type: text}
+    with:
+      pattern: ^\d{2}/\d{2}/\d{4}$
+    rows:
+      - answers:
+          Q1: 05/11/2026
+        expected: {Q1: {marks: 1.0, feedback: Right format.}}
+      - answers:
+          Q1: 5/11/2026
+        expected: {Q1: {marks: 0.0, feedback: Not in the expected format.}}
+      - answers:
+          Q1: '2026-11-05'
+        expected: {Q1: {marks: 0.0, feedback: Not in the expected format.}}
+  - title: Write 0.75 as a fraction, such as 1/2.
+    description: Matches the pattern `^\d+/\d+$`.
+    questions:
+      Q1: {type: text}
+    with:
+      pattern: ^\d+/\d+$
+    rows:
+      - answers:
+          Q1: 3/4
+        expected: {Q1: {marks: 1.0, feedback: Right format.}}
+      - answers:
+          Q1: 6/8
+        expected: {Q1: {marks: 1.0, feedback: Right format.}}
+      - answers:
+          Q1: '0.75'
+        expected: {Q1: {marks: 0.0, feedback: Not in the expected format.}}

@@ -1,0 +1,129 @@
+version: 1
+label: Key Points
+summary: Marks for each point the answer includes.
+question_types: [text]
+guide: |-
+  **Use it when:** A good answer includes certain words or makes certain points, such as the key terms or ideas of an explanation.
+
+  **How it marks:** **Exactly** and **Similar spelling** look for each point's words anywhere in the answer. **Same meaning** looks for its idea in any words, judged by a language model that also reads the question's description. **How points count** sets whether all are needed, any one is enough, none may appear, or each earns its share.
+
+  **Good to know:** A short point also matches inside longer words, so “evaporat” finds “evaporation”, and “for” finds “format” unless **Whole words only** is on. Same meaning works best with each point written as a sentence, and only on short answers.
+
+  **Related:** To compare the whole answer, use Accepted Answers. To forbid a point, choose **None may be correct**.
+inputs:
+  points:
+    title: Points
+    description: Words or phrases, or a sentence each for Same meaning.
+  match:
+    default: exact
+  strictness:
+    default: normal
+  combine:
+    title: How points count
+    default: proportional
+  whole_words:
+    default: false
+combine: "{{ inputs.combine }}"
+checks:
+  - for_each: "{{ inputs.points }}"
+    uses: gradeflow/key-point@1
+    with:
+      point: "{{ each }}"
+      match: "{{ inputs.match }}"
+      strictness: "{{ inputs.strictness }}"
+      whole_words: "{{ inputs.whole_words }}"
+feedback: >-
+  {% if inputs.combine == "any" and not correct %}Missing {{ inputs.points | quoted | or_list }}.{% elif inputs.combine != "none" %}{{ feedback }}{% elif correct %}Has none of {{ inputs.points | quoted | or_list }}.{% else %}Not allowed. {{ parts | selectattr("correct") | map(attribute="feedback") | join(" ") }}{% endif %}
+description: >-
+  {% if inputs.combine == "none" %}Leaves out{% else %}Includes{% endif %}{% if inputs.whole_words and inputs.match == "exact" %} the whole word{% if inputs.points | length > 1 %}s{% endif %}{% endif %}
+  {% if inputs.combine == "any" %}{{ inputs.points | code | or_list }}{% else %}{{ inputs.points | code | and_list }}{% endif %}{% if inputs.match == "spelling" %} in similar spelling{% elif inputs.match == "meaning" %} in meaning{% endif %}{% if inputs.match != "exact" and inputs.strictness != "normal" %} ({{ inputs.strictness }}){% endif %}{% if inputs.points | length > 1 %}{% if inputs.combine == "proportional" %}, each counting{% elif inputs.combine == "total" %}, a mark each{% endif %}{% endif %}.
+examples:
+  - title: What does a plant need for photosynthesis?
+    description: |-
+      Includes `light`, `water` and `carbon dioxide`, each counting.
+    questions:
+      Q1: {type: text, max_marks: 3}
+    with:
+      points: [light, water, carbon dioxide]
+    rows:
+      - answers:
+          Q1: light, water and carbon dioxide
+        expected:
+          Q1:
+            marks: 3.0
+            feedback: |-
+              Has “light”.
+              Has “water”.
+              Has “carbon dioxide”.
+      - answers:
+          Q1: sunlight and water
+        expected:
+          Q1:
+            marks: 2.0
+            feedback: |-
+              Has “light”.
+              Has “water”.
+              Missing “carbon dioxide”.
+      - answers:
+          Q1: water and CO2
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Missing “light”.
+              Has “water”.
+              Missing “carbon dioxide”.
+  - title: What process do plants use to make food?
+    description: |-
+      Includes `photosynthesis` in similar spelling.
+    questions:
+      Q1: {type: text}
+    with:
+      points: [photosynthesis]
+      match: spelling
+    rows:
+      - answers:
+          Q1: Photosynthesis
+        expected:
+          Q1: {marks: 1.0, feedback: Has “photosynthesis”.}
+      - answers:
+          Q1: fotosynthesis
+        expected:
+          Q1: {marks: 1.0, feedback: Has “photosynthesis” (as “fotosynthesis”).}
+      - answers:
+          Q1: respiration
+        expected:
+          Q1: {marks: 0.0, feedback: Missing “photosynthesis”.}
+  - title: Why does ice float on water?
+    description: |-
+      Includes `Ice is less dense than water` and `Water expands when it freezes` in meaning, each counting.
+    questions:
+      Q1: {type: text, max_marks: 2, description: Why does ice float on water?}
+    with:
+      points: [Ice is less dense than water, Water expands when it freezes]
+      match: meaning
+    rows:
+      - answers:
+          Q1: Water expands as it freezes, so ice is less dense than water.
+        expected:
+          Q1:
+            marks: 2.0
+            feedback: |-
+              Has “Ice is less dense than water”.
+              Has “Water expands when it freezes”.
+      - answers:
+          Q1: Ice is lighter than the same volume of water.
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Has “Ice is less dense than water”.
+              Missing “Water expands when it freezes”.
+      - answers:
+          Q1: Because ice is cold.
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: |-
+              Missing “Ice is less dense than water”.
+              Missing “Water expands when it freezes”.

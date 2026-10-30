@@ -1,0 +1,50 @@
+examples:
+  - title: Give a prime number greater than 100.
+    description: |-
+      Python code decides the marks:
+
+      ```python
+      n = int(answer)
+      correct = n > 100 and all(n % d for d in range(2, int(n**0.5) + 1))
+      feedback = "Correct." if correct else "Expected a prime greater than 100."
+      ```
+    questions:
+      Q1: {type: number}
+    with:
+      code: |
+        n = int(answer)
+        correct = n > 100 and all(n % d for d in range(2, int(n**0.5) + 1))
+        feedback = "Correct." if correct else "Expected a prime greater than 100."
+    rows:
+      - answers:
+          Q1: '101'
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '111'
+        expected: {Q1: {marks: 0.0, feedback: Expected a prime greater than 100.}}
+      - answers:
+          Q1: '97'
+        expected: {Q1: {marks: 0.0, feedback: Expected a prime greater than 100.}}
+  - title: Name a word that reads the same backwards.
+    description: |-
+      Python code decides the marks:
+
+      ```python
+      word = answer.strip().lower()
+      correct = len(word) > 1 and word == word[::-1]
+      feedback = "Correct." if correct else "Expected a word that reads the same backwards."
+      ```
+    questions:
+      Q1: {type: text}
+    with:
+      code: |
+        word = answer.strip().lower()
+        correct = len(word) > 1 and word == word[::-1]
+        feedback = "Correct." if correct else "Expected a word that reads the same backwards."
+    rows:
+      - answers:
+          Q1: Level
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: hello
+        expected: {Q1: {marks: 0.0, feedback: Expected a word that reads the same backwards.}}

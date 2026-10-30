@@ -1,0 +1,128 @@
+version: 1
+label: Conditional
+summary: Marks questions differently depending on another answer.
+level: advanced
+group: true
+guide: |-
+  **Use it when:** How a question is marked depends on another answer, such as when students choose which part to answer.
+
+  **How it marks:** The **If** checks run first and give no marks. When they're correct, the **Then** checks mark their questions, and otherwise the **Else** checks do.
+
+  **Good to know:** Mark the same questions under Then and Else, so every student is marked one way or the other.
+
+  **Related:** To accept several consistent sets of answers, use Answer Sets.
+inputs:
+  condition:
+    title: If
+    description: Checks that choose the branch. They give no marks.
+  combine:
+    title: Then applies when
+    default: all
+    choices: [all, any]
+    labels: {all: All are correct, any: Any one is correct}
+  then:
+    title: Then
+    description: Checks that mark the questions when the If checks are correct.
+  otherwise:
+    title: Else
+    description: Checks that mark the questions otherwise.
+    default: []
+checks:
+  - id: condition
+    read_only: true
+    uses: gradeflow/combination@1
+    with:
+      combine: "{{ inputs.combine }}"
+      checks: "{{ inputs.condition }}"
+  - if: "{{ checks.condition.correct }}"
+    uses: gradeflow/combination@1
+    with:
+      checks: "{{ inputs.then }}"
+  - if: "{{ not checks.condition.correct }}"
+    uses: gradeflow/combination@1
+    with:
+      checks: "{{ inputs.otherwise }}"
+description: |-
+  **If {% if inputs.combine == "all" %}all are correct{% else %}any one is correct{% endif %}**
+  {{ inputs.condition | described }}
+
+  **Then**
+  {{ inputs.then | described }}
+  {% if inputs.otherwise %}
+
+  **Else**
+  {{ inputs.otherwise | described }}
+  {% endif %}
+examples:
+  - title: Answer part A or part B.
+    description: |-
+      **If all are correct**
+      - **Q1:** Chooses exactly `a`.
+
+      **Then**
+      - **Q2:** Matches `Paris`.
+
+      **Else**
+      - **Q2:** Matches `Rome`.
+    questions:
+      Q1: {type: choice, options: [a, b], description: Which part did you answer?}
+      Q2: {type: text, description: The capital of France for part A, or of Italy for part B.}
+    with:
+      condition:
+        - {question: Q1, uses: gradeflow/multiple-choice@1, with: {correct: [a]}}
+      then:
+        - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: [Paris]}}
+      otherwise:
+        - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: [Rome]}}
+    rows:
+      - answers:
+          Q1: a
+          Q2: Paris
+        expected:
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: b
+          Q2: Rome
+        expected:
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: a
+          Q2: Rome
+        expected:
+          Q2: {marks: 0.0, feedback: Expected “Paris”.}
+  - title: Estimate the height of a door, in the units you choose.
+    description: |-
+      **If all are correct**
+      - **Q1:** Chooses exactly `metres`.
+
+      **Then**
+      - **Q2:** Is between `1.8` and `2.5`.
+
+      **Else**
+      - **Q2:** Is between `6` and `8`.
+    questions:
+      Q1: {type: choice, options: [metres, feet], description: Which units did you use?}
+      Q2: {type: number, description: How tall is a door?}
+    with:
+      condition:
+        - {question: Q1, uses: gradeflow/multiple-choice@1, with: {correct: [metres]}}
+      then:
+        - {question: Q2, uses: gradeflow/number-range@1, with: {min_value: 1.8, max_value: 2.5}}
+      otherwise:
+        - {question: Q2, uses: gradeflow/number-range@1, with: {min_value: 6, max_value: 8}}
+    rows:
+      - answers:
+          Q1: metres
+          Q2: '2'
+        expected:
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: feet
+          Q2: '7'
+        expected:
+          Q2: {marks: 1.0, feedback: Correct.}
+      - answers:
+          Q1: feet
+          Q2: '2'
+        expected:
+          Q2: {marks: 0.0, feedback: Too low. Expected between 6 and 8.}

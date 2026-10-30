@@ -1,0 +1,34 @@
+examples:
+  - title: Put the stages of mitosis in order.
+    description: Puts `prophase`, `metaphase`, `anaphase`, `telophase` in order, with a share for items in order.
+    questions:
+      Q1: {type: values, max_marks: 4, value_types: [text, text, text, text]}
+    with:
+      order: [prophase, metaphase, anaphase, telophase]
+    rows:
+      - answers:
+          Q1: prophase, metaphase, anaphase, telophase
+        expected: {Q1: {marks: 4.0, feedback: Correct.}}
+      - answers:
+          Q1: prophase, anaphase, metaphase, telophase
+        expected: {Q1: {marks: 3.0, feedback: '3 of 4 in order. Expected prophase, metaphase, anaphase, telophase.'}}
+      - answers:
+          Q1: telophase, prophase, metaphase, anaphase
+        expected: {Q1: {marks: 3.0, feedback: '3 of 4 in order. Expected prophase, metaphase, anaphase, telophase.'}}
+      - answers:
+          Q1: telophase, anaphase, metaphase, prophase
+        expected: {Q1: {marks: 1.0, feedback: '1 of 4 in order. Expected prophase, metaphase, anaphase, telophase.'}}
+  - title: 'Put these events in time order: First World War, French Revolution, Moon landing.'
+    description: Puts `French Revolution`, `First World War`, `Moon landing` in order.
+    questions:
+      Q1: {type: values, value_types: [text, text, text]}
+    with:
+      order: [French Revolution, First World War, Moon landing]
+      marks_for: exact
+    rows:
+      - answers:
+          Q1: French Revolution, First World War, Moon landing
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: First World War, French Revolution, Moon landing
+        expected: {Q1: {marks: 0.0, feedback: 'Expected French Revolution, First World War, Moon landing.'}}

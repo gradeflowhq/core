@@ -1,0 +1,48 @@
+examples:
+  - title: A square's perimeter is 16 cm.
+    description: "**Q2** equals `Q1^2`, from the student's own answers."
+    questions:
+      Q1: {type: number, description: What is its side?}
+      Q2: {type: number, description: What is its area?}
+    with:
+      target: Q2
+      formula: Q1^2
+    rows:
+      - answers:
+          Q1: '4'
+          Q2: '16'
+        expected: {Q2: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '5'
+          Q2: '25'
+        expected: {Q2: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '5'
+          Q2: '16'
+        expected: {Q2: {marks: 0.0, feedback: 'Expected 25, from the answer to Q1.'}}
+      - answers:
+          Q1: ''
+          Q2: '16'
+        expected: {Q2: {marks: 0.0, feedback: No answer to Q1 to work from.}}
+  - title: A pen costs $1.20.
+    description: "**Q2** is within `0.01` of `10 - Q1`, from the student's own answers."
+    questions:
+      Q1: {type: number, description: How much do 5 pens cost?}
+      Q2: {type: number, description: How much change do you get from $10?}
+    with:
+      target: Q2
+      formula: 10 - Q1
+      tolerance: 0.01
+    rows:
+      - answers:
+          Q1: '6'
+          Q2: '4'
+        expected: {Q2: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '6.5'
+          Q2: '3.5'
+        expected: {Q2: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '6'
+          Q2: '3.5'
+        expected: {Q2: {marks: 0.0, feedback: 'Expected about 4, from the answer to Q1.'}}

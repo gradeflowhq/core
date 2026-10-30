@@ -1,0 +1,49 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Bytecode and caches
+**/__pycache__/
+**/*.py[cod]
+**/*.so
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.cache/
+
+# Build and packaging artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Coverage/reports
+.coverage
+.coverage.*
+htmlcov/
+pytestdebug.log
+
+# Environment files
+.env
+.env.*
+*.env
+
+# What installing the core from this checkout doesn't need
+.github/
+tests/

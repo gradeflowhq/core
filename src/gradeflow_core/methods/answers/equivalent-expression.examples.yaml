@@ -1,0 +1,36 @@
+examples:
+  - title: Expand 2(x + 1).
+    description: Equals `2x + 2`.
+    questions:
+      Q1: {type: text}
+    with:
+      answers: [2x + 2]
+    rows:
+      - answers:
+          Q1: 2x+2
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: x + x + 2
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: 2x + 1
+        expected: {Q1: {marks: 0.0, feedback: Expected an expression equal to “2x + 2”.}}
+      - answers:
+          Q1: 2x +
+        expected: {Q1: {marks: 0.0, feedback: Couldn't read it as an expression. Expected an expression equal to “2x + 2”.}}
+  - title: Factorise a² - b².
+    description: Equals `(a + b)(a - b)`.
+    questions:
+      Q1: {type: text}
+    with:
+      answers: [(a + b)(a - b)]
+    rows:
+      - answers:
+          Q1: (a - b)(a + b)
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: (a - b)²
+        expected: {Q1: {marks: 0.0, feedback: Expected an expression equal to “(a + b)(a - b)”.}}
+      - answers:
+          Q1: (a + c)(a - c)
+        expected: {Q1: {marks: 0.0, feedback: Uses c. Expected an expression equal to “(a + b)(a - b)”.}}

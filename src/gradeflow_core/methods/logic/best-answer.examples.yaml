@@ -1,0 +1,84 @@
+examples:
+  - title: Write longest_run(xs), the length of the longest run of equal items.
+    description: '**Best possible answer:** Gives `3` for `longest_run([1, 1, 1, 2])`.'
+    questions:
+      Q1:
+        type: code
+        reading: {guess_indentation: true}
+    with:
+      check:
+        uses: gradeflow/code-tests@1
+        with:
+          tests:
+            - {expression: 'longest_run([1, 1, 1, 2])', expected: '3'}
+    rows:
+      - answers:
+          Q1: |-
+            def longest_run(xs):
+            best = 0
+            run = 0
+            prev = 0
+            for x in xs:
+            if x == prev:
+            run += 1
+            else:
+            run = 1
+            best = max(best, run)
+            prev = x
+            return best
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Read as:
+              def longest_run(xs):
+                  best = 0
+                  run = 0
+                  prev = 0
+                  for x in xs:
+                      if x == prev:
+                          run += 1
+                      else:
+                          run = 1
+                      best = max(best, run)
+                      prev = x
+                  return best
+
+              longest_run([1, 1, 1, 2]) gave 3, as expected.
+      - answers:
+          Q1: |-
+            def longest_run(xs):
+            best = 0
+            run = 0
+            for x in xs:
+            run += 1
+            best = max(best, run)
+            return best
+        expected: {Q1: {marks: 0.0, feedback: 'longest_run([1, 1, 1, 2]) gave 4. Expected 3.'}}
+  - title: Write count_evens(xs), how many items of xs are even.
+    description: '**Best possible answer:** Gives `2` for `count_evens([1, 2, 4])`.'
+    questions:
+      Q1:
+        type: code
+        reading: {guess_indentation: true}
+    with:
+      check:
+        uses: gradeflow/code-tests@1
+        with:
+          tests:
+            - {expression: 'count_evens([1, 2, 4])', expected: '2'}
+    rows:
+      - answers:
+          Q1: |-
+            def count_evens(xs):
+            count = 0
+            for x in xs:
+            if x % 2 == 0:
+            count += 1
+            return count
+        expected: {Q1: {marks: 1.0, feedback: 'count_evens([1, 2, 4]) gave 2, as expected.'}}
+      - answers:
+          Q1: |-
+            def count_evens(xs):
+            return len(xs)
+        expected: {Q1: {marks: 0.0, feedback: 'count_evens([1, 2, 4]) gave 3. Expected 2.'}}

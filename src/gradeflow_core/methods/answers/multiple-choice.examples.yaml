@@ -1,0 +1,37 @@
+examples:
+  - title: Which gas do plants take in for photosynthesis?
+    description: Chooses exactly `carbon dioxide`.
+    questions:
+      Q1: {type: choice, options: [oxygen, carbon dioxide, nitrogen]}
+    with:
+      correct: [carbon dioxide]
+    rows:
+      - answers:
+          Q1: carbon dioxide
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: oxygen
+        expected: {Q1: {marks: 0.0, feedback: Expected “carbon dioxide”.}}
+      - answers:
+          Q1: nitrogen
+        expected: {Q1: {marks: 0.0, feedback: Expected “carbon dioxide”.}}
+  - title: Which of these numbers are prime?
+    description: Chooses `2` and `3`, each counting.
+    questions:
+      Q1: {type: choice, options: ['2', '3', '4', '9'], max_marks: 2, allow_multiple: true}
+    with:
+      correct: ['2', '3']
+      compare: each
+    rows:
+      - answers:
+          Q1: 2, 3
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: '2'
+        expected: {Q1: {marks: 1.0, feedback: Expected “2” and “3”.}}
+      - answers:
+          Q1: 2, 3, 4
+        expected: {Q1: {marks: 1.0, feedback: Expected “2” and “3”.}}
+      - answers:
+          Q1: 4, 9
+        expected: {Q1: {marks: 0.0, feedback: Expected “2” and “3”.}}

@@ -1,0 +1,167 @@
+version: 1
+label: Answer Criteria
+summary: Marks for each criterion the answer meets.
+question_types: [text, code]
+guide: |-
+  **Use it when:** An answer needs a marker's judgement, such as a calculation whose working earns marks.
+
+  **How it marks:** AI decides which **Criteria** fit the answer, and each one that fits gives or takes off its marks. **How to decide** chooses fast, careful, which leaves answers it is unsure about for you, or careful only where a fast decision is unsure.
+
+  **Good to know:** Answers are sent to your AI service, and careful decisions take minutes where fast ones take seconds. Each criterion gives or takes off marks of the question, and the total stays between zero and full marks, so give marks for what's right as well as taking them off for mistakes.
+
+  **Related:** To look only for what the answer says, use Key Points.
+inputs:
+  criteria:
+    title: Criteria
+    description: What to look for in an answer, and the question's marks it gives, or takes off when negative.
+    items:
+      marks:
+        title: Marks
+        description: ""
+        examples: [2, 1, 0.5, -0.5, -1]
+  model_answer:
+    default: null
+  decide_with:
+    default: decision
+  confidence:
+    default: 0.9
+  reasoning_effort:
+    default: automatic
+combine: total
+checks:
+  - for_each: "{{ inputs.criteria }}"
+    name: "{{ each.text }}"
+    weight: "{{ each.marks }}"
+    uses: gradeflow/answer-criterion@1
+    with:
+      criterion: "{{ each.text }}"
+      model_answer: "{{ inputs.model_answer }}"
+      decide_with: "{{ inputs.decide_with }}"
+      confidence: "{{ inputs.confidence }}"
+      reasoning_effort: "{{ inputs.reasoning_effort }}"
+description: >-
+  Meets {% for criterion in inputs.criteria %}{% if loop.last and not loop.first %} and {% elif not loop.first %}, {% endif %}`{{ criterion.text }}` ({{ criterion.marks }}){% endfor %}, judged by AI.
+examples:
+  - title: Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working.
+    description: |-
+      Meets `Correct total` (2), `Shows the working` (1) and `Forgot to sum` (-1), judged by AI.
+    questions:
+      Q1: {type: text, max_marks: 3, description: "Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working."}
+    with:
+      criteria:
+        - {text: Correct total, marks: 2}
+        - {text: Shows the working, marks: 1}
+        - {text: Forgot to sum, marks: -1}
+      model_answer: 3 × 2 = 6 and 2 × 5 = 10, so 6 + 10 = $16
+    rows:
+      - answers:
+          Q1: 3 × 2 = 6 and 2 × 5 = 10, so 6 + 10 = $16
+        expected:
+          Q1:
+            marks: 3.0
+            feedback: |-
+              Correct total.
+              Shows the working.
+      - answers:
+          Q1: 3 × 2 = 6 and 2 × 5 = 10, so she pays $6 and $10
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: |-
+              Correct total: Not met.
+              Shows the working.
+              Marks taken off: Forgot to sum.
+      - answers:
+          Q1: $16
+        expected:
+          Q1:
+            marks: 2.0
+            feedback: |-
+              Correct total.
+              Shows the working: Not met.
+  - title: Why does ice float on water?
+    description: |-
+      Meets `Says ice is less dense than water` (1), `Explains that water expands as it freezes` (1) and `Says ice is denser than water` (-1), judged by AI.
+    questions:
+      Q1: {type: text, max_marks: 2, description: Why does ice float on water?}
+    with:
+      criteria:
+        - {text: Says ice is less dense than water, marks: 1}
+        - {text: Explains that water expands as it freezes, marks: 1}
+        - {text: Says ice is denser than water, marks: -1}
+    rows:
+      - answers:
+          Q1: Water expands as it freezes, so ice is less dense than liquid water.
+        expected:
+          Q1:
+            marks: 2.0
+            feedback: |-
+              Says ice is less dense than water.
+              Explains that water expands as it freezes.
+      - answers:
+          Q1: Because ice is less dense than water.
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Says ice is less dense than water.
+              Explains that water expands as it freezes: Not met.
+      - answers:
+          Q1: Ice is denser than water, so it floats.
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: |-
+              Says ice is less dense than water: Not met.
+              Explains that water expands as it freezes: Not met.
+              Marks taken off: Says ice is denser than water.
+  - title: Write largest(xs), which returns the largest number in a non-empty list.
+    description: |-
+      Meets `Compares each number with the largest so far` (1), `Works when every number is negative` (1) and `Uses max` (-2), judged by AI.
+    questions:
+      Q1: {type: code, max_marks: 2, description: "Write largest(xs), which returns the largest number in a non-empty list."}
+    with:
+      criteria:
+        - {text: Compares each number with the largest so far, marks: 1}
+        - {text: Works when every number is negative, marks: 1}
+        - {text: Uses max, marks: -2}
+    rows:
+      - answers:
+          Q1: |-
+            def largest(xs):
+                best = xs[0]
+                for x in xs:
+                    if x > best:
+                        best = x
+                return best
+        expected:
+          Q1:
+            marks: 2.0
+            feedback: |-
+              Compares each number with the largest so far.
+              Works when every number is negative.
+      - answers:
+          Q1: |-
+            def largest(xs):
+                best = 0
+                for x in xs:
+                    if x > best:
+                        best = x
+                return best
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Compares each number with the largest so far.
+              Works when every number is negative: Not met.
+      - answers:
+          Q1: |-
+            def largest(xs):
+                return max(xs)
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: |-
+              Compares each number with the largest so far: Not met.
+              Works when every number is negative.
+              Marks taken off: Uses max.

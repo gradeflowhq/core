@@ -1,0 +1,57 @@
+examples:
+  - title: What is the capital of Australia?
+    description: Matches `Canberra`.
+    questions:
+      Q1: {type: text}
+    with:
+      answers: [Canberra]
+    rows:
+      - answers:
+          Q1: Canberra
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: canberra
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: Canbera
+        expected: {Q1: {marks: 0.0, feedback: Expected “Canberra”.}}
+      - answers:
+          Q1: Sydney
+        expected: {Q1: {marks: 0.0, feedback: Expected “Canberra”.}}
+  - title: What is the area of a circle of radius 2, to two decimal places?
+    description: Matches `12.57`, within `0.01`.
+    questions:
+      Q1: {type: number}
+    with:
+      answers: ['12.57']
+      tolerance: 0.01
+    rows:
+      - answers:
+          Q1: '12.57'
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '12.566'
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: '12.6'
+        expected: {Q1: {marks: 0.0, feedback: Expected about 12.57.}}
+      - answers:
+          Q1: '6.28'
+        expected: {Q1: {marks: 0.0, feedback: Expected about 12.57.}}
+  - title: Why does ice float on water?
+    description: Matches `Ice is less dense than liquid water` in meaning.
+    questions:
+      Q1: {type: text, description: Why does ice float on water?}
+    with:
+      answers: [Ice is less dense than liquid water]
+      match: meaning
+    rows:
+      - answers:
+          Q1: Its density is lower than that of water
+        expected: {Q1: {marks: 1.0, feedback: Accepted as “Ice is less dense than liquid water”.}}
+      - answers:
+          Q1: Ice is not less dense than water
+        expected: {Q1: {marks: 0.0, feedback: Expected “Ice is less dense than liquid water”.}}
+      - answers:
+          Q1: Because ice is solid
+        expected: {Q1: {marks: 0.0, feedback: Expected “Ice is less dense than liquid water”.}}

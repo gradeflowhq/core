@@ -1,0 +1,34 @@
+examples:
+  - title: Write factorial(n) recursively.
+    description: Uses recursion.
+    questions:
+      Q1: {type: code}
+    with:
+      looks_for: recursion
+    rows:
+      - answers:
+          Q1: |-
+            def factorial(n):
+                return 1 if n < 2 else n * factorial(n - 1)
+        expected: {Q1: {marks: 1.0, feedback: Uses recursion.}}
+      - answers:
+          Q1: |-
+            def factorial(n):
+                result = 1
+                for i in range(2, n + 1):
+                    result *= i
+                return result
+        expected: {Q1: {marks: 0.0, feedback: Expected recursion.}}
+  - title: Square every number in a list with a comprehension.
+    description: Uses a comprehension.
+    questions:
+      Q1: {type: code}
+    with:
+      looks_for: comprehension
+    rows:
+      - answers:
+          Q1: squares = [n * n for n in numbers]
+        expected: {Q1: {marks: 1.0, feedback: Uses a comprehension.}}
+      - answers:
+          Q1: 'squares = list(map(lambda n: n * n, numbers))'
+        expected: {Q1: {marks: 0.0, feedback: Expected a comprehension.}}

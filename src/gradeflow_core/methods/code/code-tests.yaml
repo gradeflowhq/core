@@ -1,0 +1,127 @@
+version: 1
+label: Code Tests
+summary: Marks for each test the student's code passes.
+level: advanced
+question_types: [code]
+guide: |-
+  **Use it when:** Students write Python, such as a function, and you want to check what it does.
+
+  **How it marks:** The student's code runs, then each test runs an expression and compares what it gives with the expected value, so `add(2, 3)` should give `5`. **How tests count** sets whether all tests are needed, any one is enough, or each earns its share. With **Fix small errors**, code that fails is tested again with slips such as a missing `:` fixed, and loses the share of the marks in **Marks off for fixes**.
+
+  **Good to know:** Test an ordinary case and an edge case, such as an empty list or zero. Each test has a time limit, under **Test setup**.
+
+  **Related:** When the question guesses lost indentation, put Code Tests inside Best Answer. To check how the code is written, not what it does, use Code Uses.
+inputs:
+  tests:
+    title: Tests
+    description: An expression to run, and the value it should give.
+  setup:
+    title: Test setup
+    default: {}
+    advanced: true
+  evaluate_expected:
+    default: true
+    advanced: true
+  combine:
+    title: How tests count
+    default: all
+  fix_small_errors:
+    title: Fix small errors
+    description: Code that fails is tested again with slips like a missing colon corrected.
+    default: false
+  fix_penalty:
+    default: 0
+    advanced: false
+    applies_when: {fix_small_errors: true}
+  max_fixes:
+    default: 2
+    applies_when: {fix_small_errors: true}
+combine: any
+checks:
+  - uses: gradeflow/combination@1
+    with:
+      combine: "{{ inputs.combine }}"
+      checks:
+        - for_each: "{{ inputs.tests }}"
+          weight: "{{ each.weight }}"
+          uses: gradeflow/code-test@1
+          with:
+            test: "{{ each }}"
+            setup: "{{ inputs.setup }}"
+            evaluate_expected: "{{ inputs.evaluate_expected }}"
+  - id: fixes
+    if: "{{ inputs.fix_small_errors }}"
+    read_only: true
+    uses: gradeflow/code-fixes@1
+    with:
+      setup: "{{ inputs.setup }}"
+      fixes: "{{ inputs.max_fixes }}"
+      penalty: "{{ inputs.fix_penalty }}"
+  - if: "{{ inputs.fix_small_errors and checks.fixes.correct }}"
+    feedback: "{{ checks.fixes.feedback }}\n{{ feedback }}"
+    uses: gradeflow/combination@1
+    with:
+      combine: "{{ inputs.combine }}"
+      checks:
+        - for_each: "{{ inputs.tests }}"
+          weight: "{{ each.weight }}"
+          uses: gradeflow/code-test@1
+          with:
+            test: "{{ each }}"
+            setup: "{{ inputs.setup }}"
+            evaluate_expected: "{{ inputs.evaluate_expected }}"
+            fixes: "{{ inputs.max_fixes }}"
+            penalty: "{{ inputs.fix_penalty }}"
+description: >-
+  {% if inputs.combine == "none" %}Doesn't give{% else %}Gives{% endif %}
+  {% for test in inputs.tests %}{% if loop.last and not loop.first %}{% if inputs.combine in ["any", "none"] %} or {% else %} and {% endif %}{% elif not loop.first %}, {% endif %}`{{ test.expected }}` for `{{ test.expression }}`{% endfor %}{% if inputs.combine == "proportional" and inputs.tests | length > 1 %}, each counting{% endif %}.
+examples:
+  - title: Write add(a, b), which returns the sum of a and b.
+    description: |-
+      Gives `5` for `add(2, 3)` and `0` for `add(-1, 1)`, each counting.
+    questions:
+      Q1: {type: code, max_marks: 2}
+    with:
+      combine: proportional
+      tests:
+        - {expression: "add(2, 3)", expected: "5"}
+        - {expression: "add(-1, 1)", expected: "0"}
+    rows:
+      - answers:
+          Q1: "def add(a, b):\n    return a + b"
+        expected:
+          Q1:
+            marks: 2.0
+            feedback: |-
+              add(2, 3) gave 5, as expected.
+              add(-1, 1) gave 0, as expected.
+      - answers:
+          Q1: "def add(a, b):\n    return 5"
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              add(2, 3) gave 5, as expected.
+              add(-1, 1) gave 5. Expected 0.
+  - title: Write mean(numbers), which returns 0 for an empty list.
+    description: |-
+      Gives `2` for `mean([1, 2, 3])` and `0` for `mean([])`.
+    questions:
+      Q1: {type: code}
+    with:
+      tests:
+        - {expression: "mean([1, 2, 3])", expected: "2"}
+        - {expression: "mean([])", expected: "0"}
+    rows:
+      - answers:
+          Q1: "def mean(numbers):\n    return sum(numbers) / len(numbers) if numbers else 0"
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              mean([1, 2, 3]) gave 2.0, as expected.
+              mean([]) gave 0, as expected.
+      - answers:
+          Q1: "def mean(numbers):\n    return sum(numbers) / len(numbers)"
+        expected:
+          Q1: {marks: 0.0, feedback: 'mean([]) failed: ZeroDivisionError: division by zero. Expected 0.'}
