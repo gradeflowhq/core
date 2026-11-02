@@ -93,3 +93,6 @@ def test_quoting_drops_a_final_full_stop_so_the_sentence_ends_once() -> None:
 
 def test_a_description_reads_as_plain_text_with_code_in_quotes() -> None:
     assert plain_markdown("**A:** Contain `x` or `` a`b ``.") == "A: Contain “x” or “a`b”."
+    assert plain_markdown(r"Matches `\(\d+\)`, `a**b` and `$x$`, not \*.") == (
+        r"Matches “\(\d+\)”, “a**b” and “$x$”, not *."
+    )

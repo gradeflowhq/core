@@ -7,7 +7,7 @@ from typing import Literal
 from .latex import latex_text
 
 _BACKTICK_RUN = re.compile(r"`+")
-_CODE_SPAN = re.compile(r"(`+)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+_CODE_SPAN = re.compile(r"(?<!\\)(`+)(.+?)(?<!`)\1(?!`)", re.DOTALL)
 # An escaped character, or a formula as Markdown's dollar math reads one: in $$ on lines of its
 # own, or in $ with no space just inside and no digit just outside, so "$5 or $6" stays text.
 _ESCAPE_OR_FORMULA = re.compile(
@@ -62,11 +62,17 @@ def plain_text(markdown: str) -> str:
 
 
 def plain_markdown(markdown: str) -> str:
-    """``markdown`` as plain text, as a description reads in feedback: code in quotes, bold undone,
-    and escapes and formulas as ``plain_text`` writes them."""
-    return plain_text(_CODE_SPAN.sub(lambda match: quoted(_code_text(match[2])), markdown)).replace(
-        "**", ""
-    )
+    """``markdown`` as plain text, as feedback quotes a description: code quoted as written, and
+    the text around it with bold, escapes and formulas undone."""
+    pieces, end = [], 0
+    for match in _CODE_SPAN.finditer(markdown):
+        pieces += [_unformatted(markdown[end : match.start()]), quoted(_code_text(match[2]))]
+        end = match.end()
+    return "".join([*pieces, _unformatted(markdown[end:])])
+
+
+def _unformatted(markdown: str) -> str:
+    return plain_text(markdown).replace("**", "")
 
 
 def _code_text(text: str) -> str:
