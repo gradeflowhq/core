@@ -72,13 +72,15 @@ checks:
             evaluate_expected: "{{ inputs.evaluate_expected }}"
             fixes: "{{ inputs.max_fixes }}"
             penalty: "{{ inputs.fix_penalty }}"
-description: >-
-  {% if inputs.combine == "none" %}Doesn't give{% else %}Gives{% endif %}
-  {% for test in inputs.tests %}{% if loop.last and not loop.first %}{% if inputs.combine in ["any", "none"] %} or {% else %} and {% endif %}{% elif not loop.first %}, {% endif %}`{{ test.expected }}` for `{{ test.expression }}`{% endfor %}{% if inputs.combine == "proportional" and inputs.tests | length > 1 %}, each counting{% endif %}.
+description: |-
+  {% if inputs.tests | length == 1 %}{% for test in inputs.tests %}{% if test.weight != 1 and inputs.combine in ["total", "proportional"] %}**Weight {{ test.weight }}:** {% elif test.weight != 1 and inputs.combine == "any" %}**{{ test.weight | percent }} of the marks:** {% endif %}{% if inputs.combine == "none" %}Doesn't make{% else %}Makes{% endif %} {{ test.expression | code }} give {{ test.expected | code }}.{% endfor %}{% else %}Passes {% if inputs.combine == "all" %}{% if inputs.tests | length == 2 %}both tests{% else %}all {{ inputs.tests | length }} tests{% endif %}{% elif inputs.combine == "any" %}any one of these tests{% elif inputs.combine == "none" %}none of these tests{% elif inputs.combine == "total" %}these tests, marks added up{% else %}these tests, each counting{% endif %}:
+  {% for test in inputs.tests %}{% if not loop.first %}{{ "\n" }}{% endif %}- {% if test.weight != 1 and inputs.combine in ["total", "proportional"] %}**Weight {{ test.weight }}:** {% elif test.weight != 1 and inputs.combine == "any" %}**{{ test.weight | percent }} of the marks:** {% endif %}{{ test.expression | code }} gives {{ test.expected | code }}.{% endfor %}{% endif %}
 examples:
   - title: Write add(a, b), which returns the sum of a and b.
     description: |-
-      Gives `5` for `add(2, 3)` and `0` for `add(-1, 1)`, each counting.
+      Passes these tests, each counting:
+      - `add(2, 3)` gives `5`.
+      - `add(-1, 1)` gives `0`.
     questions:
       Q1: {type: code, max_marks: 2}
     with:
@@ -105,7 +107,9 @@ examples:
               add(-1, 1) gave 5. Expected 0.
   - title: Write mean(numbers), which returns 0 for an empty list.
     description: |-
-      Gives `2` for `mean([1, 2, 3])` and `0` for `mean([])`.
+      Passes both tests:
+      - `mean([1, 2, 3])` gives `2`.
+      - `mean([])` gives `0`.
     questions:
       Q1: {type: code}
     with:

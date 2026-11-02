@@ -22,14 +22,11 @@ checks: "{{ inputs.sets }}"
 examples:
   - title: A rectangle is 6 cm by 4 cm.
     description: |-
-      **Any one must be correct**
-
-      - **Expected:** **All must be correct**
-
+      Any one of these:
+      - **Expected:** All of these:
         - **Q1:** Matches `20`.
         - **Q2:** Matches `25`.
-      - **Perimeter as 6 + 4** (50% of the marks): **All must be correct**
-
+      - **Perimeter as 6 + 4** (50% of the marks): All of these:
         - **Q1:** Matches `10`.
         - **Q2:** Matches `6.25`.
     questions:
@@ -77,14 +74,11 @@ examples:
           Q2: {marks: 0.0, feedback: Expected 25.}
   - title: Work out 6 ÷ 2(1 + 2).
     description: |-
-      **Any one must be correct**
-
-      - **Left to right:** **All must be correct**
-
+      Any one of these:
+      - **Left to right:** All of these:
         - **Q1:** Matches `9`.
         - **Q2:** Matches `81`.
-      - **Brackets first:** **All must be correct**
-
+      - **Brackets first:** All of these:
         - **Q1:** Matches `1`.
         - **Q2:** Matches `1`.
     questions:

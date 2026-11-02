@@ -173,3 +173,29 @@ def test_key_points_pass_how_they_match_to_each_point(judged: list[Call]) -> Non
     assert describe(meant) == (
         "Includes `ice is less dense` and `water expands` in meaning (strict), each counting."
     )
+
+
+@pytest.mark.parametrize(
+    ("settings", "opening"),
+    [
+        ({"combine": "all"}, "Includes all of these:"),
+        ({"combine": "any"}, "Includes any of these:"),
+        ({"combine": "none", "whole_words": True}, "Leaves out all of these as whole words:"),
+        (
+            {"combine": "proportional", "match": "meaning"},
+            "Includes these in meaning, each counting:",
+        ),
+        (
+            {"combine": "total", "match": "spelling", "strictness": "lenient"},
+            ("Includes these in similar spelling (lenient), a mark each:"),
+        ),
+    ],
+)
+def test_long_points_are_listed_one_per_line(settings: dict[str, Any], opening: str) -> None:
+    points = [
+        "Ice is less dense than liquid water",
+        "The hydrogen-bonded lattice holds molecules apart",
+    ]
+    assert describe(key_points(*points, **settings)) == (
+        f"{opening}\n- `{points[0]}`\n- `{points[1]}`"
+    )

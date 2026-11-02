@@ -12,6 +12,7 @@ from gradeflow_core.methods.code import runner as code_runner
 from .helpers import CODE, code_tests, describe, mark, mark_all, proportions
 
 F = {"expression": "f()", "expected": "1"}
+G = {"expression": "g()", "expected": "2"}
 
 
 @pytest.mark.parametrize(("returned", "proportion"), [("1", 1), ("2", 0)])
@@ -125,11 +126,50 @@ def test_expected_values_shown_as_written_are_not_run(monkeypatch: pytest.Monkey
     assert runs == []
 
 
-def test_description_lists_each_test() -> None:
-    tests = (F, {"expression": "g()", "expected": "2"})
-    assert describe(code_tests(*tests)) == "Gives `1` for `f()` and `2` for `g()`."
-    assert describe(code_tests(*tests, combine="proportional")) == (
-        "Gives `1` for `f()` and `2` for `g()`, each counting."
+def test_one_test_is_described_in_a_line() -> None:
+    assert describe(code_tests(F)) == "Makes `f()` give `1`."
+    assert describe(code_tests(F, combine="none")) == "Doesn't make `f()` give `1`."
+
+
+@pytest.mark.parametrize(
+    ("combine", "opening"),
+    [
+        ("all", "Passes both tests:"),
+        ("any", "Passes any one of these tests:"),
+        ("none", "Passes none of these tests:"),
+        ("proportional", "Passes these tests, each counting:"),
+        ("total", "Passes these tests, marks added up:"),
+    ],
+)
+def test_several_tests_are_listed_under_how_they_count(combine: str, opening: str) -> None:
+    assert describe(code_tests(F, G, combine=combine)) == (
+        f"{opening}\n- `f()` gives `1`.\n- `g()` gives `2`."
+    )
+    assert describe(code_tests(F, G, F)).startswith("Passes all 3 tests:\n")
+
+
+def test_tests_are_listed_with_their_weights() -> None:
+    weighted = {**G, "weight": 2}
+    assert describe(code_tests(F, weighted, combine="total")) == (
+        "Passes these tests, marks added up:\n- `f()` gives `1`.\n- **Weight 2:** `g()` gives `2`."
+    )
+    assert describe(code_tests(F, {**G, "weight": 0.5}, combine="any")) == (
+        "Passes any one of these tests:\n"
+        "- `f()` gives `1`.\n- **50% of the marks:** `g()` gives `2`."
+    )
+    assert describe(code_tests(weighted, combine="total")) == "**Weight 2:** Makes `g()` give `2`."
+
+
+def test_tests_are_kept_without_surrounding_spaces() -> None:
+    spaced = code_tests({"expression": " f() ", "expected": "1\n"})
+    assert describe(spaced) == "Makes `f()` give `1`."
+    assert mark(spaced, "def f():\n    return 1", CODE).feedback == "f() gave 1, as expected."
+
+
+def test_tests_found_where_they_are_not_allowed_are_listed_in_the_feedback() -> None:
+    check = {"uses": "gradeflow/not-allowed@1", "with": {"check": code_tests(F, G)}}
+    assert mark(check, "def f():\n    return 1\ndef g():\n    return 2", CODE).feedback == (
+        "Not allowed. Passes both tests:\n- “f()” gives “1”.\n- “g()” gives “2”."
     )
 
 

@@ -7,7 +7,7 @@ from rapidfuzz.distance import LCSseq
 
 from ...common.hints import hint
 from ...common.problems import Problem
-from ...common.text import markdown_code
+from ...common.text import markdown_code, runs_long
 from ...questions.base import Question
 from ...questions.types import Answer, Value
 from ...questions.values import ValuesQuestion
@@ -75,6 +75,11 @@ class Order(AnswerMethod[OrderSettings]):
             if settings.marks_for == "exact"
             else f", with a share for {MARKS_FOR_LABELS[settings.marks_for].lower()}"
         )
+        if runs_long(settings.order):
+            items = "\n".join(
+                f"{place}. {markdown_code(item)}" for place, item in enumerate(settings.order, 1)
+            )
+            return f"Puts these in order{partial}:\n{items}"
         return f"Puts {', '.join(map(markdown_code, settings.order))} in order{partial}."
 
     def _mark_answer(self, settings: OrderSettings, answer: Answer, question: Question) -> Outcome:

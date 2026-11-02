@@ -69,6 +69,28 @@ def test_it_describes_itself_and_refuses_options_the_question_lacks() -> None:
     assert problems_of(check, CHOICE) == [("", ("correct", 1), "z isn't one of the options.")]
 
 
+@pytest.mark.parametrize(
+    ("compare", "opening"),
+    [
+        ("exactly", "Chooses exactly these:"),
+        ("all", "Chooses all of these, extras allowed:"),
+        ("none", "Chooses none of these:"),
+        ("any", "Chooses any of these:"),
+        ("each", "Chooses these, each counting:"),
+    ],
+)
+def test_long_options_are_listed_one_per_line(compare: str, opening: str) -> None:
+    options = [
+        "The mitochondria release energy from glucose",
+        "The ribosomes make proteins from amino acids",
+    ]
+    check = {
+        "uses": "gradeflow/multiple-choice@1",
+        "with": {"correct": options, "compare": compare},
+    }
+    assert describe(check) == f"{opening}\n- `{options[0]}`\n- `{options[1]}`"
+
+
 def test_the_right_options_are_read_as_the_question_reads_its_own() -> None:
     check = {"uses": "gradeflow/multiple-choice@1", "with": {"correct": [" B", "C"]}}
     assert proportions(mark_all(check, ["b, c", "B, C", "b"], CHOICE)) == [1, 1, 0]

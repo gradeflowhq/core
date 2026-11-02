@@ -1,6 +1,6 @@
 examples:
   - title: Write longest_run(xs), the length of the longest run of equal items.
-    description: '**Best possible answer:** Gives `3` for `longest_run([1, 1, 1, 2])`.'
+    description: '**Best possible answer:** Makes `longest_run([1, 1, 1, 2])` give `3`.'
     questions:
       Q1:
         type: code
@@ -56,7 +56,7 @@ examples:
             return best
         expected: {Q1: {marks: 0.0, feedback: 'longest_run([1, 1, 1, 2]) gave 4. Expected 3.'}}
   - title: Write count_evens(xs), how many items of xs are even.
-    description: '**Best possible answer:** Gives `2` for `count_evens([1, 2, 4])`.'
+    description: '**Best possible answer:** Makes `count_evens([1, 2, 4])` give `2`.'
     questions:
       Q1:
         type: code

@@ -6,7 +6,14 @@ from pydantic import Field
 
 from ...common.hints import hint
 from ...common.problems import Problem
-from ...common.text import markdown_join, plain_join, quoted_join, sentence
+from ...common.text import (
+    markdown_code_list,
+    markdown_join,
+    plain_join,
+    quoted_join,
+    runs_long,
+    sentence,
+)
 from ...questions.base import Question
 from ...questions.types import Answer
 from ..check import Check
@@ -55,8 +62,10 @@ class EquivalentExpression(AnswerMethod[ExpressionSettings]):
     examples = examples_beside(__file__)
 
     def describe(self, check: Check) -> str:
-        answers = markdown_join(self._settings_of(check).answers, conjunction="or")
-        return f"Equals {answers}."
+        answers = self._settings_of(check).answers
+        if runs_long(answers):
+            return f"Equals any of these:\n{markdown_code_list(answers)}"
+        return f"Equals {markdown_join(answers, conjunction='or')}."
 
     def _mark_answer(
         self, settings: ExpressionSettings, answer: Answer, question: Question

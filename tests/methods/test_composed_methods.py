@@ -30,9 +30,9 @@ def test_conditional_describes_the_checks_of_each_branch_by_question() -> None:
     }
     [conditional] = scheme(marking).markings
     assert conditional.describe() == (
-        "**If all are correct**\n- **Q1:** Matches `a`.\n\n"
-        "**Then**\n- **Q2:** Matches `Paris`.\n\n"
-        "**Else**\n- **Q2:** Matches `Rome`."
+        "If all are correct:\n- **Q1:** Matches `a`.\n\n"
+        "Then:\n- **Q2:** Matches `Paris`.\n\n"
+        "Else:\n- **Q2:** Matches `Rome`."
     )
 
 
@@ -57,7 +57,7 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
         "Value 1: Correct.\nValue 2: Expected -3.",
     ]
     assert describe(in_order) == (
-        "**Each one counts**\n\n- **Value 1:** Matches `2`.\n- **Value 2:** Matches `-3`."
+        "Each one counts:\n- **Value 1:** Matches `2`.\n- **Value 2:** Matches `-3`."
     )
     assert problems_of(
         {

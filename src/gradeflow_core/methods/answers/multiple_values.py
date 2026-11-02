@@ -90,7 +90,7 @@ class MultipleValues(Method[MultipleValuesSettings]):
             f"**{child.name or f'Value {place}'}:** {child.describe()}"
             for place, child in enumerate(settings.checks, start=1)
         )
-        return f"{heading(settings, *(['in any order'] if settings.any_order else []))}\n\n{values}"
+        return f"{heading(settings, *(['in any order'] if settings.any_order else []))}\n{values}"
 
     def mark(
         self,

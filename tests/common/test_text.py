@@ -12,10 +12,12 @@ from gradeflow_core.common.text import (
     format_number,
     markdown_code,
     markdown_join,
+    markdown_text,
     plain_markdown,
     plain_text,
     plural,
     quoted,
+    runs_long,
     sentence,
 )
 
@@ -96,3 +98,16 @@ def test_a_description_reads_as_plain_text_with_code_in_quotes() -> None:
     assert plain_markdown(r"Matches `\(\d+\)`, `a**b` and `$x$`, not \*.") == (
         r"Matches “\(\d+\)”, “a**b” and “$x$”, not *."
     )
+
+
+def test_text_reads_as_written_with_nothing_in_it_taken_for_markdown() -> None:
+    assert markdown_text("Uses a*b*c, not [x]") == r"Uses a\*b\*c\, not \[x\]"
+    written = r"- 1. Uses `a*b*c` and $x$, not \n or <b> # _x_"
+    assert plain_markdown(markdown_text(written)) == written
+
+
+def test_items_run_long_past_about_two_lines() -> None:
+    assert not runs_long(["light", "water", "carbon dioxide", "chlorophyll", "glucose", "oxygen"])
+    assert not runs_long(["x" * 200])
+    assert not runs_long(["a" * 39, "b" * 39])
+    assert runs_long(["a" * 39, "b" * 40])

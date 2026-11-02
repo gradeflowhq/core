@@ -43,26 +43,26 @@ checks:
     with:
       checks: "{{ inputs.otherwise }}"
 description: |-
-  **If {% if inputs.combine == "all" %}all are correct{% else %}any one is correct{% endif %}**
+  If {% if inputs.combine == "all" %}all are correct{% else %}any one is correct{% endif %}:
   {{ inputs.condition | described }}
 
-  **Then**
+  Then:
   {{ inputs.then | described }}
   {% if inputs.otherwise %}
 
-  **Else**
+  Else:
   {{ inputs.otherwise | described }}
   {% endif %}
 examples:
   - title: Answer part A or part B.
     description: |-
-      **If all are correct**
+      If all are correct:
       - **Q1:** Chooses exactly `a`.
 
-      **Then**
+      Then:
       - **Q2:** Matches `Paris`.
 
-      **Else**
+      Else:
       - **Q2:** Matches `Rome`.
     questions:
       Q1: {type: choice, options: [a, b], description: Which part did you answer?}
@@ -92,13 +92,13 @@ examples:
           Q2: {marks: 0.0, feedback: Expected “Paris”.}
   - title: Estimate the height of a door, in the units you choose.
     description: |-
-      **If all are correct**
+      If all are correct:
       - **Q1:** Chooses exactly `metres`.
 
-      **Then**
+      Then:
       - **Q2:** Is between `1.8` and `2.5`.
 
-      **Else**
+      Else:
       - **Q2:** Is between `6` and `8`.
     questions:
       Q1: {type: choice, options: [metres, feet], description: Which units did you use?}

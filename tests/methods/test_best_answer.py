@@ -71,5 +71,5 @@ def test_best_answer_needs_a_question_read_as_several() -> None:
 
 def test_it_describes_the_check_inside() -> None:
     assert describe(best(RUN)) == (
-        "**Best possible answer:** Gives `3` for `longest_run([1, 1, 1, 2])`."
+        "**Best possible answer:** Makes `longest_run([1, 1, 1, 2])` give `3`."
     )

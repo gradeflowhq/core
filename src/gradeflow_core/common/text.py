@@ -8,6 +8,7 @@ from .latex import latex_text
 
 _BACKTICK_RUN = re.compile(r"`+")
 _CODE_SPAN = re.compile(r"(?<!\\)(`+)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+_PUNCTUATION = re.compile(r"[!-/:-@\[-`{-~]")
 # An escaped character, or a formula as Markdown's dollar math reads one: in $$ on lines of its
 # own, or in $ with no space just inside and no digit just outside, so "$5 or $6" stays text.
 _ESCAPE_OR_FORMULA = re.compile(
@@ -19,6 +20,8 @@ _ESCAPE_OR_FORMULA = re.compile(
 
 
 _FRACTIONS = {0.5: "½", 0.25: "¼", 0.75: "¾"}
+_LONG = 80
+"""How long items may run, joined in a sentence, before a description lists them."""
 
 
 def format_number(value: float) -> str:
@@ -123,6 +126,21 @@ def markdown_join(values: Iterable[object], *, conjunction: Literal["and", "or"]
     return _join([markdown_code(value) for value in values], conjunction)
 
 
+def markdown_text(value: object) -> str:
+    """``value`` escaped so Markdown shows it as written."""
+    return _PUNCTUATION.sub(lambda match: f"\\{match[0]}", as_text(value))
+
+
+def runs_long(items: Iterable[object]) -> bool:
+    """Whether ``items`` read better listed: two or more, longer than ``_LONG`` joined."""
+    texts = [as_text(item) for item in items]
+    return len(texts) > 1 and len(", ".join(texts)) > _LONG
+
+
 def markdown_list(items: Iterable[str]) -> str:
     """``items`` as a Markdown bullet list, each item's later lines under it."""
     return "\n".join(f"- {textwrap.indent(item, '  ').removeprefix('  ')}" for item in items)
+
+
+def markdown_code_list(values: Iterable[object]) -> str:
+    return markdown_list(markdown_code(value) for value in values)

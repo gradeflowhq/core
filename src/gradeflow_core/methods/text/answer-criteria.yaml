@@ -39,12 +39,16 @@ checks:
       decide_with: "{{ inputs.decide_with }}"
       confidence: "{{ inputs.confidence }}"
       reasoning_effort: "{{ inputs.reasoning_effort }}"
-description: >-
-  Meets {% for criterion in inputs.criteria %}{% if loop.last and not loop.first %} and {% elif not loop.first %}, {% endif %}`{{ criterion.text }}` ({{ criterion.marks }}){% endfor %}, judged by AI.
+description: |-
+  AI checks the answer for {% if inputs.criteria | length > 1 %}each of these:
+  {% for criterion in inputs.criteria %}{% if not loop.first %}{{ "\n" }}{% endif %}- {{ criterion.text | text }} ({{ criterion.marks }} mark{% if criterion.marks not in [1, -1] %}s{% endif %}){% endfor %}{% else %}{% for criterion in inputs.criteria %}{{ criterion.text | text }} ({{ criterion.marks }} mark{% if criterion.marks not in [1, -1] %}s{% endif %}).{% endfor %}{% endif %}
 examples:
   - title: Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working.
     description: |-
-      Meets `Correct total` (2), `Shows the working` (1) and `Forgot to sum` (-1), judged by AI.
+      AI checks the answer for each of these:
+      - Correct total (2 marks)
+      - Shows the working (1 mark)
+      - Forgot to sum (-1 mark)
     questions:
       Q1: {type: text, max_marks: 3, description: "Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working."}
     with:
@@ -81,7 +85,10 @@ examples:
               Shows the working: Not met.
   - title: Why does ice float on water?
     description: |-
-      Meets `Says ice is less dense than water` (1), `Explains that water expands as it freezes` (1) and `Says ice is denser than water` (-1), judged by AI.
+      AI checks the answer for each of these:
+      - Says ice is less dense than water (1 mark)
+      - Explains that water expands as it freezes (1 mark)
+      - Says ice is denser than water (-1 mark)
     questions:
       Q1: {type: text, max_marks: 2, description: Why does ice float on water?}
     with:
@@ -117,7 +124,10 @@ examples:
               Marks taken off: Says ice is denser than water.
   - title: Write largest(xs), which returns the largest number in a non-empty list.
     description: |-
-      Meets `Compares each number with the largest so far` (1), `Works when every number is negative` (1) and `Uses max` (-2), judged by AI.
+      AI checks the answer for each of these:
+      - Compares each number with the largest so far (1 mark)
+      - Works when every number is negative (1 mark)
+      - Uses max (-2 marks)
     questions:
       Q1: {type: code, max_marks: 2, description: "Write largest(xs), which returns the largest number in a non-empty list."}
     with:

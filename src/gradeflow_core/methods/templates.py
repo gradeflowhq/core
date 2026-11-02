@@ -15,9 +15,11 @@ from ..common.text import (
     format_number,
     markdown_code,
     markdown_list,
+    markdown_text,
     plain_join,
     plain_markdown,
     quoted,
+    runs_long,
 )
 
 REFERENCE = re.compile(r"^\{\{((?:(?!\{\{|\}\}).)+)\}\}$", re.DOTALL)
@@ -43,6 +45,8 @@ _OWN_FILTERS: dict[str, Callable[..., Any]] = {
     "or_list": partial(plain_join, conjunction="or"),
     "quoted": _each(quoted),
     "code": _each(markdown_code),
+    "text": _each(markdown_text),
+    "long": runs_long,
     "percent": lambda value: f"{value:.0%}",
     "described": lambda checks: markdown_list(check.headed() for check in checks),
     "description": lambda check: plain_markdown(check.describe()),
@@ -269,7 +273,7 @@ def _member(node: nodes.Getattr | nodes.Getitem, owner: Shape) -> Shape:
 
 def _filtered(node: nodes.Filter, inner: Shape) -> Shape:
     """What a filter gives of a value of type ``inner``."""
-    if node.name in ("selectattr", "rejectattr", "quoted", "code", "list"):
+    if node.name in ("selectattr", "rejectattr", "quoted", "code", "text", "list"):
         return inner
     if node.name == "map":
         attribute = next(

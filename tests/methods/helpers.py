@@ -30,7 +30,7 @@ def key_point(point: str, **keys: Any) -> dict[str, Any]:
     return {**keys, "uses": "gradeflow/key-point@1", "with": {"point": point}}
 
 
-def code_tests(*tests: Mapping[str, str], **settings: Any) -> dict[str, Any]:
+def code_tests(*tests: Mapping[str, Any], **settings: Any) -> dict[str, Any]:
     return {"uses": "gradeflow/code-tests@1", "with": {"tests": list(tests), **settings}}
 
 

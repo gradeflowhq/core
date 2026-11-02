@@ -35,7 +35,7 @@ PENALTY = Field(
 
 
 class Test(Settings):
-    model_config = ConfigDict(title="Test")
+    model_config = ConfigDict(title="Test", str_strip_whitespace=True)
 
     expression: str = Field(
         min_length=1,
@@ -141,7 +141,7 @@ class CodeTest(AnswerMethod[CodeTestSettings]):
 
     def describe(self, check: Check) -> str:
         test = self._settings_of(check).test
-        return f"Gives {markdown_code(test.expected)} for {markdown_code(test.expression)}."
+        return f"Makes {markdown_code(test.expression)} give {markdown_code(test.expected)}."
 
     def _mark_answer(
         self, settings: CodeTestSettings, answer: Answer, question: Question

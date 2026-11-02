@@ -1,8 +1,7 @@
 examples:
   - title: Where in a cell is energy released? Answer in 10 words or fewer.
     description: |-
-      **All must be correct**
-
+      All of these:
       - Includes `mitochondria`.
       - Has at most `10` words.
     questions:
@@ -30,8 +29,7 @@ examples:
         expected: {Q1: {marks: 0.0, feedback: Missing “mitochondria”.}}
   - title: What is the largest planet?
     description: |-
-      **Any one must be correct**
-
+      Any one of these:
       - **Largest:** Matches `Jupiter`.
       - **Second largest** (50% of the marks): Matches `Saturn`.
     questions:

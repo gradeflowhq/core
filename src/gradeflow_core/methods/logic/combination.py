@@ -39,11 +39,13 @@ class CombinationSettings(Settings):
 
 
 HEADINGS = {
-    **COMBINE_LABELS,
+    "all": "All of these",
+    "any": "Any one of these",
+    "none": "None of these",
     "total": "Marks added up",
     "proportional": "Each one counts",
 }
-"""How a combination's description opens."""
+"""How a combination's description opens: what the answer does, so it reads after "Not allowed:"."""
 
 type Counted = list[tuple[Check, dict[QuestionId, Outcome]]]
 
@@ -269,7 +271,7 @@ class Combination(Method[CombinationSettings]):
         checks = markdown_list(
             child.headed(_weighting(child, settings.combine)) for child in settings.checks
         )
-        return f"{heading(settings)}\n\n{checks}"
+        return f"{heading(settings)}\n{checks}"
 
     def mark(
         self,
@@ -302,8 +304,8 @@ class Combination(Method[CombinationSettings]):
 
 
 def heading(settings: CombinationSettings, *notes: str) -> str:
-    """How a description of combined checks opens: ``**Each one counts, in any order**``."""
-    return f"**{', '.join([HEADINGS[settings.combine], *notes])}**"
+    """How a description of combined checks opens: ``Each one counts, in any order:``."""
+    return f"{', '.join([HEADINGS[settings.combine], *notes])}:"
 
 
 def _taken_off(check: Check) -> str:

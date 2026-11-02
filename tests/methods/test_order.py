@@ -64,6 +64,18 @@ def test_it_describes_the_order() -> None:
     assert describe(order("a", "b", marks_for="pairs")) == (
         "Puts `a`, `b` in order, with a share for neighbours in order."
     )
+    stages = [
+        "Interphase G1",
+        "S phase",
+        "Interphase G2",
+        "Prophase",
+        "Prometaphase",
+        "Metaphase",
+        "Anaphase",
+    ]
+    assert describe(order(*stages, marks_for="exact")) == "Puts these in order:\n" + "\n".join(
+        f"{place}. `{stage}`" for place, stage in enumerate(stages, start=1)
+    )
 
 
 def test_the_question_needs_a_value_for_each_item_all_of_one_type() -> None:

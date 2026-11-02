@@ -5,7 +5,7 @@ from pydantic import Field, field_validator
 
 from ...common.hints import hint
 from ...common.problems import Problem
-from ...common.text import markdown_join, quoted_join, sentence
+from ...common.text import markdown_code_list, markdown_join, quoted_join, runs_long, sentence
 from ...questions.base import Question
 from ...questions.choice import ChoiceQuestion
 from ...questions.types import Answer
@@ -46,6 +46,16 @@ class MultipleChoiceSettings(Settings):
         return list(dict.fromkeys(correct))
 
 
+_LISTED = {
+    "exactly": "Chooses exactly these",
+    "all": "Chooses all of these, extras allowed",
+    "none": "Chooses none of these",
+    "any": "Chooses any of these",
+    "each": "Chooses these, each counting",
+}
+"""How a description listing the options opens, for each way of comparing."""
+
+
 class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
     name = "gradeflow/multiple-choice"
     version = 1
@@ -80,6 +90,8 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
+        if runs_long(settings.correct):
+            return f"{_LISTED[settings.compare]}:\n{markdown_code_list(settings.correct)}"
         either = markdown_join(settings.correct, conjunction="or")
         every = markdown_join(settings.correct, conjunction="and")
         match settings.compare:

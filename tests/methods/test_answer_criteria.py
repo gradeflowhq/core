@@ -9,7 +9,7 @@ from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 from tests.fake_models import ENDPOINT, FakeModels, Oracle, Verdict
 
-from .helpers import mark_all, problems_of
+from .helpers import describe, mark_all, problems_of
 
 QUESTION = TextQuestion(
     max_marks=3, description="Pens cost $2 and books $5. What do 3 pens and 2 books cost?"
@@ -38,6 +38,17 @@ def knows(model: str, answer: str, criterion: str) -> Verdict:
 
 def criteria(**inputs: Any) -> dict[str, Any]:
     return {"uses": "gradeflow/answer-criteria@1", "with": {"criteria": CRITERIA, **inputs}}
+
+
+def test_criteria_are_listed_as_written_with_their_marks() -> None:
+    assert describe(criteria()) == (
+        "AI checks the answer for each of these:\n"
+        "- Correct total (2 marks)\n- Shows the working (1 mark)\n- Forgot to sum (-1 mark)"
+    )
+    one = [{"text": "States that the complexity is O(n log n)", "marks": 0.5}]
+    assert describe(criteria(criteria=one)) == (
+        "AI checks the answer for States that the complexity is O\\(n log n\\) (0.5 marks)."
+    )
 
 
 def marked(

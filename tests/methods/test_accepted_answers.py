@@ -132,6 +132,24 @@ def test_it_describes_itself() -> None:
     assert describe(numbers) == "Matches `1`, within `0.5`."
 
 
+def test_long_lists_of_answers_are_listed_one_per_line() -> None:
+    answers = [
+        "Heat is released to the surroundings",
+        "Energy is given out, so the surroundings warm up",
+    ]
+    meant = {"uses": ACCEPTED, "with": {"answers": answers, "match": "meaning"}}
+    assert describe(meant) == (
+        "Matches any of these in meaning:\n"
+        "- `Heat is released to the surroundings`\n"
+        "- `Energy is given out, so the surroundings warm up`"
+    )
+    numbers = {
+        "uses": ACCEPTED,
+        "with": {"answers": [str(n) * 9 for n in range(1, 10)], "tolerance": 0.5},
+    }
+    assert describe(numbers).startswith("Matches any of these, within `0.5`:\n- `111111111`\n")
+
+
 @pytest.mark.parametrize(
     ("question", "answer", "message"),
     [

@@ -79,6 +79,14 @@ def test_points_where_the_accepted_expression_cant_be_worked_out_are_skipped() -
 def test_describes_the_accepted_expressions() -> None:
     assert describe(check("2x + 2")) == "Equals `2x + 2`."
     assert describe(check("x + 1", "x - 1")) == "Equals `x + 1` or `x - 1`."
+    long = [
+        "(x + 1)(x + 2)(x + 3)(x + 4)",
+        "x^4 + 10x^3 + 35x^2 + 50x + 24",
+        "(x^2 + 5x + 4)(x^2 + 5x + 6)",
+    ]
+    assert describe(check(*long)) == "Equals any of these:\n" + "\n".join(
+        f"- `{each}`" for each in long
+    )
 
 
 def test_accepted_expressions_must_read_and_be_workable() -> None:

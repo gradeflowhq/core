@@ -87,7 +87,7 @@ def test_a_total_gives_its_weights_as_marks_up_to_the_questions() -> None:
         1,
         0,
     ]
-    assert describe(marks).startswith("**Marks added up**\n\n")
+    assert describe(marks).startswith("Marks added up:\n- ")
 
 
 def test_each_check_speaks_after_its_name_but_any_one_only_the_one_that_counted() -> None:
@@ -235,8 +235,7 @@ def test_it_lists_its_checks_with_their_names_and_weights() -> None:
         },
     }
     assert describe(check) == (
-        "**Any one must be correct**\n\n"
-        "- **A:** Includes `a`.\n- **50% of the marks:** Includes `b`."
+        "Any one of these:\n- **A:** Includes `a`.\n- **50% of the marks:** Includes `b`."
     )
     counting = {
         "uses": "gradeflow/combination@1",
@@ -250,7 +249,7 @@ def test_it_lists_its_checks_with_their_names_and_weights() -> None:
         },
     }
     assert describe(counting) == (
-        "**Each one counts**\n\n"
+        "Each one counts:\n"
         "- Includes `a`.\n"
         "- **Weight 2:** Includes `b`.\n"
         "- **C** (weight -1): Includes `c`."
@@ -264,11 +263,10 @@ def test_a_combination_in_a_combination_is_listed_under_its_place() -> None:
     }
     check = {"uses": "gradeflow/combination@1", "with": {"checks": [either, key_point("b")]}}
     assert describe({**check, "with": {"combine": "none", "checks": [key_point("a")]}}) == (
-        "**None may be correct**\n\n- Includes `a`."
+        "None of these:\n- Includes `a`."
     )
     assert describe(check) == (
-        "**All must be correct**\n\n"
-        "- **Any one must be correct**\n\n  - Includes `a`.\n- Includes `b`."
+        "All of these:\n- Any one of these:\n  - Includes `a`.\n- Includes `b`."
     )
 
 

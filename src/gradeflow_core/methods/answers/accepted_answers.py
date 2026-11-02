@@ -4,7 +4,16 @@ from pydantic import Field
 
 from ...common.hints import hint
 from ...common.problems import Problem
-from ...common.text import markdown_code, markdown_join, plain_join, quoted, quoted_join, sentence
+from ...common.text import (
+    markdown_code,
+    markdown_code_list,
+    markdown_join,
+    plain_join,
+    quoted,
+    quoted_join,
+    runs_long,
+    sentence,
+)
 from ...ml import nli
 from ...questions.base import Question
 from ...questions.types import Answer
@@ -80,10 +89,14 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
         settings = self._settings_of(check)
         if not settings.answers:
             return "No accepted answers."
-        answers = markdown_join(settings.answers, conjunction="or")
-        if settings.tolerance > 0:
-            return f"Matches {answers}, within {markdown_code(settings.tolerance)}."
-        return sentence(f"Matches {answers}{how_matched(settings.match, settings.strictness)}")
+        how = (
+            f", within {markdown_code(settings.tolerance)}"
+            if settings.tolerance > 0
+            else how_matched(settings.match, settings.strictness)
+        )
+        if runs_long(settings.answers):
+            return f"Matches any of these{how}:\n{markdown_code_list(settings.answers)}"
+        return sentence(f"Matches {markdown_join(settings.answers, conjunction='or')}{how}")
 
     def _mark_answer(
         self, settings: AcceptedAnswersSettings, answer: Answer, question: Question
