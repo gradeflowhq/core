@@ -1,7 +1,7 @@
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, ClassVar, Literal, Self
 
-from natsort import natsorted
+from natsort import natsorted, ns
 from pydantic import Field, PlainSerializer, ValidationInfo, field_validator
 
 from ..common.schemas import JsonDict, type_field
@@ -27,7 +27,7 @@ class ChoiceQuestion(Question):
     type: Literal["choice"] = type_field("choice")
     reading: ListReading = reading_field(choice_reading)
     options: Options = Field(
-        ..., min_length=1, title="Options", description="The options students can choose from."
+        min_length=1, title="Options", description="The options students can choose from."
     )
     allow_multiple: bool = Field(
         default=False,
@@ -66,7 +66,7 @@ class ChoiceQuestion(Question):
         )
 
     def answer_schema(self) -> JsonDict:
-        options = {"type": "string", "enum": natsorted(self.options)}
+        options = {"type": "string", "enum": natsorted(self.options, alg=ns.PRESORT)}
         if self.allow_multiple:
             property_schema = {
                 "type": "array",
@@ -79,7 +79,9 @@ class ChoiceQuestion(Question):
         return {"type": "object", "properties": {self._answer_property: property_schema}}
 
     def answer_values(self, answer: str) -> dict[str, Any]:
-        chosen_options = natsorted((self.read(answer) or frozenset()) & self.options)
+        chosen_options = natsorted(
+            (self.read(answer) or frozenset()) & self.options, alg=ns.PRESORT
+        )
         if self.allow_multiple:
             return {self._answer_property: chosen_options}
         return {self._answer_property: chosen_options[0] if chosen_options else None}

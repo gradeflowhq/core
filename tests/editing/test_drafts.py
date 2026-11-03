@@ -72,6 +72,16 @@ def test_checks_are_added_moved_and_removed() -> None:
         lambda draft: draft.add("with.checks.5", "gradeflow/key-points@1"),
         lambda draft: draft.add("with.nowhere.0", "gradeflow/key-points@1"),
     ],
+    ids=[
+        "update a missing check",
+        "change a missing check's method",
+        "move a missing check",
+        "move the top check",
+        "remove a missing check",
+        "remove the top check",
+        "add past the end",
+        "add to a missing slot",
+    ],
 )
 def test_a_change_to_a_check_or_slot_thats_not_there_is_refused(
     change: Callable[[MarkingDraft], object],

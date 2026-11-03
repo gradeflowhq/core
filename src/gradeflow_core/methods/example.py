@@ -31,7 +31,7 @@ class ExampleRow(AnswerSheet):
 class Example(BaseModel):
     """A self-contained example, never executed when read."""
 
-    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    model_config = ConfigDict(validate_by_name=True, extra="forbid")
 
     title: str
     description: str

@@ -808,7 +808,7 @@ def _check_schema(
     return json_schema(
         create_model(
             f"{method.label} check",
-            __config__=ConfigDict(populate_by_name=True, title=method.label),
+            __config__=ConfigDict(validate_by_name=True, title=method.label),
             **fields,
         )
     )

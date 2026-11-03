@@ -25,7 +25,6 @@ class ValuesQuestion(Question):
     type: Literal["values"] = type_field("values")
     reading: ListReading = reading_field(ListReading)
     value_types: list[ValueType] = Field(
-        ...,
         min_length=1,
         title="Values",
         description="What each value in an answer is, in order.",

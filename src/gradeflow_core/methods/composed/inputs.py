@@ -241,8 +241,7 @@ def _with_input_conditions(
     if conditions == (hint.applies_when or {}):
         return info
     conditions_hint = hint.model_copy(update={"applies_when": conditions or None})
-    extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
-    return _merged(info, Field(json_schema_extra=extra | conditions_hint.schema_extra()))
+    return _merged(info, Field(json_schema_extra=conditions_hint.schema_extra()))
 
 
 def _merged(info: FieldInfo, *changes: FieldInfo) -> FieldInfo:

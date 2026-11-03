@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 from ..common.error_formatting import shortened_reason
@@ -6,7 +6,7 @@ from ..common.exceptions import GradeFlowError
 
 
 @contextmanager
-def file_read_errors() -> Iterator[None]:
+def file_read_errors() -> Generator[None]:
     """Report failures while reading a file as GradeFlow errors."""
     try:
         yield

@@ -6,6 +6,7 @@ from io import StringIO
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.composer import MaxDepthExceededError
 from ruamel.yaml.constructor import DuplicateKeyError
 from ruamel.yaml.error import YAMLError
 from ruamel.yaml.nodes import ScalarNode
@@ -15,6 +16,8 @@ from .exceptions import InvalidError
 from .paths import Location
 from .problems import Problem
 
+_MAX_DEPTH = 100
+"""How deeply YAML may nest; the built-in methods nest 12 deep."""
 _DUPLICATE_KEY = re.compile(r'found duplicate (?:merge )?key "(.*?)"(?: with value "|$)', re.DOTALL)
 
 
@@ -41,6 +44,7 @@ def _new_yaml() -> YAML:
     yaml.default_flow_style = False
     yaml.indent(mapping=2, sequence=4, offset=2)
     yaml.width = 100
+    yaml.max_depth = _MAX_DEPTH
     return yaml
 
 
@@ -56,6 +60,8 @@ def load_yaml_with_lines(text: str) -> Any:
 
 def _yaml_problem(error: YAMLError) -> str:
     """What ruamel found wrong, naming a key written twice rather than both its values."""
+    if isinstance(error, MaxDepthExceededError):
+        return f"It nests more than {_MAX_DEPTH} levels deep"
     problem = getattr(error, "problem", None) or str(error)
     if isinstance(error, DuplicateKeyError) and (match := _DUPLICATE_KEY.match(problem)):
         return f'"{match[1]}" is written twice'

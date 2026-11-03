@@ -15,6 +15,12 @@ from .types import Answer, QuestionType
 class Question(BaseModel, ABC):
     """A question of one of the types, which reads answers as its type says."""
 
+    model_config = ConfigDict(
+        model_title_generator=lambda cls: (
+            f"{cls.label} question" if hasattr(cls, "label") else cls.__name__
+        )
+    )
+
     label: ClassVar[str]
     summary: ClassVar[str]
     """One sentence."""
@@ -37,12 +43,6 @@ class Question(BaseModel, ABC):
         "between $ signs in LaTeX, like $x^2$.",
         json_schema_extra=hint(kind="markdown"),
     )
-
-    @classmethod
-    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        super().__pydantic_init_subclass__(**kwargs)
-        if "label" in cls.__dict__:
-            cls.model_config = ConfigDict(**{**cls.model_config, "title": f"{cls.label} question"})
 
     @classmethod
     def load(cls, data: object) -> Self:

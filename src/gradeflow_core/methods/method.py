@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Literal, cast
 
-from pydantic import Field, create_model
+from pydantic import ConfigDict, Field, create_model
 
 from ..common.model_service import ModelEndpoint
 from ..common.paths import Location
@@ -106,11 +106,11 @@ class Method[S: Settings](ABC):
         model = create_model(
             "".join(part.capitalize() for part in self.name.split("/")[-1].split("-")) + "Check",
             __base__=self._check_base_class,
+            __config__=ConfigDict(title=self.label),
             uses=(literal([self.ref]), Field(title="Method")),
             with_=(self.settings, settings),
         )
         model.method = self
-        model.model_config["title"] = self.label
         return model
 
     def _settings_of(self, check: Check) -> S:

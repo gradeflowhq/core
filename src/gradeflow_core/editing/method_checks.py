@@ -154,4 +154,4 @@ def input_reference(value: Any) -> str | None:
 
 
 def is_empty(value: Any) -> bool:
-    return value is None or value == "" or value == [] or value == {}
+    return value in (None, "", [], {})

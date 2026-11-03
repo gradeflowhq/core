@@ -1,6 +1,6 @@
 """A problem: something wrong, in words for people, where it is."""
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 
@@ -44,7 +44,7 @@ class Problem:
 
 
 @contextmanager
-def invalid_errors(data: object) -> Iterator[None]:
+def invalid_errors(data: object) -> Generator[None]:
     """Raises ``InvalidError`` with the problems pydantic finds validating ``data`` inside."""
     try:
         yield

@@ -15,7 +15,7 @@ def setup_models() -> Path:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m gradeflow_core")
+    parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["setup"], help="Download the core's language models.")
     parser.parse_args(argv)
     try:

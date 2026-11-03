@@ -29,6 +29,7 @@ def test_text_of_several_lines_reads_back_as_written(text: str) -> None:
         ),
         ("{a: 1, a: 2}", 'Line 1: "a" is written twice.'),
         ("a: &x 1\nb: *y\n", "Line 2: found undefined alias 'y'."),
+        ("[" * 1000 + "]" * 1000, "Line 1: It nests more than 100 levels deep."),
     ],
 )
 def test_text_that_isnt_yaml_is_refused_at_its_line(text: str, message: str) -> None:

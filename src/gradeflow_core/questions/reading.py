@@ -8,7 +8,7 @@ from collections.abc import Callable
 from fractions import Fraction
 from typing import Any
 
-from natsort import natsorted
+from natsort import natsorted, ns
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..common.hints import ADVANCED_HINT
@@ -171,7 +171,7 @@ def write_answer(answer: Answer) -> str:
     if answer is None:
         return ""
     if isinstance(answer, frozenset):
-        return ", ".join(natsorted(answer))
+        return ", ".join(natsorted(answer, alg=ns.PRESORT))
     if isinstance(answer, list):
         return ", ".join(map(write_answer, answer))
     return as_text(answer)

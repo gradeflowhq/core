@@ -22,7 +22,7 @@ dependencies = [
     "pydantic~=2.14",
     "pyeryx~=0.12.1",
     "rapidfuzz~=3.14",
-    "ruamel.yaml~=0.18",
+    "ruamel.yaml~=0.19",
 ]
 
 [project.urls]
@@ -67,6 +67,7 @@ allowed-confusables = ["×"]  # 6.02 × 10^23
 strict = true
 files = ["src", "tests"]
 warn_unreachable = true
+enable_error_code = ["deprecated", "truthy-bool", "truthy-iterable", "ignore-without-code"]
 
 [[tool.mypy.overrides]]
 module = ["fastembed.*", "onnxruntime.*", "scipy.*"]  # the ml extra, which may not be installed
@@ -75,6 +76,8 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["ml: tests running the language models of the ml extra"]
+strict = true
+max_warnings = 0
 
 [tool.coverage.run]
 source = ["gradeflow_core"]

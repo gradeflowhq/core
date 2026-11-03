@@ -1,3 +1,8 @@
+import json
+import os
+import subprocess
+import sys
+
 import pytest
 from pydantic import ValidationError
 
@@ -70,6 +75,24 @@ def test_a_choice_of_several_options_takes_them_in_order() -> None:
     assert question.answer_values("C, a, z") == {"options": ["a", "c"]}
     assert question.answer_from({"options": ["c", "a"]}) == "a,c"
     assert question.answer_from({"options": []}) == ""
+
+
+@pytest.mark.parametrize("seed", ["1", "2", "3"])
+def test_options_that_sort_alike_come_out_in_one_order_across_hash_seeds(seed: str) -> None:
+    code = (
+        "import json; from gradeflow_core import ChoiceQuestion; "
+        "q = ChoiceQuestion(options=frozenset({'1', '01', '001'}), allow_multiple=True); "
+        "print(json.dumps([q.normalize('1, 01, 001'), q.answer_values('1, 01, 001'), "
+        "q.answer_schema()['properties']['options']['items']['enum']]))"
+    )
+    output = subprocess.check_output(
+        [sys.executable, "-c", code], env={**os.environ, "PYTHONHASHSEED": seed}, text=True
+    )
+    assert json.loads(output) == [
+        "001, 01, 1",
+        {"options": ["001", "01", "1"]},
+        ["001", "01", "1"],
+    ]
 
 
 def test_choice_ignores_punctuation_when_set() -> None:
