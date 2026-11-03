@@ -117,8 +117,22 @@ def test_expected_values_are_worked_out_inside_indented_setup_code() -> None:
     assert code_test._worked_out("TWO * 2", setup) == "4"
 
 
+def test_a_test_runs_within_its_memory_limit() -> None:
+    answer = "def f():\n    data = b'x' * (96 * 1024**2)\n    return 1"
+    assert mark(code_tests(F, setup={"memory_limit": 256}), answer, CODE).proportion == 1
+    result = mark(code_tests(F, setup={"memory_limit": 64}), answer, CODE)
+    assert (result.proportion, result.feedback) == (0, "f() failed: MemoryError. Expected 1.")
+
+
 @pytest.mark.parametrize(
-    "setup", [{"indent": -1}, {"time_limit": 0}, {"time_limit": code_test.MAX_TIME_LIMIT_S + 1}]
+    "setup",
+    [
+        {"indent": -1},
+        {"time_limit": 0},
+        {"time_limit": code_runner.MAX_TIME_LIMIT_S + 1},
+        {"memory_limit": code_runner.MIN_MEMORY_LIMIT_MB - 1},
+        {"memory_limit": code_runner.MAX_MEMORY_LIMIT_MB + 1},
+    ],
 )
 def test_setup_is_bounded(setup: dict[str, int]) -> None:
     with pytest.raises(ValidationError):

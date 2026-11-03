@@ -13,7 +13,15 @@ from ..method import Method
 from ..outcome import Outcome
 from ..position import Position
 from ..settings import Settings, literal, specialised
-from .custom_code import MARKS, code_problems, failed, outcome_of, run
+from .custom_code import (
+    MARKS,
+    MEMORY_LIMIT,
+    TIME_LIMIT,
+    code_problems,
+    failed,
+    outcome_of,
+    run,
+)
 from .parameters import PARAMETERS, Parameter, ParameterName, values
 
 STARTER = (
@@ -42,6 +50,8 @@ class CustomCodeForAGroupSettings(Settings):
         json_schema_extra=hint(**CODE),
     )
     parameters: dict[ParameterName, Parameter] = PARAMETERS
+    time_limit: int = TIME_LIMIT
+    memory_limit: int = MEMORY_LIMIT
 
 
 class CustomCodeForAGroup(Method[CustomCodeForAGroupSettings]):
@@ -94,7 +104,9 @@ class CustomCodeForAGroup(Method[CustomCodeForAGroupSettings]):
             "answers": {key: None if isinstance(a, Unreadable) else a for key, a in given.items()},
             **values(settings.parameters),
         }
-        if (error := run(settings.code, variables)) is not None:
+        if (
+            error := run(settings.code, variables, settings.time_limit, settings.memory_limit)
+        ) is not None:
             return dict.fromkeys(settings.questions, failed(error))
         results = variables.get("results")
         if not isinstance(results, Mapping):

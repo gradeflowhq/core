@@ -9,7 +9,6 @@ from ..outcome import Detail, Outcome
 from ..settings import Settings
 from . import runner
 
-MAX_TIME_LIMIT_S = 60
 LONGEST = 200
 """How many characters of a value feedback shows."""
 
@@ -62,9 +61,17 @@ class TestSetup(Settings):
     time_limit: int = Field(
         default=runner.TIME_LIMIT_S,
         ge=1,
-        le=MAX_TIME_LIMIT_S,
+        le=runner.MAX_TIME_LIMIT_S,
         title="Time limit (seconds)",
         description="Longest time each test may run before it fails.",
+        json_schema_extra=ADVANCED,
+    )
+    memory_limit: int = Field(
+        default=runner.MEMORY_LIMIT_MB,
+        ge=runner.MIN_MEMORY_LIMIT_MB,
+        le=runner.MAX_MEMORY_LIMIT_MB,
+        title="Memory limit (MiB)",
+        description="Most memory each test may use before it fails.",
         json_schema_extra=ADVANCED,
     )
 
@@ -84,6 +91,7 @@ def _worked_out(expected: str, setup: TestSetup) -> str:
             f"{setup.around('pass')}\nexpected = {expected}",
             variables,
             time_limit_s=setup.time_limit,
+            memory_limit_mb=setup.memory_limit,
         )
     except runner.CodeError:
         return expected
@@ -115,7 +123,12 @@ def tested(code: str, test: Test, setup: TestSetup, *, evaluate_expected: bool) 
     )
     variables: dict[str, Any] = {}
     try:
-        runner.run(f"{program}\n{check}", variables, time_limit_s=setup.time_limit)
+        runner.run(
+            f"{program}\n{check}",
+            variables,
+            time_limit_s=setup.time_limit,
+            memory_limit_mb=setup.memory_limit,
+        )
     except runner.CodeError as error:
         failed = sentence(f"{test.expression} failed: {error.reason}")
         return Outcome(

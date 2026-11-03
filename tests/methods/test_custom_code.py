@@ -2,9 +2,13 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from gradeflow_core import BUILTINS, Question, QuestionSet
 from gradeflow_core.editing import Position
+from gradeflow_core.methods.code import runner
+from gradeflow_core.methods.code.custom_code import CustomCodeSettings
+from gradeflow_core.methods.code.custom_code_for_a_group import CustomCodeForAGroupSettings
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
@@ -14,11 +18,11 @@ from .helpers import describe, mark, mark_all, mark_group, problems_of, scheme
 METHODS = {method.name: method for method in BUILTINS}
 
 
-def code(source: str, **parameters: Mapping[str, Any]) -> dict[str, object]:
+def code(source: str, **parameters: Mapping[str, Any]) -> dict[str, Any]:
     return {"uses": "gradeflow/custom-code@1", "with": {"code": source, "parameters": parameters}}
 
 
-def group(source: str, *questions: str) -> dict[str, object]:
+def group(source: str, *questions: str) -> dict[str, Any]:
     return {
         "uses": "gradeflow/custom-code-for-a-group@1",
         "with": {"questions": list(questions), "code": source},
@@ -113,6 +117,50 @@ def test_the_code_help_names_the_type_each_answer_comes_as() -> None:
     assert "Reads answers (Q1: str | None, Q2: int | float | None)" in code_help(
         "gradeflow/custom-code-for-a-group", Position(questions, in_group=True)
     )
+
+
+def limited(check: dict[str, Any], **limits: int) -> dict[str, Any]:
+    return {**check, "with": {**check["with"], **limits}}
+
+
+def test_code_runs_within_its_memory_limit() -> None:
+    source = "data = b'x' * (96 * 1024**2)\ncorrect = True"
+    assert mark(limited(code(source), memory_limit=256), "x").proportion == 1
+    result = mark(limited(code(source), memory_limit=64), "x")
+    assert (result.marked, result.feedback) == (False, "Your code failed: MemoryError.")
+    grouped = limited(group(source, "Q1"), memory_limit=64)
+    assert "MemoryError" in mark_group(grouped, {"Q1": "a"}, QUESTIONS)["Q1"].feedback
+
+
+def test_code_runs_within_its_time_limit() -> None:
+    result = mark(limited(code("while True: pass"), time_limit=1), "x")
+    assert (result.marked, result.feedback) == (
+        False,
+        "Your code failed: it took longer than 1 second.",
+    )
+    grouped = limited(group("while True: pass", "Q1"), time_limit=1)
+    assert "longer than 1 second" in mark_group(grouped, {"Q1": "a"}, QUESTIONS)["Q1"].feedback
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"time_limit": 0},
+        {"time_limit": runner.MAX_TIME_LIMIT_S + 1},
+        {"memory_limit": runner.MIN_MEMORY_LIMIT_MB - 1},
+        {"memory_limit": runner.MAX_MEMORY_LIMIT_MB + 1},
+    ],
+)
+def test_limits_are_bounded(limits: dict[str, int]) -> None:
+    group = {"code": "x = 1", "questions": ["Q1"]}
+    for settings, valid in (
+        (CustomCodeSettings, {"code": "x = 1"}),
+        (CustomCodeForAGroupSettings, group),
+    ):
+        settings.model_validate(valid)
+        with pytest.raises(ValidationError) as error:
+            settings.model_validate({**valid, **limits})
+        assert [e["loc"] for e in error.value.errors()] == [tuple(limits)]
 
 
 def test_group_code_marks_each_of_its_questions_from_its_results() -> None:

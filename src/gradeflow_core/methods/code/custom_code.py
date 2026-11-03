@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import Field
 
-from ...common.hints import CODE, hint
+from ...common.hints import ADVANCED, CODE, hint
 from ...common.problems import Problem
 from ...common.text import as_text, fenced, quoted, sentence
 from ...questions.base import Question
@@ -19,6 +19,22 @@ from .parameters import PARAMETERS, Parameter, ParameterName, values
 
 MARKS = "correct (True or False) or proportion (from 0 to 1), and feedback if you like"
 STARTER = 'correct = False\nfeedback = ""\n'
+TIME_LIMIT = Field(
+    default=runner.TIME_LIMIT_S,
+    ge=1,
+    le=runner.MAX_TIME_LIMIT_S,
+    title="Time limit (seconds)",
+    description="Longest time the code may run before it fails.",
+    json_schema_extra=ADVANCED,
+)
+MEMORY_LIMIT = Field(
+    default=runner.MEMORY_LIMIT_MB,
+    ge=runner.MIN_MEMORY_LIMIT_MB,
+    le=runner.MAX_MEMORY_LIMIT_MB,
+    title="Memory limit (MiB)",
+    description="Most memory the code may use before it fails.",
+    json_schema_extra=ADVANCED,
+)
 
 
 def code_help(answer: str) -> str:
@@ -34,6 +50,8 @@ class CustomCodeSettings(Settings):
         json_schema_extra=hint(**CODE),
     )
     parameters: dict[ParameterName, Parameter] = PARAMETERS
+    time_limit: int = TIME_LIMIT
+    memory_limit: int = MEMORY_LIMIT
 
 
 def outcome_of(variables: Mapping[str, Any], subject: str = "") -> Outcome:
@@ -59,10 +77,12 @@ def failed(reason: str) -> Outcome:
     return Outcome(0.0, reason, marked=False)
 
 
-def run(code: str, variables: dict[str, Any]) -> str | None:
+def run(
+    code: str, variables: dict[str, Any], time_limit_s: int, memory_limit_mb: int
+) -> str | None:
     """Runs ``code``, which may change ``variables``; why it failed, if it did."""
     try:
-        runner.run(code, variables, time_limit_s=runner.TIME_LIMIT_S)
+        runner.run(code, variables, time_limit_s=time_limit_s, memory_limit_mb=memory_limit_mb)
     except runner.CodeError as error:
         return sentence(f"Your code failed: {error.reason}")
     return None
@@ -112,6 +132,8 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
         self, settings: CustomCodeSettings, answer: Answer, question: Question
     ) -> Outcome:
         variables: dict[str, Any] = {"answer": answer, **values(settings.parameters)}
-        if (error := run(settings.code, variables)) is not None:
+        if (
+            error := run(settings.code, variables, settings.time_limit, settings.memory_limit)
+        ) is not None:
             return failed(error)
         return outcome_of(variables)

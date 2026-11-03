@@ -16,8 +16,13 @@ from ...common.exceptions import GradeFlowError
 from ...common.text import plural
 
 TIME_LIMIT_S = 5
-"""How long code may run, unless a check sets its own limit."""
+"""How long code may run, in seconds, unless a check sets its own limit."""
+MAX_TIME_LIMIT_S = 60
 MEMORY_LIMIT_MB = 512
+"""How much memory code may use, in MiB, unless a check sets its own limit."""
+MIN_MEMORY_LIMIT_MB = 32
+"""Enough for the sandbox to start, which takes about 16 MiB, and some code."""
+MAX_MEMORY_LIMIT_MB = 1024
 OUTPUT_LIMIT_MB = 1
 """Each stream's, as Eryx truncates one at 1 MiB."""
 RESULT_LIMIT_MB = 1
@@ -95,7 +100,7 @@ def _decode(encoded: str) -> dict[str, Any]:
     return result
 
 
-def _execute(code: str, variables: str, time_limit_s: int) -> str:
+def _execute(code: str, variables: str, time_limit_s: int, memory_limit_mb: int) -> str:
     """Runs ``code`` in a fresh sandbox with ``variables``, as JSON, and returns its variables as
     JSON. Runs in a worker, as a sandbox can abort the process running it."""
     source = f"{_PROGRAM}\nresult = execute({code!r}, {variables!r})\n"
@@ -113,7 +118,7 @@ def _execute(code: str, variables: str, time_limit_s: int) -> str:
         sandbox = eryx.Sandbox(
             resource_limits=eryx.ResourceLimits(
                 execution_timeout_ms=time_limit_s * 1000,
-                max_memory_bytes=MEMORY_LIMIT_MB * 1024**2,
+                max_memory_bytes=memory_limit_mb * 1024**2,
                 max_callback_invocations=0,
             ),
             on_stdout=limit_output,
@@ -256,7 +261,13 @@ def _close_workers() -> None:
         worker.close()
 
 
-def run(code: str, variables: dict[str, Any], *, time_limit_s: int = TIME_LIMIT_S) -> None:
+def run(
+    code: str,
+    variables: dict[str, Any],
+    *,
+    time_limit_s: int = TIME_LIMIT_S,
+    memory_limit_mb: int = MEMORY_LIMIT_MB,
+) -> None:
     """Run Python in a sandbox, without network access, and update variables with its JSON
     values and nested sets.
 
@@ -268,6 +279,7 @@ def run(code: str, variables: dict[str, Any], *, time_limit_s: int = TIME_LIMIT_
         "code": code,
         "variables": json.dumps(variables, default=_tag_set),
         "time_limit_s": time_limit_s,
+        "memory_limit_mb": memory_limit_mb,
     }
     outcome = _worker().run(request, time_limit_s + _WORKER_GRACE_S)
     if "failure" in outcome:

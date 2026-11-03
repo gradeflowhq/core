@@ -82,6 +82,15 @@ class TestRun:
             run("data = b'x' * 1024**3", {}, time_limit_s=5)
         assert error.value.reason.startswith("MemoryError")
 
+    def test_memory_limit_is_set_per_run(self) -> None:
+        code = "data = b'x' * (96 * 1024**2)\nallocated = len(data)\ndel data"
+        variables: dict[str, Any] = {}
+        with pytest.raises(CodeError, match="MemoryError"):
+            run(code, variables, memory_limit_mb=64)
+        assert variables == {}
+        run(code, variables, memory_limit_mb=256)
+        assert variables == {"allocated": 96 * 1024**2}
+
     def test_host_files_cannot_be_read(self, tmp_path: Path) -> None:
         secret = tmp_path / "secret"
         secret.write_text("host-only")
