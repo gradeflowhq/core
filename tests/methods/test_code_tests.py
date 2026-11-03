@@ -234,6 +234,20 @@ def test_tests_found_where_they_are_not_allowed_are_listed_in_the_feedback() -> 
     ).feedback == ("Not allowed. Passes both tests:\n- “f()” gives “1”.\n- “g()” gives “2”.")
 
 
+@pytest.mark.parametrize(
+    ("answer", "error"),
+    [
+        ("oops(", "SyntaxError: '(' was never closed (line 1)"),
+        ("x = 1", "NameError: name 'f' is not defined"),
+    ],
+)
+def test_code_that_cant_be_tested_gets_no_marks_for_avoiding_the_tests(
+    answer: str, error: str
+) -> None:
+    result = mark(code_tests(F_GIVES_1, combine="none"), answer, CODE_QUESTION)
+    assert (result.proportion, result.feedback) == (0, f"Couldn't test the code: {error}.")
+
+
 ADD_TEST = {"expression": "add(2, 3)", "expected": "5"}
 ADD_WITH_TYPOS = "def add(a, b)\n    retrun a + b"
 COLON_AND_KEYWORD_FIXES = {"colons": True, "keywords": True}
@@ -255,6 +269,13 @@ def test_each_fix_is_listed_with_its_penalty() -> None:
         "- Line 2, “retrun” read as “return” (-50%).\n"
         "add(2, 3) gave 5, as expected."
     )
+
+
+def test_a_fix_costs_its_penalty_however_the_tests_count() -> None:
+    three_tests = [{"expression": f"add({n}, 1)", "expected": str(n + 1)} for n in range(3)]
+    fixes = {**COLON_AND_KEYWORD_FIXES, "colons_penalty": 0.25}
+    tests = code_tests(*three_tests, combine="total", fixes=fixes)
+    assert mark(tests, ADD_WITH_TYPOS, CODE_QUESTION).proportion == 0.75
 
 
 def test_fixes_cost_nothing_unless_a_penalty_is_set() -> None:

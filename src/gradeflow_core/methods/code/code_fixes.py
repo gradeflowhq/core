@@ -173,16 +173,19 @@ def fixes_field() -> Any:
 
 
 def best_fixed_outcome(
-    code: str, fixes: CodeFixes, setup: str, mark: Callable[[str, float], Outcome]
+    code: str, fixes: CodeFixes, setup: str, mark: Callable[[str], Outcome]
 ) -> Outcome:
-    """The best outcome ``mark`` gives ``code`` or one of its fixed versions; the earliest on a tie.
-    ``setup`` is the code run before it."""
-    best = mark(code, 0)
+    """The best outcome ``mark`` gives ``code`` or one of its fixed versions, less the fixes'
+    penalty; the earliest on a tie. ``setup`` is the code run before it."""
+    best = mark(code)
     best_version: FixedCode | None = None
     for version in fixed_versions(code, fixes.enabled_kinds, setup):
         if best.correct:
             break
-        outcome = mark(version.code, fixes.total_penalty(version))
+        outcome = mark(version.code)
+        outcome = replace(
+            outcome, proportion=outcome.proportion * (1 - fixes.total_penalty(version))
+        )
         if (outcome.marked, outcome.proportion) > (best.marked, best.proportion):
             best, best_version = outcome, version
     if best_version is None:

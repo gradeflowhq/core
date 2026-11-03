@@ -92,37 +92,30 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
             answer,
             settings.fixes,
             settings.setup.program_for("pass"),
-            lambda code, penalty: _tests_outcome(settings, code, question.max_marks, penalty),
+            lambda code: _tests_outcome(settings, code, question.max_marks),
         )
 
 
-def _tests_outcome(
-    settings: CodeTestsSettings, code: str, max_marks: float, penalty: float
-) -> Outcome:
-    """The tests run on ``code``, each test's marks reduced by ``penalty``, combined."""
+def _tests_outcome(settings: CodeTestsSettings, code: str, max_marks: float) -> Outcome:
+    """The tests run on ``code``, combined."""
     weighted = []
     for test in settings.tests:
         outcome = outcome_of_test(
             code, test, settings.setup, evaluate_expected=settings.evaluate_expected
         )
-        proportion_after_penalty = outcome.proportion * (1 - penalty)
-        weighted.append(
-            (
-                test.weight,
-                replace(outcome, proportion=proportion_after_penalty, title=_test_title(test)),
-            )
-        )
+        weighted.append((test.weight, replace(outcome, title=_test_title(test))))
     combine = settings.combine
     proportion, test_outcomes = proportion_and_parts(combine, weighted, max_marks)
     feedback = _feedback(combine, test_outcomes, proportion)
+    if combine == "none" and (error := next(filter(None, map(_error_detail, test_outcomes)), None)):
+        proportion, feedback = 0.0, as_sentence(f"Couldn't test the code: {error}")
     if len(test_outcomes) == 1:  # one test is shown as the method itself
         return Outcome(proportion, feedback, parts=test_outcomes, details=test_outcomes[0].details)
     return Outcome(proportion, feedback, parts=test_outcomes, children=test_outcomes)
 
 
 def _feedback(combine: Combine, test_outcomes: tuple[Outcome, ...], proportion: float) -> str:
-    """How many tests passed, and why the others failed. A test passes when it gives marks, even
-    marks reduced by the penalty for fixes."""
+    """How many tests passed, and why the others failed. A test passes when it gives marks."""
     if combine == "none":
         passed_titles = [
             as_sentence(plain_markdown(outcome.title))

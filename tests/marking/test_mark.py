@@ -87,7 +87,7 @@ def test_an_answer_with_more_values_than_the_question_has_is_left_for_a_person()
     values = {
         "question": "Q1",
         "uses": "gradeflow/multiple-values@1",
-        "with": {"checks": [accepted_answer("1", question="Q1")]},
+        "with": {"checks": [accepted_answer("1"), accepted_answer("2")]},
     }
     [result] = mark_all(values, ["1, 2, 3"], questions["Q1"])
     assert (result.is_marked, result.feedback) == (False, "Expected 2 values, but got 3.")

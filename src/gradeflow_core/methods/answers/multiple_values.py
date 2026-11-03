@@ -149,11 +149,13 @@ class MultipleValues(Method[MultipleValuesSettings]):
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(check)
         question = position.question_model
-        if (
-            settings.any_order
-            and isinstance(question, ValuesQuestion)
-            and question.value_count > MAX_ANY_ORDER_VALUES
-        ):
+        if not isinstance(question, ValuesQuestion):
+            return
+        if len(settings.checks) != question.value_count:
+            yield Problem(
+                f"List {question.value_count} checks, one for each value.", field=("checks",)
+            )
+        if settings.any_order and question.value_count > MAX_ANY_ORDER_VALUES:
             yield Problem(
                 f"Any order works for up to {MAX_ANY_ORDER_VALUES} values.", field=("any_order",)
             )

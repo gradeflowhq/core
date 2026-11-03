@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from gradeflow_core import InvalidError
@@ -77,6 +79,27 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
         },
         roots,
     ) == [("with.checks.1", ("value",), "Its place in the list sets the value it checks.")]
+
+
+@pytest.mark.parametrize("any_order", [False, True])
+def test_multiple_values_needs_a_check_for_each_value(any_order: bool) -> None:
+    roots = ValuesQuestion(value_types=["number", "number"])
+    one_check = [accepted_answer("2")]
+    three_checks = [accepted_answer("2"), accepted_answer("-3"), accepted_answer("5")]
+
+    def problems_with(checks: list[dict[str, Any]]) -> list[tuple[str, tuple[str | int, ...], str]]:
+        check = {
+            "uses": "gradeflow/multiple-values@1",
+            "with": {"any_order": any_order, "checks": checks},
+        }
+        return problems_of(check, roots)
+
+    count_problem = ("", ("checks",), "List 2 checks, one for each value.")
+    assert problems_with(one_check) == [count_problem]
+    assert problems_with(three_checks) == [
+        count_problem,
+        ("with.checks.2", (), "Accepted Answers can't mark value 3: the question has 2 values."),
+    ]
 
 
 def test_checks_in_a_check_of_one_value_read_it_unless_they_name_another() -> None:

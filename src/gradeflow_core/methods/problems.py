@@ -9,6 +9,7 @@ from ..common.exceptions import InvalidError
 from ..common.paths import Location, join
 from ..common.problems import Problem, at_innermost_check
 from ..questions.question_set import QuestionSet
+from ..questions.values import ValuesQuestion
 from .position import Position
 from .templates import EARLIER_RESULT, ListOf, Shape, TemplateError, template_errors
 
@@ -156,6 +157,9 @@ def misfit_reason(method: Method[Any], position: Position) -> str | None:
 def _position_kind(position: Position) -> str:
     question = position.question_model
     if question is None:
+        whole = position.questions.get(position.question) if position.question else None
+        if isinstance(whole, ValuesQuestion) and position.value is not None:
+            return f"value {position.value}: the question has {whole.value_count} values"
         return "a question group"
     if position.value is not None:
         return f"a {question.type} value"

@@ -89,7 +89,7 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
             answer,
             settings.fixes,
             "",
-            lambda code, penalty: _outcome_with_penalty(settings, code, penalty),
+            lambda code: _outcome(settings, code),
         )
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
@@ -100,8 +100,8 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
             yield Problem("Name the module.", field=("module",), is_incomplete=True)
 
 
-def _outcome_with_penalty(settings: CodeUsesSettings, code: str, penalty: float) -> Outcome:
-    """Whether ``code`` uses the construct, with its marks reduced by ``penalty``."""
+def _outcome(settings: CodeUsesSettings, code: str) -> Outcome:
+    """Whether ``code`` uses the construct."""
     try:
         tree = ast.parse(code)
     except SyntaxError as error:
@@ -142,9 +142,7 @@ def _outcome_with_penalty(settings: CodeUsesSettings, code: str, penalty: float)
                 isinstance(node, FUNCTION_NODES) and _is_recursive(node) for node in nodes
             )
             used_feedback, missing_feedback = "Uses recursion.", "Expected recursion."
-    return Outcome(
-        float(uses_construct) * (1 - penalty), used_feedback if uses_construct else missing_feedback
-    )
+    return Outcome(float(uses_construct), used_feedback if uses_construct else missing_feedback)
 
 
 def _code_or(name: str | None, unnamed: str) -> str:
