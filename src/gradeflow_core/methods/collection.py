@@ -7,7 +7,7 @@ Each method is one version of a method: checks name it by ``Method.ref``, such a
 from collections.abc import Iterable, Mapping, Sequence
 from graphlib import CycleError, TopologicalSorter
 from types import MappingProxyType
-from typing import Any, overload
+from typing import Any, Self
 
 from pydantic import ValidationError
 
@@ -20,44 +20,26 @@ from .method import Method
 from .names import method_name, method_ref
 
 
-class Methods(Sequence[Method[Any]]):
+class Methods(tuple[Method[Any], ...]):
     """Methods in order, each version of a method once, as checks name them by ``ref``. Raises
     ``MethodFileError`` for a ref supplied twice."""
 
-    def __init__(self, methods: Iterable[Method[Any]] = ()) -> None:
-        self._methods = tuple(methods)
+    _by_ref: Mapping[str, Method[Any]]
+
+    def __new__(cls, methods: Iterable[Method[Any]] = ()) -> Self:
+        self = super().__new__(cls, methods)
         found: dict[str, Method[Any]] = {}
-        for method in self._methods:
+        for method in self:
             if method.ref in found:
                 raise MethodFileError(f"Duplicate method {method.ref}.")
             found[method.ref] = method
-        self._by_ref: Mapping[str, Method[Any]] = MappingProxyType(found)
+        self._by_ref = MappingProxyType(found)
+        return self
 
     @property
     def by_ref(self) -> Mapping[str, Method[Any]]:
         """The methods by ref."""
         return self._by_ref
-
-    @overload
-    def __getitem__(self, index: int) -> Method[Any]: ...
-    @overload
-    def __getitem__(self, index: slice) -> Methods: ...
-    def __getitem__(self, index: int | slice) -> Method[Any] | Methods:
-        return Methods(self._methods[index]) if isinstance(index, slice) else self._methods[index]
-
-    def __len__(self) -> int:
-        return len(self._methods)
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Methods):
-            return NotImplemented
-        return self._methods == other._methods
-
-    def __hash__(self) -> int:
-        return hash(self._methods)
-
-    def __repr__(self) -> str:
-        return f"<Methods ({len(self)})>"
 
     def find(self, ref: str) -> Method[Any]:
         """The method ``ref`` names. Raises ``GradeFlowError`` if none is it."""

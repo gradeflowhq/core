@@ -30,13 +30,11 @@ def definition(reference: str) -> str:
     )
 
 
-def test_methods_find_a_method_by_its_ref_and_slice_as_methods() -> None:
+def test_methods_find_a_method_by_its_ref() -> None:
     assert BUILTINS.find("gradeflow/key-points@1") is BUILTINS.by_ref["gradeflow/key-points@1"]
     assert repr(BUILTINS.find("gradeflow/key-points@1")) == "<Method gradeflow/key-points@1>"
     with pytest.raises(GradeFlowError, match="There's no method gradeflow/key-points@9"):
         BUILTINS.find("gradeflow/key-points@9")
-    assert isinstance(BUILTINS[1:], Methods)
-    assert list(BUILTINS[1:]) == list(BUILTINS)[1:]
     assert len(Methods()) == 0
 
 
@@ -73,7 +71,7 @@ def test_versions_of_a_method_are_distinct_and_latest_keeps_the_highest() -> Non
         ("sample/wrapper", versioned(1, "gradeflow/not-allowed@1")),
     ]
     methods = BUILTINS.with_files(files)
-    loaded = methods[len(BUILTINS) :]
+    loaded = Methods(methods[len(BUILTINS) :])
     assert [method.ref for method in loaded] == [
         "sample/wrapper@2",
         "sample/other@1",
@@ -86,13 +84,6 @@ def test_versions_of_a_method_are_distinct_and_latest_keeps_the_highest() -> Non
         Check.load({"uses": "sample/wrapper"}, methods=methods)
     assert [method.ref for method in loaded.latest()] == ["sample/wrapper@2", "sample/other@1"]
     assert list(BUILTINS.latest()) == list(BUILTINS)
-
-
-def test_methods_are_equal_when_they_hold_the_same_methods_in_order() -> None:
-    assert Methods(BUILTINS) == BUILTINS
-    assert BUILTINS[:2] != BUILTINS[1::-1]
-    assert BUILTINS.__eq__(list(BUILTINS)) is NotImplemented
-    assert repr(BUILTINS[:2]) == "<Methods (2)>"
 
 
 def test_duplicate_references_are_rejected() -> None:
