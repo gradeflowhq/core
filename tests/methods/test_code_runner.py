@@ -82,20 +82,6 @@ class TestRun:
             run("data = b'x' * 1024**3", {}, time_limit_s=5)
         assert error.value.reason.startswith("MemoryError")
 
-    def test_memory_limit_is_configurable_per_execution(self) -> None:
-        code = "data = b'x' * (96 * 1024**2)\nallocated = len(data)\ndel data"
-        variables: dict[str, Any] = {}
-        with pytest.raises(CodeError, match="MemoryError"):
-            run(code, variables, time_limit_s=5, memory_limit_mb=64)
-        assert variables == {}
-        run(code, variables, time_limit_s=5, memory_limit_mb=256)
-        assert variables == {"allocated": 96 * 1024**2}
-
-    @pytest.mark.parametrize("limit", [0, -1])
-    def test_memory_limit_must_be_positive(self, limit: int) -> None:
-        with pytest.raises(ValueError, match="memory_limit_mb must be positive"):
-            run("", {}, time_limit_s=5, memory_limit_mb=limit)
-
     def test_host_files_cannot_be_read(self, tmp_path: Path) -> None:
         secret = tmp_path / "secret"
         secret.write_text("host-only")
@@ -143,29 +129,9 @@ class TestRun:
         with pytest.raises(CodeError, match=r"result.*1 MiB"):
             run("feedback = 'x' * (2 * 1024**2)", {}, time_limit_s=5)
 
-    def test_output_limit_is_configurable_independently(self) -> None:
-        code = "print('x' * (1536 * 1024))"
+    def test_output_is_bounded(self) -> None:
         with pytest.raises(CodeError, match="output reached the 1 MiB limit"):
-            run(code, {}, result_limit_mb=2)
-        variables: dict[str, Any] = {}
-        run(code, variables, output_limit_mb=2)
-        assert variables == {}
-
-    def test_result_limit_is_configurable_independently(self) -> None:
-        code = "feedback = 'x' * (1536 * 1024)"
-        variables: dict[str, Any] = {}
-        with pytest.raises(CodeError, match="result exceeded 1 MiB"):
-            run(code, variables, output_limit_mb=2)
-        assert variables == {}
-        run(code, variables, result_limit_mb=2)
-        assert variables == {"feedback": "x" * (1536 * 1024)}
-
-    @pytest.mark.parametrize("name", ["time_limit_s", "output_limit_mb", "result_limit_mb"])
-    @pytest.mark.parametrize("limit", [0, -1])
-    def test_limits_must_be_positive(self, name: str, limit: int) -> None:
-        limits: dict[str, Any] = {name: limit}
-        with pytest.raises(ValueError, match=f"{name} must be positive"):
-            run("", {}, **limits)
+            run("print('x' * (1536 * 1024))", {})
 
     def test_sandbox_result_does_not_reserve_a_user_variable(self) -> None:
         variables: dict[str, Any] = {"result": "input", "code": "answer", "scope": {1}}

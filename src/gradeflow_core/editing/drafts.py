@@ -309,21 +309,18 @@ class MarkingDraft:
                 if key in CHECK_FIELDS and value not in (*EMPTY, defaults.get(key))
             },
         }
-        put(self._data, path, {key: check[key] for key in KEYS if key in check})
-        self._validated = None
+        self._put(path, {key: check[key] for key in KEYS if key in check})
 
     def retype(self, path: str, ref: str) -> None:
         """Gives the check at ``path`` another method, keeping where it is. When the new method
         holds checks, as Combination and Not do, the old check becomes its first, if it fits."""
         old = deepcopy(self._node(path))
         new = _new_check(self._method(ref), self.position(path), named=not path)
-        put(self._data, path, {key: old[key] for key in PLACE if key in old} | new)
-        self._validated = None
+        self._put(path, {key: old[key] for key in PLACE if key in old} | new)
         inner = {key: value for key, value in old.items() if key not in PLACE}
         for slot in self.slots(path):
             if not slot.checks and inner["uses"] in {info.ref for info in self.methods(slot.new)}:
-                put(self._data, slot.path, [inner] if slot.many else inner)
-                self._validated = None
+                self._put(slot.path, [inner] if slot.many else inner)
                 return
 
     def add(self, path: str, ref: str, question: QuestionId | None = None) -> None:
@@ -336,11 +333,7 @@ class MarkingDraft:
         new = _new_check(
             self._method(ref), self.position(path, question), named=question is not None
         )
-        if slot.many:
-            put(self._data, slot.path, [*(get(self._data, slot.path) or []), new])
-        else:
-            put(self._data, slot.path, new)
-        self._validated = None
+        self._put(slot.path, [*(get(self._data, slot.path) or []), new] if slot.many else new)
 
     def remove(self, path: str) -> str:
         """Removes the check at ``path``, inside the marking; the path of the check that held
@@ -361,6 +354,10 @@ class MarkingDraft:
         if 0 <= (other := last + offset) < len(items):
             items[last], items[other] = items[other], items[last]
             self._validated = None
+
+    def _put(self, path: str, value: Any) -> None:
+        put(self._data, path, value)
+        self._validated = None
 
     def slots(self, path: str) -> list[Slot]:
         """Where the check at ``path`` holds checks."""

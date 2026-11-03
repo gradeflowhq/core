@@ -172,6 +172,12 @@ def _reason(error: Exception) -> str:
     return said[0].lower() + said[1:].rstrip(".")
 
 
+def _undecided(
+    keys: Iterable[tuple[str, str]], models: tuple[str, ...], reason: str
+) -> dict[tuple[str, str], Verdict]:
+    return dict.fromkeys(keys, Verdict(None, models, reason))
+
+
 def _request(settings: AnswerCriterionSettings) -> Hashable:
     """What checks share to be asked about in the same requests: everything but the criterion."""
     return tuple(sorted(settings.model_dump(exclude={"criterion"}).items()))
@@ -232,7 +238,7 @@ class _Asking:
             try:
                 found = _twice(lambda: self._decisions(model, batch))
             except model_service.ServiceError as error:
-                return undecided(batch, _reason(error))
+                return _undecided(self._keys(batch), (model,), _reason(error))
             if found is not None:
                 return {
                     key: Verdict(None if low < p < confidence else p >= 0.5, (model,))
@@ -240,14 +246,7 @@ class _Asking:
                 }
             if len(batch) > 1:  # a full batch may be too much for this model: one at a time
                 return {key: d for text in batch for key, d in ask([text]).items()}
-            return undecided(batch, NO_REPLY)
-
-        def undecided(batch: Sequence[str], reason: str) -> dict[tuple[str, str], Verdict]:
-            return {
-                (text, criterion): Verdict(None, (model,), reason)
-                for text in batch
-                for criterion in self.criteria
-            }
+            return _undecided(self._keys(batch), (model,), NO_REPLY)
 
         return self._run(ask, texts, "Deciding criteria")
 
@@ -271,8 +270,10 @@ class _Asking:
         found = model_service.yes_probabilities(reply)
         if len(found) != len(batch) * len(self.criteria):
             return None
-        ps = iter(found)
-        return {(text, criterion): next(ps) for text in batch for criterion in self.criteria}
+        return dict(zip(self._keys(batch), found, strict=True))
+
+    def _keys(self, batch: Sequence[str]) -> list[tuple[str, str]]:
+        return [(text, criterion) for text in batch for criterion in self.criteria]
 
     def _careful(
         self, asked: Mapping[str, list[int]], before: tuple[str, ...]
@@ -280,28 +281,22 @@ class _Asking:
         """The reasoning model's decisions on the criteria of each answer listed, or, without a
         reasoning model, those criteria undecided."""
 
-        def undecided(
-            texts: Iterable[str], models: tuple[str, ...], reason: str
-        ) -> dict[tuple[str, str], Verdict]:
-            return {
-                (text, self.criteria[i]): Verdict(None, models, reason)
-                for text in texts
-                for i in asked[text]
-            }
+        def keys(texts: Iterable[str]) -> list[tuple[str, str]]:
+            return [(text, self.criteria[i]) for text in texts for i in asked[text]]
 
         try:
             model = self._model("reasoning")
         except NoModel as error:
-            return undecided(asked, before, _reason(error))
+            return _undecided(keys(asked), before, _reason(error))
         models = (*before, model)
 
         def ask(batch: Sequence[str]) -> dict[tuple[str, str], Verdict]:
             try:
                 found = _twice(lambda: self._verdicts(model, batch, asked))
             except model_service.ServiceError as error:
-                return undecided(batch, models, _reason(error))
+                return _undecided(keys(batch), models, _reason(error))
             if found is None:
-                return undecided(batch, models, NO_REPLY)
+                return _undecided(keys(batch), models, NO_REPLY)
             return {key: Verdict(fits, models, reason) for key, (fits, reason) in found.items()}
 
         return self._run(ask, list(asked), "Deciding carefully")

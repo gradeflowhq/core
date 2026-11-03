@@ -14,6 +14,8 @@ from functools import lru_cache
 from tokenize import TokenInfo
 from typing import NamedTuple
 
+from rapidfuzz.distance import OSA
+
 from ...common.text import quoted
 from ...questions.layouts import BRACKETS, CLOSERS, OPENERS, guess_layouts
 
@@ -265,7 +267,11 @@ def _keyword_fix(statement: list[TokenInfo]) -> _Fix | None:
     matches = (
         [word.lower()]
         if capitalised
-        else [match for match in STATEMENT_KEYWORDS if len(word) >= 3 and _one_edit(word, match)]
+        else [
+            match
+            for match in STATEMENT_KEYWORDS
+            if len(word) >= 3 and OSA.distance(word, match) == 1
+        ]
     )
     if len(matches) != 1:
         return None
@@ -333,7 +339,7 @@ def _fixed_names(code: str, defined: Collection[str]) -> tuple[str, list[str]]:
         matches = (
             [CONSTANTS[name]]
             if name in CONSTANTS
-            else [other for other in known if len(name) >= 3 and _one_edit(name, other)]
+            else [other for other in known if len(name) >= 3 and OSA.distance(name, other) == 1]
         )
         if len(matches) != 1:
             continue
@@ -355,23 +361,6 @@ def _bound_names(table: symtable.SymbolTable) -> set[str]:
     for child in table.get_children():
         names |= _bound_names(child)
     return names
-
-
-def _one_edit(word: str, other: str) -> bool:
-    """Whether ``word`` is ``other`` with one letter changed, added, removed, or swapped with the
-    next."""
-    if word == other or abs(len(word) - len(other)) > 1:
-        return False
-    same = next(
-        (i for i, pair in enumerate(zip(word, other, strict=False)) if pair[0] != pair[1]),
-        len(word),
-    )
-    rest, other_rest = word[same:], other[same:]
-    return (
-        rest[1:] in (other_rest[1:], other_rest)
-        or rest == other_rest[1:]
-        or (rest[:2] == other_rest[1::-1] and rest[2:] == other_rest[2:])
-    )
 
 
 def _read_as(written: str, meant: str) -> str:

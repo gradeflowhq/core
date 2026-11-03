@@ -115,11 +115,6 @@ def to_file_body(check: Mapping[str, Any]) -> dict[str, Any]:
     return {"checks": [check]}
 
 
-def to_file_path(path: Loc) -> Loc:
-    """Where a path in the body is in the file: ``with.checks`` is ``checks``."""
-    return path[1:] if path[:1] == ("with",) else path
-
-
 class Fault(ValueError):
     def __init__(self, message: str, path: Loc) -> None:
         super().__init__(message)

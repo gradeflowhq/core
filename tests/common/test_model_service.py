@@ -41,7 +41,7 @@ def test_p_yes_without_yes_or_no_among_the_alternatives_is_the_word_written() ->
     assert model_service.yes_probabilities(reply([{"token": "Maybe", "logprob": -0.1}])) == [1.0]
 
 
-@pytest.mark.parametrize("operation", ["ask", "model_names"])
+@pytest.mark.parametrize("operation", ["ask", "list_models"])
 @pytest.mark.parametrize(
     ("status", "message"),
     [
@@ -75,10 +75,10 @@ def test_service_failures_use_domain_errors(
                 model_service.ask, ENDPOINT, "model", "system", "prompt", effort=None, max_tokens=4
             )
             if operation == "ask"
-            else partial(model_service.model_names, ENDPOINT)
+            else partial(model_service.list_models, ENDPOINT)
         )
         with pytest.raises(GradeFlowError) as error:
             request()
-    if operation == "model_names" and status == 404:
+    if operation == "list_models" and status == 404:
         message = "No models were found at this address. Check it: it often ends in /v1."
     assert str(error.value) == message

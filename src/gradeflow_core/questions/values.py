@@ -6,6 +6,7 @@ from pydantic import Field
 from ..common.hints import hint
 from ..common.schemas import JsonDict, tag
 from .base import Question
+from .layouts import BRACKETS
 from .number import NumberQuestion
 from .reading import ListReading, Reading, TextReading, read_list, reading_field
 from .text import TextQuestion
@@ -14,11 +15,6 @@ from .types import Value, ValueType
 VALUE_TYPE_LABELS: dict[ValueType, str] = {"text": "Text", "number": "Number"}
 BLANK_SEPARATOR = "~"
 """What separates the blanks of an ExamSoft answer key, and the values of answers to them."""
-
-
-def values_reading() -> ListReading:
-    """How values are read when an answer key sets the question up: separated by ``~``."""
-    return ListReading(separator=BLANK_SEPARATOR)
 
 
 class ValuesQuestion(Question):
@@ -93,12 +89,9 @@ class ValuesQuestion(Question):
         ]
 
 
-_BRACKETS = {"(": ")", "[": "]", "{": "}"}
-
-
 def _unbracketed(raw: str) -> str:
     """The values inside one pair of brackets around them, as in `(3, -2)`."""
     text = raw.strip()
-    if len(text) > 1 and _BRACKETS.get(text[0]) == text[-1]:
+    if len(text) > 1 and BRACKETS.get(text[0]) == text[-1]:
         return text[1:-1]
     return raw

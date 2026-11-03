@@ -382,7 +382,7 @@ class Combination(Method[CombinationSettings]):
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
         checks = markdown_list(
-            inner.headed(_weighting(inner, settings.combine)) for inner in settings.checks
+            inner.headed(weighting(inner.weight, settings.combine)) for inner in settings.checks
         )
         return f"{heading(settings)}\n{checks}"
 
@@ -442,14 +442,14 @@ def _taken_off(check: Check) -> str:
     return f"Marks taken off: {check.name}." if check.name else "Marks taken off."
 
 
-def _weighting(check: Check, combine: Combine) -> tuple[str, ...]:
-    """What a check's weight, when it isn't 1, makes it worth: under ``any`` the share of the
-    marks it can give, and under ``total`` and ``proportional`` the weight itself."""
-    if check.weight == 1 or combine in ("all", "none"):
+def weighting(weight: float, combine: Combine) -> tuple[str, ...]:
+    """What a weight, when it isn't 1, makes a check worth: under ``any`` the share of the marks
+    it can give, and under ``total`` and ``proportional`` the weight itself."""
+    if weight == 1 or combine in ("all", "none"):
         return ()
     if combine == "any":
-        return (f"{check.weight:.0%} of the marks",)
-    return (f"weight {format_number(check.weight)}",)
+        return (f"{weight:.0%} of the marks",)
+    return (f"weight {format_number(weight)}",)
 
 
 def _result_of(outcomes: dict[QuestionId, Outcome]) -> EarlierResult:

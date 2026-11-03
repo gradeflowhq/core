@@ -7,7 +7,6 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Sequence
 from typing import IO, Any
 
 import eryx
@@ -19,10 +18,9 @@ from ...common.text import plural
 TIME_LIMIT_S = 5
 """How long code may run, unless a check sets its own limit."""
 MEMORY_LIMIT_MB = 512
-"""Default guest memory in MiB."""
 OUTPUT_LIMIT_MB = 1
+"""Each stream's, as Eryx truncates one at 1 MiB."""
 RESULT_LIMIT_MB = 1
-ALLOWED_HOSTS: tuple[str, ...] = ()
 _WORKER_GRACE_S = 5
 """How long the host waits beyond the time limit for a worker, which may first have to start."""
 _PROGRAM = """
@@ -71,7 +69,7 @@ def _timed_out(time_limit_s: int) -> CodeError:
     return CodeError(f"it took longer than {time_limit_s} {plural('second', time_limit_s)}")
 
 
-def _returned(execution: eryx.ExecuteResult, limit_mb: int) -> str:
+def _returned(execution: eryx.ExecuteResult) -> str:
     """The variables the guest returned, as JSON. The guest encodes them itself, as Eryx's
     encoding refuses NaN and infinity."""
     if execution.result_error:
@@ -82,8 +80,8 @@ def _returned(execution: eryx.ExecuteResult, limit_mb: int) -> str:
     encoded = json.loads(execution.result_json)
     if not isinstance(encoded, str):
         raise CodeError("Code returned invalid variables.")
-    if len(encoded.encode()) > limit_mb * 1024**2:
-        raise CodeError(f"result exceeded {limit_mb} MiB")
+    if len(encoded.encode()) > RESULT_LIMIT_MB * 1024**2:
+        raise CodeError(f"result exceeded {RESULT_LIMIT_MB} MiB")
     return encoded
 
 
@@ -97,25 +95,7 @@ def _decode(encoded: str) -> dict[str, Any]:
     return result
 
 
-def _validate_limits(**limits: int) -> None:
-    for name, limit in limits.items():
-        if limit <= 0:
-            raise ValueError(f"{name} must be positive")
-
-
-def _network(allowed_hosts: Sequence[str]) -> eryx.NetConfig | None:
-    return eryx.NetConfig(allowed_hosts=allowed_hosts) if allowed_hosts else None
-
-
-def _execute(
-    code: str,
-    variables: str,
-    time_limit_s: int,
-    memory_limit_mb: int,
-    output_limit_mb: int,
-    result_limit_mb: int,
-    allowed_hosts: Sequence[str],
-) -> str:
+def _execute(code: str, variables: str, time_limit_s: int) -> str:
     """Runs ``code`` in a fresh sandbox with ``variables``, as JSON, and returns its variables as
     JSON. Runs in a worker, as a sandbox can abort the process running it."""
     source = f"{_PROGRAM}\nresult = execute({code!r}, {variables!r})\n"
@@ -126,26 +106,25 @@ def _execute(
         nonlocal output_bytes
         output_bytes += len(chunk)
         # Reaching the limit counts: Eryx truncates a stream at 1 MiB, so it never passes it.
-        if output_bytes >= output_limit_mb * 1024**2:
+        if output_bytes >= OUTPUT_LIMIT_MB * 1024**2:
             cancel.cancel()
 
     try:
         sandbox = eryx.Sandbox(
             resource_limits=eryx.ResourceLimits(
                 execution_timeout_ms=time_limit_s * 1000,
-                max_memory_bytes=memory_limit_mb * 1024**2,
+                max_memory_bytes=MEMORY_LIMIT_MB * 1024**2,
                 max_callback_invocations=0,
             ),
             on_stdout=limit_output,
             on_stderr=limit_output,
-            network=_network(allowed_hosts),
         )
     except eryx.InitializationError as error:
         raise GradeFlowError("Couldn't start the Python sandbox.") from error
     try:
         result = sandbox.execute(source, cancel=cancel)
     except eryx.CancelledError as error:
-        raise CodeError(f"output reached the {output_limit_mb} MiB limit") from error
+        raise CodeError(f"output reached the {OUTPUT_LIMIT_MB} MiB limit") from error
     except eryx.TimeoutError as error:
         raise _timed_out(time_limit_s) from error
     except eryx.PythonExceptionError as error:
@@ -155,8 +134,8 @@ def _execute(
     except eryx.ExecutionError as error:
         raise CodeError("Code stopped before returning a result.") from error
     if cancel.cancelled:
-        raise CodeError(f"output reached the {output_limit_mb} MiB limit")
-    return _returned(result, result_limit_mb)
+        raise CodeError(f"output reached the {OUTPUT_LIMIT_MB} MiB limit")
+    return _returned(result)
 
 
 def _send(stream: IO[bytes], message: dict[str, Any]) -> None:
@@ -277,41 +256,18 @@ def _close_workers() -> None:
         worker.close()
 
 
-def run(
-    code: str,
-    variables: dict[str, Any],
-    *,
-    time_limit_s: int = TIME_LIMIT_S,
-    memory_limit_mb: int = MEMORY_LIMIT_MB,
-    output_limit_mb: int = OUTPUT_LIMIT_MB,
-    result_limit_mb: int = RESULT_LIMIT_MB,
-    allowed_hosts: Sequence[str] = ALLOWED_HOSTS,
-) -> None:
-    """Run Python in a sandbox and update variables with its JSON values and nested sets.
+def run(code: str, variables: dict[str, Any], *, time_limit_s: int = TIME_LIMIT_S) -> None:
+    """Run Python in a sandbox, without network access, and update variables with its JSON
+    values and nested sets.
 
     Unsupported output values are omitted. Variables are updated only on success.
-    Limits must be positive; size limits use MiB (1024**2 bytes).
-    Eryx truncates raw file-descriptor output at 1 MiB per stream.
-    Network access is limited to ``allowed_hosts``; private addresses are blocked.
     Sandboxes run in a worker process per thread, so one that aborts its process fails only
     its own run.
     """
-    _validate_limits(
-        time_limit_s=time_limit_s,
-        memory_limit_mb=memory_limit_mb,
-        output_limit_mb=output_limit_mb,
-        result_limit_mb=result_limit_mb,
-    )
-    if isinstance(allowed_hosts, str):
-        raise TypeError("allowed_hosts must be a sequence of hostnames")
     request = {
         "code": code,
         "variables": json.dumps(variables, default=_tag_set),
         "time_limit_s": time_limit_s,
-        "memory_limit_mb": memory_limit_mb,
-        "output_limit_mb": output_limit_mb,
-        "result_limit_mb": result_limit_mb,
-        "allowed_hosts": list(allowed_hosts),
     }
     outcome = _worker().run(request, time_limit_s + _WORKER_GRACE_S)
     if "failure" in outcome:

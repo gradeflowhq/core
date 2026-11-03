@@ -19,9 +19,10 @@ from ..questions.base import Question
 from ..questions.choice import ChoiceQuestion
 from ..questions.number import NumberQuestion, reads_as_number
 from ..questions.question_set import QuestionSet
+from ..questions.reading import ListReading
 from ..questions.text import TextQuestion
 from ..questions.types import QuestionId, ValueType
-from ..questions.values import ValuesQuestion, values_reading
+from ..questions.values import BLANK_SEPARATOR, ValuesQuestion
 from .errors import adapter_errors
 from .mathml import mathml_latex
 from .rtf import Part, paragraphs
@@ -85,7 +86,7 @@ def _question(item: _Item, current: Question) -> Question:
     types: list[ValueType] = ["number" if _numbers(blank) else "text" for blank in item.blanks]
     if len(types) > 1:
         return ValuesQuestion.model_validate(
-            {**shared, "reading": values_reading(), "value_types": types}
+            {**shared, "reading": ListReading(separator=BLANK_SEPARATOR), "value_types": types}
         )
     return (NumberQuestion if types == ["number"] else TextQuestion).model_validate(shared)
 

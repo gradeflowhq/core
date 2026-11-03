@@ -4,8 +4,9 @@
 from ..common.documents import dump_yaml, load_yaml
 from ..common.exceptions import EditingError
 from ..common.hints import HINT_KEY
+from ..common.model_service import list_models
 from ..marking.examples import RowResult, evaluate_rows
-from ..marking.model_choice import ModelTrial, list_models, try_model
+from ..marking.model_choice import ModelTrial, try_model
 from ..methods.check import Marking
 from ..methods.collection import rewrite_references
 from ..methods.composed.file import methods_used

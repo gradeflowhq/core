@@ -16,7 +16,7 @@ from ...questions.base import Question
 from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
-from ..logic.combination import COMBINE_LABELS, Combine, proportion_and_parts
+from ..logic.combination import COMBINE_LABELS, Combine, proportion_and_parts, weighting
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..settings import Settings
@@ -198,13 +198,7 @@ def _test_title(test: Test, *, negated: bool = False) -> str:
 
 
 def _weighting(test: Test, combine: Combine) -> str:
-    """What a test's weight, when it isn't 1, makes it worth: its weight when tests add up, and
-    its share of the marks under "Any one"."""
-    if test.weight == 1:
-        return ""
-    if combine in ("total", "proportional"):
-        return f"**Weight {format_number(test.weight)}:** "
-    return f"**{test.weight:.0%} of the marks:** " if combine == "any" else ""
+    return "".join(f"**{capitalised(note)}:** " for note in weighting(test.weight, combine))
 
 
 def _which_tests(combine: Combine, count: int) -> str:

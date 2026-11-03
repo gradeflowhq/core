@@ -120,7 +120,7 @@ def text(reply: ChatCompletion) -> str:
     return _THINKING.sub("", reply.choices[0].message.content or "").strip()
 
 
-def model_names(endpoint: ModelEndpoint) -> list[str]:
+def list_models(endpoint: ModelEndpoint) -> list[str]:
     """The endpoint's models, newest first when it says when each was made."""
     client = _client(endpoint)
     import openai

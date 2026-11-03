@@ -34,17 +34,11 @@ class ModelChoice(BaseModel):
     """Every model tried, in each role it was tried for, in order."""
 
 
-def list_models(endpoint: model_service.ModelEndpoint) -> list[str]:
-    """The endpoint's models, newest first when it says when each was made. Raises
-    ``GradeFlowError`` when it lists none."""
-    return model_service.model_names(endpoint)
-
-
 def choose_models(endpoint: model_service.ModelEndpoint) -> ModelChoice:
     """For each role, the faster of the first models the endpoint lists, newest first, that mark
     every row of Answer Criteria's examples as they declare. Raises ``GradeFlowError`` when the
     endpoint lists no models."""
-    names = list_models(endpoint)
+    names = model_service.list_models(endpoint)
     trials: list[ModelTrial] = []
     chosen: dict[Role, str | None] = {}
     for role in ("decision", "reasoning"):

@@ -16,7 +16,7 @@ from ..check import CHECK_FIELDS, METHODS, holds_checks
 from ..settings import Settings, annotated, item_field, literal
 from ..templates import TemplateError, named_in, reference, templated, validate
 from .expand import EXPANDED
-from .file import TEMPLATE_KEYS, Fault, Input, MethodFile, to_file_path
+from .file import TEMPLATE_KEYS, Fault, Input, MethodFile
 
 if TYPE_CHECKING:
     from ..method import Method
@@ -37,7 +37,11 @@ class _Typing:
         """Inputs that templates and conditions name."""
 
     def inputs(self) -> dict[str, tuple[Any, FieldInfo]]:
-        self._check(self.file.body(), ())
+        try:
+            self._check(self.file.body(), ())
+        except Fault as fault:  # where it is in the file: ``with.checks`` is ``checks``
+            path = fault.path[1:] if fault.path[:1] == ("with",) else fault.path
+            raise Fault(str(fault), path) from None
         for key, spec in self.file.inputs.items():
             if key in CHECK_FIELDS:
                 raise Fault(
@@ -56,29 +60,25 @@ class _Typing:
             try:
                 validate(expression, dict.fromkeys(EXPANDED, "any"), expression=True)
             except TemplateError as error:
-                raise Fault(str(error), to_file_path(path)) from None
-            raise Fault(
-                "A setting takes an input as it is, such as {{ inputs.name }}.", to_file_path(path)
-            )
+                raise Fault(str(error), path) from None
+            raise Fault("A setting takes an input as it is, such as {{ inputs.name }}.", path)
         root, *rest = expression.split(".")
         if root == "inputs" and len(rest) == 1 and rest[0] in self.file.inputs:
             existing = self.found.get(rest[0])
             if existing is not None and existing[0] != annotation:
-                raise Fault(
-                    f"Input {rest[0]} fills settings of different types.", to_file_path(path)
-                )
+                raise Fault(f"Input {rest[0]} fills settings of different types.", path)
             self.found.setdefault(rest[0], (annotation, info))
         elif root == "each" and self.eaches and len(rest) <= 1:
             self.eaches[-1].setdefault(rest[0] if rest else "", (annotation, info))
         elif root != "index":
-            raise Fault(f"There's no {expression}.", to_file_path(path))
+            raise Fault(f"There's no {expression}.", path)
 
     def _check(self, node: Any, path: Loc) -> None:
         if not isinstance(node, Mapping) or "uses" not in node:
-            raise Fault("A check needs uses: and a method's name.", to_file_path(path))
+            raise Fault("A check needs uses: and a method's name.", path)
         method = self.lookup.get(str(node["uses"]))
         if method is None:
-            raise Fault(f"There's no method {node['uses']}.", to_file_path((*path, "uses")))
+            raise Fault(f"There's no method {node['uses']}.", (*path, "uses"))
         for key, value in sorted(node.items(), key=lambda item: item[0] != "with"):
             if key in TEMPLATE_KEYS:
                 self.templated |= named_in(value, "inputs")
@@ -88,7 +88,7 @@ class _Typing:
             if key == "with":
                 self._settings(value, method.settings, (*path, "with"))
             elif key not in CHECK_FIELDS:
-                raise Fault(f"A check has no {key}:.", to_file_path((*path, key)))
+                raise Fault(f"A check has no {key}:.", (*path, key))
             elif (expression := reference(value)) is not None:
                 info = CHECK_FIELDS[key]
                 self._record(expression, info.annotation, info, (*path, key))
@@ -97,16 +97,16 @@ class _Typing:
         if (expression := reference(values)) is not None:
             raise Fault(
                 f"Fill in a method's settings one by one, not with {expression}.",
-                to_file_path(path),
+                path,
             )
         if not isinstance(values, Mapping | None):
-            raise Fault("A check's settings aren't a mapping.", to_file_path(path))
+            raise Fault("A check's settings aren't a mapping.", path)
         for key, value in (values or {}).items():
             info = model.model_fields.get(key)
             if info is None:
                 raise Fault(
                     f"{model.model_config.get('title') or 'This method'} has no setting {key}.",
-                    to_file_path((*path, key)),
+                    (*path, key),
                 )
             if (root := _root(value)) is not None:
                 info = _placed(info, root, values or {}, model, (*path, key))
@@ -136,7 +136,7 @@ class _Typing:
         if isinstance(item, Mapping) and "for_each" in item:
             source = reference(item["for_each"])
             if source is None or not source.startswith("inputs."):
-                raise Fault("for_each needs one {{ inputs.… }}.", to_file_path((*path, "for_each")))
+                raise Fault("for_each needs one {{ inputs.… }}.", (*path, "for_each"))
             self.eaches.append({})
             self._check(item, path)
             each = self._titled(self.eaches.pop(), source, path)
@@ -149,7 +149,7 @@ class _Typing:
                 )  # type: ignore[call-overload]
                 field = FieldInfo()
             else:
-                raise Fault("A repeated check uses {{ each }}.", to_file_path(path))
+                raise Fault("A repeated check uses {{ each }}.", path)
             self._record(
                 source,
                 list[annotation],  # type: ignore[valid-type]
@@ -166,9 +166,7 @@ class _Typing:
         spec = self.file.inputs.get(source.removeprefix("inputs."))
         own = (spec.items if spec else None) or {}
         if unused := own.keys() - each.keys():
-            raise Fault(
-                f"Each item has no {', '.join(sorted(unused))}.", to_file_path((*path, "for_each"))
-            )
+            raise Fault(f"Each item has no {', '.join(sorted(unused))}.", (*path, "for_each"))
         return {
             key: (
                 kind,
@@ -209,9 +207,7 @@ def _placed(
             said = quoted_join(
                 [labels.get(str(option), option) for option in options], conjunction="or"
             )
-            raise Fault(
-                f"{info.title} applies only when {sibling.title} is {said}.", to_file_path(path)
-            )
+            raise Fault(f"{info.title} applies only when {sibling.title} is {said}.", path)
     if wanted == (hint.applies_when or {}):
         return info
     placed = hint.model_copy(update={"applies_when": wanted or None})
@@ -237,7 +233,7 @@ def _validate_literal(
         )
     except ValidationError as error:
         first = error.errors()[0]
-        raise Fault(error_message(first), to_file_path((*path, *first["loc"]))) from None
+        raise Fault(error_message(first), (*path, *first["loc"])) from None
 
 
 def input_field(spec: Input, annotation: Any, info: FieldInfo) -> tuple[Any, FieldInfo]:

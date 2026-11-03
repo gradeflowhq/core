@@ -638,19 +638,19 @@ def _without_results(examples: Any) -> Any:
     if not isinstance(examples, list):
         return examples
     return [
-        {**example, "rows": [_without_result(row) for row in example["rows"]]}
+        {
+            **example,
+            "rows": [
+                {key: value for key, value in row.items() if key != "expected"}
+                if isinstance(row, dict)
+                else row
+                for row in example["rows"]
+            ],
+        }
         if isinstance(example, dict) and isinstance(example.get("rows"), list)
         else example
         for example in examples
     ]
-
-
-def _without_result(row: Any) -> Any:
-    return (
-        {key: value for key, value in row.items() if key != "expected"}
-        if isinstance(row, dict)
-        else row
-    )
 
 
 def _written(example: Example) -> dict[str, Any]:
