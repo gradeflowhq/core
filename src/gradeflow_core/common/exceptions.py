@@ -15,8 +15,11 @@ class InvalidError(GradeFlowError):
 
     def __init__(self, problems: list[Problem]) -> None:
         self.problems = problems
-        located = (f"{p.where}: {p.message}" if p.where else p.message for p in problems)
-        super().__init__("\n".join(located))
+        messages = (
+            f"{problem.where}: {problem.message}" if problem.where else problem.message
+            for problem in problems
+        )
+        super().__init__("\n".join(messages))
 
 
 class EditingError(GradeFlowError):
@@ -24,4 +27,4 @@ class EditingError(GradeFlowError):
 
 
 class MethodFileError(GradeFlowError):
-    """A method's YAML that doesn't define a method, said at the line at fault."""
+    """A method's YAML that doesn't define a method, with the line at fault."""

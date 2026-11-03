@@ -8,7 +8,7 @@ examples:
     rows:
       - answers:
           Q1: 05/11/2026
-        expected: {Q1: {marks: 1.0, feedback: Right format.}}
+        expected: {Q1: {marks: 1.0, feedback: Correct format.}}
       - answers:
           Q1: 5/11/2026
         expected: {Q1: {marks: 0.0, feedback: Not in the expected format.}}
@@ -24,10 +24,10 @@ examples:
     rows:
       - answers:
           Q1: 3/4
-        expected: {Q1: {marks: 1.0, feedback: Right format.}}
+        expected: {Q1: {marks: 1.0, feedback: Correct format.}}
       - answers:
           Q1: 6/8
-        expected: {Q1: {marks: 1.0, feedback: Right format.}}
+        expected: {Q1: {marks: 1.0, feedback: Correct format.}}
       - answers:
           Q1: '0.75'
         expected: {Q1: {marks: 0.0, feedback: Not in the expected format.}}

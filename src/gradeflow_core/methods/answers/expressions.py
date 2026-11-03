@@ -27,9 +27,9 @@ RESERVED = FUNCTIONS.keys() | CONSTANTS.keys()
 """Names a variable can't have."""
 
 type Values = Mapping[str, float]
-type Node = Callable[[Values], float]
+type Evaluator = Callable[[Values], float]
 
-_SYMBOLS = str.maketrans({"×": "*", "·": "*", "÷": "/", "\N{MINUS SIGN}": "-"})
+_OPERATOR_SYMBOLS = str.maketrans({"×": "*", "·": "*", "÷": "/", "\N{MINUS SIGN}": "-"})
 _SUPERSCRIPTS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻", "0123456789-")
 _SUPERSCRIPT_RUN = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+")
 _TOKEN = re.compile(
@@ -46,8 +46,8 @@ class Expression:
     """An expression read from ``text``, and the variables it uses."""
 
     text: str
-    names: frozenset[str]
-    _node: Node = field(repr=False, compare=False)
+    variables: frozenset[str]
+    _node: Evaluator = field(repr=False, compare=False)
 
     def value(self, values: Values) -> float:
         """Its value with ``values`` for its variables; a ValueError says why there is none."""
@@ -64,50 +64,50 @@ class Expression:
         return result
 
 
-def read(text: str, *, whole_names: bool = False) -> Expression:
+def parse(text: str, *, names_as_written: bool = False) -> Expression:
     """``text`` as an expression. Each letter that isn't part of a function or constant is a
-    variable, so xy is x times y. With ``whole_names``, each other name is a variable as written,
-    such as Q1, and so is anything in square brackets, such as [1a]."""
+    variable, so xy is x times y. With ``names_as_written``, each other name is a variable as
+    written, such as Q1, and so is anything in square brackets, such as [1a]."""
     if len(text) > MAX_LENGTH:
         raise ValueError(f"An expression can't be longer than {MAX_LENGTH} characters.")
     try:
-        parser = _Parser(_tokens(text, whole_names))
+        parser = _Parser(_tokens(text, names_as_written))
         node = parser.sum()
         if parser.peek() is not None:
-            raise _Unreadable
-    except _Unreadable:
+            raise _ParseError
+    except _ParseError:
         raise ValueError(f"Couldn't read {quoted(text)} as an expression.") from None
-    return Expression(text, frozenset(parser.names), node)
+    return Expression(text, frozenset(parser.variables), node)
 
 
-class _Unreadable(Exception):
+class _ParseError(Exception):
     pass
 
 
-def _tokens(text: str, whole_names: bool) -> list[str]:
+def _tokens(text: str, names_as_written: bool) -> list[str]:
     """The tokens of ``text``; a variable named in brackets keeps them, so it can't be mistaken
     for a number, function or constant."""
-    written = _SUPERSCRIPT_RUN.sub(
-        lambda run: f"^({run[0].translate(_SUPERSCRIPTS)})", text.translate(_SYMBOLS)
+    normalized_text = _SUPERSCRIPT_RUN.sub(
+        lambda run: f"^({run[0].translate(_SUPERSCRIPTS)})", text.translate(_OPERATOR_SYMBOLS)
     )
     tokens: list[str] = []
-    for match in _TOKEN.finditer(written.rstrip()):
-        if match["other"] or (match["bracketed"] and not whole_names):
-            raise _Unreadable
+    for match in _TOKEN.finditer(normalized_text.rstrip()):
+        if match["other"] or (match["bracketed"] and not names_as_written):
+            raise _ParseError
         if match["bracketed"]:
             tokens.append(f"[{match['bracketed'].strip()}]")
         elif (name := match["name"]) is None:
             tokens.append("^" if match[0].strip() == "**" else match[0].strip())
-        elif whole_names or name in RESERVED:
+        elif names_as_written or name in RESERVED:
             tokens.append(name)
-        elif parts := _split(name):
+        elif parts := _split_name(name):
             tokens.extend(parts)
         else:
             raise ValueError(f"Unknown name {quoted(name)}.")
     return tokens
 
 
-def _split(name: str) -> list[str]:
+def _split_name(name: str) -> list[str]:
     """``name`` as functions, constants and single letters, longest first: pix is pi times x.
     Empty for a name with digits or underscores."""
     if not _LETTERS.fullmatch(name):
@@ -127,57 +127,57 @@ class _Parser:
 
     def __init__(self, tokens: list[str]) -> None:
         self.tokens = tokens
-        self.at = 0
-        self.names: set[str] = set()
+        self.position = 0
+        self.variables: set[str] = set()
 
     def peek(self) -> str | None:
-        return self.tokens[self.at] if self.at < len(self.tokens) else None
+        return self.tokens[self.position] if self.position < len(self.tokens) else None
 
     def take(self) -> str:
         token = self.peek()
         if token is None:
-            raise _Unreadable
-        self.at += 1
+            raise _ParseError
+        self.position += 1
         return token
 
     def expect(self, token: str) -> None:
         if self.take() != token:
-            raise _Unreadable
+            raise _ParseError
 
-    def sum(self) -> Node:
+    def sum(self) -> Evaluator:
         node = self._product()
         while (token := self.peek()) in ("+", "-"):
             self.take()
             node = _binary(_OPERATORS[token], node, self._product())
         return node
 
-    def _product(self) -> Node:
-        node = self._signed()
+    def _product(self) -> Evaluator:
+        node = self._unary()
         while (token := self.peek()) is not None:
             if token in ("*", "/"):
                 self.take()
-                node = _binary(_OPERATORS[token], node, self._signed())
+                node = _binary(_OPERATORS[token], node, self._unary())
             elif token == "(" or _is_name(token):
                 node = _binary(operator.mul, node, self._power())
             else:
                 break
         return node
 
-    def _signed(self) -> Node:
+    def _unary(self) -> Evaluator:
         if (token := self.peek()) in ("+", "-"):
             self.take()
-            inner = self._signed()
+            inner = self._unary()
             return inner if token == "+" else lambda values: -inner(values)
         return self._power()
 
-    def _power(self) -> Node:
+    def _power(self) -> Evaluator:
         base = self._atom()
         if self.peek() == "^":
             self.take()
-            return _binary(math.pow, base, self._signed())
+            return _binary(math.pow, base, self._unary())
         return base
 
-    def _atom(self) -> Node:
+    def _atom(self) -> Evaluator:
         token = self.take()
         if token == "(":
             node = self.sum()
@@ -187,10 +187,10 @@ class _Parser:
             number = float(token)
             return lambda values: number
         if not _is_name(token):
-            raise _Unreadable
+            raise _ParseError
         if token.startswith("["):
             name = token[1:-1]
-            self.names.add(name)
+            self.variables.add(name)
             return lambda values: values[name]
         if token in FUNCTIONS:
             function = FUNCTIONS[token]
@@ -201,7 +201,7 @@ class _Parser:
         if token in CONSTANTS:
             constant = CONSTANTS[token]
             return lambda values: constant
-        self.names.add(token)
+        self.variables.add(token)
         return lambda values: values[token]
 
 
@@ -209,5 +209,7 @@ def _is_name(token: str) -> bool:
     return token[0].isalpha() or token[0] in "_["
 
 
-def _binary(combine: Callable[[float, float], float], left: Node, right: Node) -> Node:
+def _binary(
+    combine: Callable[[float, float], float], left: Evaluator, right: Evaluator
+) -> Evaluator:
     return lambda values: combine(left(values), right(values))

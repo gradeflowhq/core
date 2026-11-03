@@ -15,7 +15,7 @@ from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
 QUESTIONS = QuestionSet({"Q1": TextQuestion(), "Q2": NumberQuestion(max_marks=3)})
-ROWS = [
+MARKED_SUBMISSIONS = [
     MarkedSubmission(
         student_id="10",
         answers={"Q1": "a", "Q2": "1"},
@@ -32,12 +32,12 @@ ROWS = [
 ]
 
 
-def rows(options: ResultsCsv) -> list[list[str]]:
-    return list(csv.reader(StringIO(options.write(QUESTIONS, ROWS))))
+def written_rows(options: ResultsCsv) -> list[list[str]]:
+    return list(csv.reader(StringIO(options.write(QUESTIONS, MARKED_SUBMISSIONS))))
 
 
 def test_a_row_for_each_student_in_natural_order_with_marks_worked_out() -> None:
-    header, first, second = rows(ResultsCsv())
+    header, first, second = written_rows(ResultsCsv())
     assert header == [
         "student_id",
         "Q1",
@@ -48,19 +48,19 @@ def test_a_row_for_each_student_in_natural_order_with_marks_worked_out() -> None
         "Q2 feedback",
         "total marks",
         "maximum marks",
-        "report",
+        "marking report",
     ]
     assert first == ["9", "b", "0", "Expected a.", "", "", "", "0", "4", "Q1 [0/1]\nExpected a."]
     assert second[:8] == ["10", "a", "1", "Correct.", "1", "1", "", "2"]
 
 
 def test_columns_follow_the_options() -> None:
-    header, *_ = rows(
+    header, *_ = written_rows(
         ResultsCsv(
             student_id_column="id",
             include_answers=False,
             include_feedback=False,
-            include_total=False,
+            include_totals=False,
             include_report=False,
         )
     )

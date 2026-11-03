@@ -10,23 +10,23 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
-from ..common.text import plain_text
-from . import MISSING_MODEL, cache_directory
+from ..common.text import unescaped_markdown
+from . import MISSING_MODEL_MESSAGE, cache_directory
 
 REPOSITORY = "cross-encoder/nli-deberta-v3-xsmall"
 REVISION = "a150876415327c80daeff35ca6f68f5ed8cf5c24"
 # Unsigned weights avoid U8S8 saturation on AVX2 CPUs; this graph also runs on ARM.
-SOURCE = "onnx/model_quint8_avx2.onnx"
-DOWNLOADS = {
+DOWNLOADED_MODEL = "onnx/model_quint8_avx2.onnx"
+DOWNLOAD_DIGESTS = {
     "config.json": "8d9f07bf7ba54a6fc3b1962483056f94c39dcf188db4cf61843e1c88f94b2342",
     "tokenizer.json": "5124ef2ead1a10a717703bc436de7f353da76d6340e4587719b42b1693707964",
-    SOURCE: "21b14751a95520953bfcc607ceeb617de7cbeaeb6d60f4c8966716c743985337",
+    DOWNLOADED_MODEL: "21b14751a95520953bfcc607ceeb617de7cbeaeb6d60f4c8966716c743985337",
 }
 # The graph as ONNX Runtime optimizes it, with its weights in a file of their own. Loading it
 # neither optimizes again nor keeps a second copy of the weights: 150 MB less, same scores.
-GRAPH = "model.onnx"
+OPTIMIZED_MODEL = "model.onnx"
 MAX_TOKENS = 512
-THREADS = 4
+INTRA_OP_THREADS = 4
 
 
 def setup() -> None:
@@ -35,21 +35,21 @@ def setup() -> None:
         import onnxruntime
         from huggingface_hub import hf_hub_download
     except ImportError as error:
-        raise ImportError(MISSING_MODEL) from error
+        raise ImportError(MISSING_MODEL_MESSAGE) from error
     directory = _directory()
-    if _prepared(directory):
+    if _is_prepared(directory):
         return
-    for name, digest in DOWNLOADS.items():
+    for name, digest in DOWNLOAD_DIGESTS.items():
         path = Path(hf_hub_download(REPOSITORY, name, revision=REVISION, local_dir=directory))
-        if not _intact(path, digest):
+        if not _matches_digest(path, digest):
             raise RuntimeError(f"{path} isn't the expected file; delete it and run setup again.")
-    source = directory / SOURCE
+    source = directory / DOWNLOADED_MODEL
     options = onnxruntime.SessionOptions()
     # The level below ENABLE_ALL, whose layout changes suit only the CPU that saves the graph.
     options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
-    options.optimized_model_filepath = str(directory / GRAPH)
+    options.optimized_model_filepath = str(directory / OPTIMIZED_MODEL)
     options.add_session_config_entry(
-        "session.optimized_model_external_initializers_file_name", f"{GRAPH}.data"
+        "session.optimized_model_external_initializers_file_name", f"{OPTIMIZED_MODEL}.data"
     )
     options.add_session_config_entry(
         "session.optimized_model_external_initializers_min_size_in_bytes", "1024"
@@ -72,14 +72,15 @@ def best_match(
     """The first reference meaning the same as ``answer`` at ``cutoff``, or else the closest.
 
     The score is the lower, over both directions, of entailment minus contradiction, from -1 to
-    1. ``context``, the question in Markdown, comes before both texts as plain text when given.
+    1. ``context``, the question in Markdown, comes before both texts as plain text when
+    given.
     """
-    framed = _framing(context)
+    with_question = _with_question(context)
     closest, highest = 0, -2.0
     for index, reference in enumerate(references):
-        score = _agreement(framed(answer), framed(reference))
+        score = _entailment_score(with_question(answer), with_question(reference))
         if score >= cutoff:
-            score = min(score, _agreement(framed(reference), framed(answer)))
+            score = min(score, _entailment_score(with_question(reference), with_question(answer)))
             if score >= cutoff:
                 return index, True
         if score > highest:
@@ -87,15 +88,15 @@ def best_match(
     return closest, False
 
 
-def says(answer: str, point: str, context: str, cutoff: float) -> bool:
-    """Whether ``answer`` says ``point`` at ``cutoff``: entailment minus contradiction, with the
+def entails(answer: str, point: str, context: str, cutoff: float) -> bool:
+    """Whether ``answer`` entails ``point`` at ``cutoff``: entailment minus contradiction, with the
     whole answer as premise, each framed by ``context`` as in ``best_match``."""
-    framed = _framing(context)
-    return _agreement(framed(answer), framed(point)) >= cutoff
+    with_question = _with_question(context)
+    return _entailment_score(with_question(answer), with_question(point)) >= cutoff
 
 
-def _framing(context: str) -> Callable[[str], str]:
-    question = plain_text(context)
+def _with_question(context: str) -> Callable[[str], str]:
+    question = unescaped_markdown(context)
     return (lambda text: f"Question: {question}\nAnswer: {text}") if question else str
 
 
@@ -103,7 +104,7 @@ def _framing(context: str) -> Callable[[str], str]:
 class _Model:
     session: Any
     tokenizer: Any
-    inputs: frozenset[str]
+    input_names: frozenset[str]
     entailment: int
     contradiction: int
 
@@ -114,9 +115,9 @@ def _model() -> _Model:
         import onnxruntime
         from tokenizers import Tokenizer
     except ImportError as error:
-        raise ImportError(MISSING_MODEL) from error
+        raise ImportError(MISSING_MODEL_MESSAGE) from error
     directory = _directory()
-    if not _prepared(directory):
+    if not _is_prepared(directory):
         setup()
     config = json.loads((directory / "config.json").read_text())
     labels = {label: int(index) for index, label in config["id2label"].items()}
@@ -126,34 +127,34 @@ def _model() -> _Model:
     options = onnxruntime.SessionOptions()
     options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_DISABLE_ALL
     options.inter_op_num_threads = 1
-    options.intra_op_num_threads = THREADS
+    options.intra_op_num_threads = INTRA_OP_THREADS
     options.log_severity_level = 3
     session = onnxruntime.InferenceSession(
-        str(directory / GRAPH), options, providers=["CPUExecutionProvider"]
+        str(directory / OPTIMIZED_MODEL), options, providers=["CPUExecutionProvider"]
     )
     return _Model(
         session,
         tokenizer,
-        frozenset(given.name for given in session.get_inputs()),
+        frozenset(session_input.name for session_input in session.get_inputs()),
         labels["entailment"],
         labels["contradiction"],
     )
 
 
 @functools.lru_cache(maxsize=4096)
-def _agreement(premise: str, hypothesis: str) -> float:
+def _entailment_score(premise: str, hypothesis: str) -> float:
     """Entailment minus contradiction, one pair per call: padded INT8 batches change verdicts."""
     import numpy as np
 
     model = _model()
     encoding = model.tokenizer.encode(premise, hypothesis)
-    feed = {
+    model_inputs = {
         "input_ids": encoding.ids,
         "attention_mask": encoding.attention_mask,
         "token_type_ids": encoding.type_ids,
     }
     [logits] = model.session.run(
-        None, {name: np.asarray([feed[name]], dtype=np.int64) for name in model.inputs}
+        None, {name: np.asarray([model_inputs[name]], dtype=np.int64) for name in model.input_names}
     )[0]
     probabilities = np.exp(logits - logits.max())
     probabilities /= probabilities.sum()
@@ -161,16 +162,17 @@ def _agreement(premise: str, hypothesis: str) -> float:
 
 
 def _directory() -> Path:
-    return cache_directory() / REPOSITORY.replace("/", "--") / DOWNLOADS[SOURCE]
+    return cache_directory() / REPOSITORY.replace("/", "--") / DOWNLOAD_DIGESTS[DOWNLOADED_MODEL]
 
 
-def _prepared(directory: Path) -> bool:
+def _is_prepared(directory: Path) -> bool:
     return all(
-        _intact(directory / name, DOWNLOADS[name]) for name in ("config.json", "tokenizer.json")
-    ) and all((directory / name).is_file() for name in (GRAPH, f"{GRAPH}.data"))
+        _matches_digest(directory / name, DOWNLOAD_DIGESTS[name])
+        for name in ("config.json", "tokenizer.json")
+    ) and all((directory / name).is_file() for name in (OPTIMIZED_MODEL, f"{OPTIMIZED_MODEL}.data"))
 
 
-def _intact(path: Path, digest: str) -> bool:
+def _matches_digest(path: Path, digest: str) -> bool:
     if not path.is_file():
         return False
     with path.open("rb") as file:

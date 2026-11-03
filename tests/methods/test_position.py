@@ -12,7 +12,7 @@ QUESTIONS = QuestionSet.model_validate(
 
 
 @pytest.mark.parametrize(
-    ("question", "value", "answer", "part"),
+    ("question", "value_number", "answer", "expected"),
     [
         ("Q1", None, " 42.0 ", "42"),
         ("Q1", None, "", ""),
@@ -23,7 +23,7 @@ QUESTIONS = QuestionSet.model_validate(
         (None, None, "anything", ""),
     ],
 )
-def test_the_answer_value_is_what_a_check_there_reads_written_alike(
-    question: str | None, value: int | None, answer: str, part: str
+def test_the_answer_value_is_the_value_as_the_question_reads_it(
+    question: str | None, value_number: int | None, answer: str, expected: str
 ) -> None:
-    assert Position(QUESTIONS, question, value).answer_value(answer) == part
+    assert Position(QUESTIONS, question, value_number).answer_value(answer) == expected

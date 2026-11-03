@@ -4,16 +4,16 @@ examples:
       Python code decides the marks:
 
       ```python
-      n = int(answer)
-      correct = n > 100 and all(n % d for d in range(2, int(n**0.5) + 1))
+      number = int(answer)
+      correct = number > 100 and all(number % divisor for divisor in range(2, int(number**0.5) + 1))
       feedback = "Correct." if correct else "Expected a prime greater than 100."
       ```
     questions:
       Q1: {type: number}
     with:
       code: |
-        n = int(answer)
-        correct = n > 100 and all(n % d for d in range(2, int(n**0.5) + 1))
+        number = int(answer)
+        correct = number > 100 and all(number % divisor for divisor in range(2, int(number**0.5) + 1))
         feedback = "Correct." if correct else "Expected a prime greater than 100."
     rows:
       - answers:

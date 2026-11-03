@@ -17,8 +17,8 @@ QUESTIONS = QuestionSet(
 )
 
 
-def names(position: Position) -> list[str]:
-    return [info.name.removeprefix("gradeflow/") for info in compatible_methods(position)]
+def compatible_names(position: Position) -> list[str]:
+    return [method.name.removeprefix("gradeflow/") for method in compatible_methods(position)]
 
 
 def test_compatible_methods_are_the_supplied_objects_in_the_supplied_order() -> None:
@@ -26,14 +26,14 @@ def test_compatible_methods_are_the_supplied_objects_in_the_supplied_order() -> 
     position = Position(QUESTIONS, "Q1")
     compatible = compatible_methods(position, methods=methods)
     expected = [
-        method for method in methods if method.level != "internal" and method.fits(position)
+        method for method in methods if method.level != "internal" and method.can_mark_at(position)
     ]
     assert len(compatible) == len(expected)
     assert all(actual is supplied for actual, supplied in zip(compatible, expected, strict=True))
 
 
 def test_compatible_methods_fit_the_question_or_group() -> None:
-    assert names(Position(QUESTIONS, "Q1")) == [
+    assert compatible_names(Position(QUESTIONS, "Q1")) == [
         "accepted-answers",
         "key-points",
         "answer-criteria",
@@ -45,7 +45,7 @@ def test_compatible_methods_fit_the_question_or_group() -> None:
         "pattern",
         "custom-code",
     ]
-    assert names(Position(QUESTIONS, in_group=True)) == [
+    assert compatible_names(Position(QUESTIONS, in_group=True)) == [
         "combination",
         "conditional",
         "answer-sets",
@@ -54,8 +54,8 @@ def test_compatible_methods_fit_the_question_or_group() -> None:
 
 
 def test_a_value_of_an_answer_offers_what_marks_its_type() -> None:
-    assert names(Position(QUESTIONS, "Q3"))[0] == "multiple-values"
-    assert names(Position(QUESTIONS, "Q3", 2, in_list=True))[:3] == [
+    assert compatible_names(Position(QUESTIONS, "Q3"))[0] == "multiple-values"
+    assert compatible_names(Position(QUESTIONS, "Q3", 2, in_list=True))[:3] == [
         "accepted-answers",
         "number-range",
         "full-marks",
@@ -63,7 +63,7 @@ def test_a_value_of_an_answer_offers_what_marks_its_type() -> None:
 
 
 def test_code_offers_the_methods_that_mark_code() -> None:
-    assert names(Position(QUESTIONS, "Q5")) == [
+    assert compatible_names(Position(QUESTIONS, "Q5")) == [
         "accepted-answers",
         "answer-criteria",
         "full-marks",

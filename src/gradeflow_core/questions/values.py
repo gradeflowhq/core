@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import Field
 
 from ..common.hints import hint
-from ..common.schemas import JsonDict, tag
+from ..common.schemas import JsonDict, type_field
 from .base import Question
 from .layouts import BRACKETS
 from .number import NumberQuestion
@@ -20,58 +20,67 @@ BLANK_SEPARATOR = "~"
 class ValuesQuestion(Question):
     label: ClassVar[str] = "Multiple values"
     summary: ClassVar[str] = "Several values in one answer, such as 3, -2."
-    starting: ClassVar[dict[str, Any]] = {"value_types": ["text", "text"]}
+    new_question_data: ClassVar[dict[str, Any]] = {"value_types": ["text", "text"]}
 
-    type: Literal["values"] = tag("values")
+    type: Literal["values"] = type_field("values")
     reading: ListReading = reading_field(ListReading)
     value_types: list[ValueType] = Field(
         ...,
         min_length=1,
         title="Values",
         description="What each value in an answer is, in order.",
-        json_schema_extra=hint(labels=VALUE_TYPE_LABELS, item="value"),
+        json_schema_extra=hint(labels=VALUE_TYPE_LABELS, item_label="value"),
     )
 
     @property
     def value_count(self) -> int:
         return len(self.value_types)
 
-    def value_question(self, value: int) -> TextQuestion | NumberQuestion | None:
-        if not 1 <= value <= self.value_count:
+    def value_question(self, number: int) -> TextQuestion | NumberQuestion | None:
+        if not 1 <= number <= self.value_count:
             return None
-        return self._value_questions()[value - 1]
+        return self._value_questions()[number - 1]
 
     def _value_questions(self) -> list[TextQuestion | NumberQuestion]:
-        number = NumberQuestion(
+        number_question = NumberQuestion(
             max_marks=self.max_marks, reading=Reading(blank_marker=self.reading.blank_marker)
         )
-        text = TextQuestion(
+        text_question = TextQuestion(
             max_marks=self.max_marks,
             reading=TextReading(**self.reading.model_dump(exclude={"separator"})),
         )
-        return [number if kind == "number" else text for kind in self.value_types]
+        return [
+            number_question if value_type == "number" else text_question
+            for value_type in self.value_types
+        ]
 
     def answer_schema(self) -> JsonDict:
         properties = {
             f"value_{number}": {
                 "type": "string",
-                "title": f"Value {number}, {VALUE_TYPE_LABELS[kind].lower()}",
+                "title": f"Value {number}, {VALUE_TYPE_LABELS[value_type].lower()}",
             }
-            for number, kind in enumerate(self.value_types, 1)
+            for number, value_type in enumerate(self.value_types, 1)
         }
         return {"type": "object", "properties": properties}
 
     def answer_values(self, answer: str) -> dict[str, Any]:
-        written = _unbracketed(answer).split(self.reading.separator) if answer.strip() else []
-        written += [""] * (self.value_count - len(written))
-        return {f"value_{number}": written[number - 1].strip() for number in self._numbers}
+        written_values = (
+            _unbracketed(answer).split(self.reading.separator) if answer.strip() else []
+        )
+        written_values += [""] * (self.value_count - len(written_values))
+        return {
+            f"value_{number}": written_values[number - 1].strip() for number in self._value_numbers
+        }
 
     def answer_from(self, values: Mapping[str, Any]) -> str:
-        written = [str(values.get(f"value_{number}") or "").strip() for number in self._numbers]
-        return self.reading.separator.join(written) if any(written) else ""
+        written_values = [
+            str(values.get(f"value_{number}") or "").strip() for number in self._value_numbers
+        ]
+        return self.reading.separator.join(written_values) if any(written_values) else ""
 
     @property
-    def _numbers(self) -> range:
+    def _value_numbers(self) -> range:
         return range(1, self.value_count + 1)
 
     def python_type(self) -> str:
@@ -89,9 +98,9 @@ class ValuesQuestion(Question):
         ]
 
 
-def _unbracketed(raw: str) -> str:
+def _unbracketed(answer: str) -> str:
     """The values inside one pair of brackets around them, as in `(3, -2)`."""
-    text = raw.strip()
+    text = answer.strip()
     if len(text) > 1 and BRACKETS.get(text[0]) == text[-1]:
         return text[1:-1]
-    return raw
+    return answer

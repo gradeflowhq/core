@@ -12,21 +12,21 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from ..common.exceptions import GradeFlowError
 from ..common.text import (
+    code_span,
+    escaped_markdown,
     format_number,
-    markdown_code,
     markdown_list,
-    markdown_text,
     plain_join,
     plain_markdown,
     quoted,
-    runs_long,
+    reads_better_listed,
 )
 
 REFERENCE = re.compile(r"^\{\{((?:(?!\{\{|\}\}).)+)\}\}$", re.DOTALL)
 """A value that is exactly one reference, which keeps the type of what it refers to."""
 
 
-def _each(write: Callable[[Any], str]) -> Callable[[Any], Any]:
+def _per_item(write: Callable[[Any], str]) -> Callable[[Any], Any]:
     """``write`` as a filter of a value or of each item of a list."""
     return lambda value: (
         [write(item) for item in value] if isinstance(value, list | tuple) else write(value)
@@ -40,21 +40,23 @@ ENVIRONMENT = SandboxedEnvironment(
     lstrip_blocks=True,
     finalize=lambda value: format_number(value) if isinstance(value, float) else value,
 )
-_OWN_FILTERS: dict[str, Callable[..., Any]] = {
+_GRADEFLOW_FILTERS: dict[str, Callable[..., Any]] = {
     "and_list": partial(plain_join, conjunction="and"),
     "or_list": partial(plain_join, conjunction="or"),
-    "quoted": _each(quoted),
-    "code": _each(markdown_code),
-    "text": _each(markdown_text),
-    "long": runs_long,
+    "quoted": _per_item(quoted),
+    "code": _per_item(code_span),
+    "escaped": _per_item(escaped_markdown),
+    "needs_list": reads_better_listed,
     "percent": lambda value: f"{value:.0%}",
-    "described": lambda checks: markdown_list(check.headed() for check in checks),
+    "description_list": lambda checks: markdown_list(
+        check.described_with_heading() for check in checks
+    ),
     "description": lambda check: plain_markdown(check.describe()),
 }
-ENVIRONMENT.filters.update(_OWN_FILTERS)
+ENVIRONMENT.filters.update(_GRADEFLOW_FILTERS)
 FILTERS = frozenset(
     {
-        *_OWN_FILTERS,
+        *_GRADEFLOW_FILTERS,
         "selectattr",
         "rejectattr",
         "map",
@@ -69,7 +71,7 @@ FILTERS = frozenset(
         "round",
     }
 )
-_ALLOWED = (
+_ALLOWED_NODES = (
     nodes.Template,
     nodes.Output,
     nodes.TemplateData,
@@ -92,7 +94,7 @@ _ALLOWED = (
     nodes.Concat,
 )
 
-_KEYWORDS = {
+_STATEMENT_KEYWORDS = {
     "assign": "set",
     "assignblock": "set",
     "callblock": "call",
@@ -121,15 +123,20 @@ EARLIER_RESULT: Mapping[str, Shape] = {
     "skipped": "bool",
 }
 """An earlier check's result, as ``checks.<id>``."""
-PART: Mapping[str, Shape] = {**EARLIER_RESULT, "name": "text", "question": "text"}
+PART_RESULT: Mapping[str, Shape] = {**EARLIER_RESULT, "name": "text", "question": "text"}
 """One of a check's own checks' results, as an item of ``parts``."""
-LOOP: Mapping[str, Shape] = {"index": "number", "first": "bool", "last": "bool", "length": "number"}
-MARKED: Mapping[str, Shape] = {
+LOOP_VARIABLES: Mapping[str, Shape] = {
+    "index": "number",
+    "first": "bool",
+    "last": "bool",
+    "length": "number",
+}
+FEEDBACK_SCOPE: Mapping[str, Shape] = {
     "answer": "text",
     "correct": "bool",
     "proportion": "number",
     "feedback": "text",
-    "parts": ListOf(PART),
+    "parts": ListOf(PART_RESULT),
 }
 """What a check's feedback template sees of how it marked: `feedback` is its method's own."""
 
@@ -140,8 +147,8 @@ class TemplateError(GradeFlowError, ValueError):
 
 def reference(value: Any) -> str | None:
     """The expression of a value that is exactly one ``{{ … }}``."""
-    if isinstance(value, str) and (found := REFERENCE.fullmatch(value.strip())):
-        return found[1].strip()
+    if isinstance(value, str) and (match := REFERENCE.fullmatch(value.strip())):
+        return match[1].strip()
     return None
 
 
@@ -153,7 +160,7 @@ def condition(text: str) -> str:
 
 
 @lru_cache(maxsize=4096)
-def roots(expression: str) -> frozenset[str]:
+def top_level_names(expression: str) -> frozenset[str]:
     """The names ``expression`` reads, such as ``inputs`` and ``checks``."""
     return frozenset(meta.find_undeclared_variables(ENVIRONMENT.parse(f"{{{{ {expression} }}}}")))
 
@@ -163,14 +170,14 @@ def is_template(text: str) -> bool:
     return "{{" in text or "{%" in text
 
 
-def templated(value: Any) -> bool:
+def has_template(value: Any) -> bool:
     """Whether ``value`` has a reference or template in it, so it is only known when it marks."""
     if isinstance(value, str):
         return is_template(value)
     if isinstance(value, Mapping):
-        return any(templated(item) for item in value.values())
+        return any(has_template(item) for item in value.values())
     if isinstance(value, list):
-        return any(templated(item) for item in value)
+        return any(has_template(item) for item in value)
     return False
 
 
@@ -187,8 +194,8 @@ def validate(source: str, scope: Mapping[str, Shape], *, expression: bool = Fals
 
 
 def _walk(node: nodes.Node, scope: dict[str, Shape]) -> None:
-    if not isinstance(node, _ALLOWED):
-        raise _refusal(node)
+    if not isinstance(node, _ALLOWED_NODES):
+        raise _refusal_error(node)
     if isinstance(node, nodes.Getattr) and node.attr.startswith("_"):
         raise TemplateError(f"There's no {node.attr}.")
     if isinstance(node, nodes.For):
@@ -197,12 +204,12 @@ def _walk(node: nodes.Node, scope: dict[str, Shape]) -> None:
     if isinstance(node, nodes.Filter) and node.name not in FILTERS:
         raise TemplateError(f"There's no filter {node.name}.")
     if isinstance(node, nodes.Name | nodes.Getattr | nodes.Getitem):
-        _type(node, scope)
+        _shape_of(node, scope)
     for child in node.iter_child_nodes():
         _walk(child, scope)
 
 
-def _refusal(node: nodes.Node) -> TemplateError:
+def _refusal_error(node: nodes.Node) -> TemplateError:
     name = type(node).__name__.lower()
     if isinstance(node, nodes.Call):
         return TemplateError(
@@ -213,7 +220,7 @@ def _refusal(node: nodes.Node) -> TemplateError:
             "A template can't do arithmetic; use a filter, such as {{ proportion | percent }}."
         )
     if isinstance(node, nodes.Stmt):
-        return TemplateError(f"A template can't use {{% {_KEYWORDS.get(name, name)} %}}.")
+        return TemplateError(f"A template can't use {{% {_STATEMENT_KEYWORDS.get(name, name)} %}}.")
     return TemplateError(f"A template can't use {name} expressions.")
 
 
@@ -221,75 +228,79 @@ def _walk_loop(node: nodes.For, scope: dict[str, Shape]) -> None:
     _walk(node.iter, scope)
     if not isinstance(node.target, nodes.Name):
         raise TemplateError("A loop goes over one name at a time.")
-    inner = {**scope, "loop": LOOP, node.target.name: _element(_type(node.iter, scope))}
+    loop_scope = {
+        **scope,
+        "loop": LOOP_VARIABLES,
+        node.target.name: _item_shape(_shape_of(node.iter, scope)),
+    }
     for child in [*node.body, *node.else_, *([node.test] if node.test else [])]:
-        _walk(child, inner)
+        _walk(child, loop_scope)
 
 
-def _element(kind: Shape) -> Shape:
-    return kind.item if isinstance(kind, ListOf) else "any"
+def _item_shape(shape: Shape) -> Shape:
+    return shape.item if isinstance(shape, ListOf) else "any"
 
 
-def _type(node: nodes.Node, scope: Mapping[str, Shape]) -> Shape:
+def _shape_of(node: nodes.Node, scope: Mapping[str, Shape]) -> Shape:
     if isinstance(node, nodes.Name):
         if node.name not in scope:
             raise TemplateError(f"There's no {node.name}.")
         return scope[node.name]
     if isinstance(node, nodes.Getattr | nodes.Getitem):
-        return _member(node, _type(node.node, scope))
+        return _member_shape(node, _shape_of(node.node, scope))
     if isinstance(node, nodes.Filter):
-        return _filtered(node, _type(node.node, scope) if node.node else "any")
+        return _filtered_shape(node, _shape_of(node.node, scope) if node.node else "any")
     return "any"
 
 
-def unknown_check(name: str) -> str:
+def unknown_check_message(name: str) -> str:
     """What a condition reading a check that isn't before it is told."""
     return f"No check before this one is called {name}."
 
 
-def _member(node: nodes.Getattr | nodes.Getitem, owner: Shape) -> Shape:
+def _member_shape(node: nodes.Getattr | nodes.Getitem, owner_shape: Shape) -> Shape:
     if isinstance(node, nodes.Getitem):
         if not isinstance(node.arg, nodes.Const):
-            if isinstance(owner, Mapping):
+            if isinstance(owner_shape, Mapping):
                 raise TemplateError("Name the field to read with a literal key.")
-            return _element(owner)
+            return _item_shape(owner_shape)
         attribute = node.arg.value
-        if isinstance(owner, ListOf):
-            return owner.item
-        if owner == "text" and isinstance(attribute, int):
+        if isinstance(owner_shape, ListOf):
+            return owner_shape.item
+        if owner_shape == "text" and isinstance(attribute, int):
             return "text"
     else:
         attribute = node.attr
-    if isinstance(owner, Mapping):
-        if attribute not in owner:
+    if isinstance(owner_shape, Mapping):
+        if attribute not in owner_shape:
             if _path(node.node) == "checks":
-                raise TemplateError(unknown_check(str(attribute)))
+                raise TemplateError(unknown_check_message(str(attribute)))
             raise TemplateError(f"{_path(node.node)} has no {attribute}.")
-        return owner[attribute]
-    if owner == "any":
+        return owner_shape[attribute]
+    if owner_shape == "any":
         return "any"
-    raise TemplateError(f"{_path(node.node)} is {owner}, which has no {attribute}.")
+    raise TemplateError(f"{_path(node.node)} is {owner_shape}, which has no {attribute}.")
 
 
-def _filtered(node: nodes.Filter, inner: Shape) -> Shape:
-    """What a filter gives of a value of type ``inner``."""
-    if node.name in ("selectattr", "rejectattr", "quoted", "code", "text", "list"):
-        return inner
+def _filtered_shape(node: nodes.Filter, shape: Shape) -> Shape:
+    """The shape a filter gives of a value of ``shape``."""
+    if node.name in ("selectattr", "rejectattr", "quoted", "code", "escaped", "list"):
+        return shape
     if node.name == "map":
         attribute = next(
             (
-                k.value.value
-                for k in node.kwargs
-                if k.key == "attribute" and isinstance(k.value, nodes.Const)
+                keyword.value.value
+                for keyword in node.kwargs
+                if keyword.key == "attribute" and isinstance(keyword.value, nodes.Const)
             ),
             None,
         )
-        fields = _element(inner)
+        fields = _item_shape(shape)
         return ListOf(
             fields.get(attribute, "any") if attribute and isinstance(fields, Mapping) else "any"
         )
     if node.name in ("first", "last"):
-        return _element(inner)
+        return _item_shape(shape)
     return "number" if node.name in ("length", "round") else "text"
 
 
@@ -310,7 +321,7 @@ def template_errors(
         except TemplateError as error:
             yield ("if",), error
         else:
-            if not roots(expression):
+            if not top_level_names(expression):
                 yield (
                     ("if",),
                     TemplateError(
@@ -320,16 +331,16 @@ def template_errors(
                 )
     feedback = check.get("feedback")
     sources = feedback.items() if isinstance(feedback, Mapping) else [(None, feedback)]
-    for outcome, source in sources:
+    for outcome_key, source in sources:
         if isinstance(source, str):
             try:
-                validate(source, {**scope, **MARKED})
+                validate(source, {**scope, **FEEDBACK_SCOPE})
             except TemplateError as error:
-                yield ("feedback",) if outcome is None else ("feedback", outcome), error
+                yield ("feedback",) if outcome_key is None else ("feedback", outcome_key), error
 
 
 @lru_cache(maxsize=4096)
-def named(source: str, root: str) -> frozenset[str]:
+def names_read(source: str, root: str) -> frozenset[str]:
     """The names a template reads of ``root``, such as the checks a condition reads; none if it
     doesn't parse, which checking it reports."""
     try:
@@ -352,13 +363,13 @@ def named(source: str, root: str) -> frozenset[str]:
     return frozenset(attributes | indexed)
 
 
-def named_in(value: Any, root: str) -> frozenset[str]:
+def names_read_in(value: Any, root: str) -> frozenset[str]:
     """The names the templates anywhere in ``value`` read of ``root``."""
     if isinstance(value, Mapping):
-        return frozenset().union(*(named_in(item, root) for item in value.values()))
+        return frozenset().union(*(names_read_in(item, root) for item in value.values()))
     if isinstance(value, list):
-        return frozenset().union(*(named_in(item, root) for item in value))
-    return named(value, root) if isinstance(value, str) else frozenset()
+        return frozenset().union(*(names_read_in(item, root) for item in value))
+    return names_read(value, root) if isinstance(value, str) else frozenset()
 
 
 def render(source: str, context: Mapping[str, Any]) -> str:

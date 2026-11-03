@@ -23,11 +23,11 @@ def _not_blank(text: str) -> str:
     return text
 
 
-Text = Annotated[str, AfterValidator(_not_blank)]
+NonBlankText = Annotated[str, AfterValidator(_not_blank)]
 """Text a check marks with, such as an accepted answer, which can't be only spaces."""
 
 
-def limits_in_order(low: float | None, high: float | None, message: str) -> None:
+def check_limits_in_order(low: float | None, high: float | None, message: str) -> None:
     """Raises ``ValueError`` with ``message`` if both limits are set and ``high`` is below."""
     if low is not None and high is not None and high < low:
         raise ValueError(message)
@@ -49,14 +49,14 @@ def item_field(info: FieldInfo) -> FieldInfo | None:
     return FieldInfo.from_annotation(get_args(info.annotation)[0])
 
 
-def specialised(
-    settings: type[Settings], *, drop: Iterable[str] = (), **changes: Mapping[str, Any]
+def specialized(
+    settings: type[Settings], *, without: Iterable[str] = (), **changes: Mapping[str, Any]
 ) -> type[Settings]:
-    """``settings`` narrowed to a place in a marking: without the fields in ``drop``, and with
+    """``settings`` narrowed to a place in a marking: without the fields in ``without``, and with
     ``changes``, such as a suggestion hint or narrower type, merged into others."""
     fields: dict[str, Any] = {}
     for name, info in settings.model_fields.items():
-        if name not in drop:
+        if name not in without:
             merged = _changed(info, changes.get(name, {}))
             fields[name] = (merged.annotation, merged)
     return create_model(

@@ -4,7 +4,7 @@ import functools
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
-from . import MISSING_MODEL, cache_directory
+from . import MISSING_MODEL_MESSAGE, cache_directory
 
 if TYPE_CHECKING:
     from fastembed import TextEmbedding
@@ -16,7 +16,7 @@ def _load_model(*, lazy_load: bool = False) -> TextEmbedding:
     try:
         from fastembed import TextEmbedding
     except ImportError as error:
-        raise ImportError(MISSING_MODEL) from error
+        raise ImportError(MISSING_MODEL_MESSAGE) from error
     return TextEmbedding(EMBEDDING_MODEL, cache_dir=str(cache_directory()), lazy_load=lazy_load)
 
 

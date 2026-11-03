@@ -3,7 +3,7 @@ from typing import ClassVar, Literal
 from pydantic import Field
 
 from ..common.hints import hint
-from ..common.schemas import JsonDict, tag
+from ..common.schemas import JsonDict, type_field
 from .base import Question
 from .reading import Reading, read_code, reading_field
 
@@ -12,7 +12,7 @@ class CodeQuestion(Question):
     label: ClassVar[str] = "Code"
     summary: ClassVar[str] = "A program, such as a Python function."
 
-    type: Literal["code"] = tag("code")
+    type: Literal["code"] = type_field("code")
     language: Literal["python"] = Field(
         default="python", title="Language", description="What the answers are written in."
     )

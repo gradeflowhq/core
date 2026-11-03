@@ -1,6 +1,6 @@
 examples:
   - title: Put the stages of mitosis in order.
-    description: Puts `prophase`, `metaphase`, `anaphase`, `telophase` in order, with a share for items in order.
+    description: Puts `prophase`, `metaphase`, `anaphase`, `telophase` in order, with partial marks for items in order.
     questions:
       Q1: {type: values, max_marks: 4, value_types: [text, text, text, text]}
     with:

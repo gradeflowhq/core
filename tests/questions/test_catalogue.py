@@ -16,18 +16,18 @@ from gradeflow_core.editing import HINT_KEY, QUESTION_TYPES, QuestionType, new_q
 def test_catalogue_lists_every_question_type_with_text_first() -> None:
     assert list(QUESTION_TYPES) == ["text", "number", "choice", "values", "code"]
     assert set(QUESTION_TYPES) == set(get_args(QuestionType))
-    assert [kind.label for kind in QUESTION_TYPES.values()] == [
+    assert [question_type.label for question_type in QUESTION_TYPES.values()] == [
         "Text",
         "Number",
         "Choice",
         "Multiple values",
         "Code",
     ]
-    assert all(kind.summary.endswith(".") for kind in QUESTION_TYPES.values())
+    assert all(question_type.summary.endswith(".") for question_type in QUESTION_TYPES.values())
 
 
 def test_catalogue_schemas_describe_editable_fields() -> None:
-    schemas = {name: kind.json_schema() for name, kind in QUESTION_TYPES.items()}
+    schemas = {name: question_type.json_schema() for name, question_type in QUESTION_TYPES.items()}
 
     for question_type, schema in schemas.items():
         assert schema["properties"]["type"]["const"] == question_type
@@ -37,26 +37,29 @@ def test_catalogue_schemas_describe_editable_fields() -> None:
 
 
 def test_catalogue_matches_each_types_own_type() -> None:
-    assert all(kind.model_fields["type"].default == name for name, kind in QUESTION_TYPES.items())
+    assert all(
+        question_type.model_fields["type"].default == name
+        for name, question_type in QUESTION_TYPES.items()
+    )
 
 
 def test_catalogue_fields_read_like_a_form() -> None:
-    schemas = {name: kind.json_schema() for name, kind in QUESTION_TYPES.items()}
-    text, choice, multi = schemas["text"], schemas["choice"], schemas["values"]
+    schemas = {name: question_type.json_schema() for name, question_type in QUESTION_TYPES.items()}
+    text, choice, values_schema = schemas["text"], schemas["choice"], schemas["values"]
 
     assert text["properties"]["max_marks"]["title"] == "Maximum marks"
     assert text["properties"]["description"][HINT_KEY] == {"kind": "markdown"}
     assert choice["properties"]["options"]["title"] == "Options"
-    assert multi["properties"]["value_types"][HINT_KEY]["labels"] == {
+    assert values_schema["properties"]["value_types"][HINT_KEY]["labels"] == {
         "text": "Text",
         "number": "Number",
     }
     for schema in schemas.values():
         for config in schema["$defs"].values():
-            for name, prop in config["properties"].items():
-                assert prop[HINT_KEY]["advanced"] is True, name
-                assert prop["title"], name
-                assert prop["description"].endswith("."), name
+            for name, property_schema in config["properties"].items():
+                assert property_schema[HINT_KEY]["advanced"] is True, name
+                assert property_schema["title"], name
+                assert property_schema["description"].endswith("."), name
 
 
 @pytest.mark.parametrize("question_type", QUESTION_TYPES)
@@ -67,10 +70,10 @@ def test_each_type_offers_a_question_to_start_from(question_type: QuestionType) 
 def test_a_question_of_a_type_is_set_up_as_its_schema_describes() -> None:
     choice = new_question("choice", {"options": ["A", "B", "C"]})
     assert choice.model_dump()["options"] == {"a", "b", "c"}
-    with pytest.raises(InvalidError) as error:
+    with pytest.raises(InvalidError) as caught:
         new_question("choice", {"options": []})
-    assert error.value.problems == [
-        Problem("Add at least one.", field=("options",), incomplete=True)
+    assert caught.value.problems == [
+        Problem("Add at least one.", field=("options",), is_incomplete=True)
     ]
 
 

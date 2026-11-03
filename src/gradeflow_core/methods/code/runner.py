@@ -11,7 +11,7 @@ from typing import IO, Any
 
 import eryx
 
-from ...common.error_formatting import format_reason
+from ...common.error_formatting import shortened_reason
 from ...common.exceptions import GradeFlowError
 from ...common.text import plural
 
@@ -25,30 +25,36 @@ MIN_MEMORY_LIMIT_MB = 32
 MAX_MEMORY_LIMIT_MB = 1024
 OUTPUT_LIMIT_MB = 1
 """Each stream's, as Eryx truncates one at 1 MiB."""
-RESULT_LIMIT_MB = 1
+VARIABLES_LIMIT_MB = 1
 _WORKER_GRACE_S = 5
 """How long the host waits beyond the time limit for a worker, which may first have to start."""
-_PROGRAM = """
+_GUEST_PROGRAM = """
 import json
 
-def tag_set(value):
+def encode_set(value):
     if isinstance(value, (set, frozenset)):
         return {"__set__": list(value)}
     raise TypeError()
 
-def encodes(value):
+def decode_set(value):
+    return set(value["__set__"]) if value.keys() == {"__set__"} else value
+
+def is_encodable(value):
     try:
-        json.dumps(value, default=tag_set)
+        json.dumps(value, default=encode_set)
         return True
     except (TypeError, ValueError, RecursionError):
         return False
 
 def execute(code, variables):
-    scope = json.loads(variables, object_hook=lambda d: set(d["__set__"])
-                       if d.keys() == {"__set__"} else d)
+    scope = json.loads(variables, object_hook=decode_set)
     exec(compile(code, "<code>", "exec"), scope)
-    kept = {k: v for k, v in scope.items() if k != "__builtins__" and encodes(v)}
-    return json.dumps(kept, default=tag_set)
+    returned_variables = {
+        name: value
+        for name, value in scope.items()
+        if name != "__builtins__" and is_encodable(value)
+    }
+    return json.dumps(returned_variables, default=encode_set)
 """
 
 
@@ -56,25 +62,25 @@ class CodeError(GradeFlowError):
     """Code didn't run to the end; ``reason`` says why, without saying it was code."""
 
     def __init__(self, reason: str) -> None:
-        self.reason = format_reason(reason)
+        self.reason = shortened_reason(reason)
         super().__init__(self.reason)
 
 
-def _tag_set(value: object) -> object:
+def _encode_set(value: object) -> object:
     if isinstance(value, set | frozenset):
         return {"__set__": list(value)}
     raise TypeError(f"Object of type {type(value).__name__} is not JSON-serializable")
 
 
-def _untag_set(value: dict[str, Any]) -> Any:
+def _decode_set(value: dict[str, Any]) -> Any:
     return set(value["__set__"]) if value.keys() == {"__set__"} else value
 
 
-def _timed_out(time_limit_s: int) -> CodeError:
+def _timeout_error(time_limit_s: int) -> CodeError:
     return CodeError(f"it took longer than {time_limit_s} {plural('second', time_limit_s)}")
 
 
-def _returned(execution: eryx.ExecuteResult) -> str:
+def _returned_variables(execution: eryx.ExecuteResult) -> str:
     """The variables the guest returned, as JSON. The guest encodes them itself, as Eryx's
     encoding refuses NaN and infinity."""
     if execution.result_error:
@@ -85,25 +91,25 @@ def _returned(execution: eryx.ExecuteResult) -> str:
     encoded = json.loads(execution.result_json)
     if not isinstance(encoded, str):
         raise CodeError("Code returned invalid variables.")
-    if len(encoded.encode()) > RESULT_LIMIT_MB * 1024**2:
-        raise CodeError(f"result exceeded {RESULT_LIMIT_MB} MiB")
+    if len(encoded.encode()) > VARIABLES_LIMIT_MB * 1024**2:
+        raise CodeError(f"result exceeded {VARIABLES_LIMIT_MB} MiB")
     return encoded
 
 
 def _decode(encoded: str) -> dict[str, Any]:
     try:
-        result = json.loads(encoded, object_hook=_untag_set)
+        variables = json.loads(encoded, object_hook=_decode_set)
     except (TypeError, ValueError, RecursionError) as error:
         raise CodeError("Code returned invalid variables.") from error
-    if not isinstance(result, dict):
+    if not isinstance(variables, dict):
         raise CodeError("Code returned invalid variables.")
-    return result
+    return variables
 
 
 def _execute(code: str, variables: str, time_limit_s: int, memory_limit_mb: int) -> str:
     """Runs ``code`` in a fresh sandbox with ``variables``, as JSON, and returns its variables as
     JSON. Runs in a worker, as a sandbox can abort the process running it."""
-    source = f"{_PROGRAM}\nresult = execute({code!r}, {variables!r})\n"
+    source = f"{_GUEST_PROGRAM}\nresult = execute({code!r}, {variables!r})\n"
     cancel = eryx.CancelToken()
     output_bytes = 0
 
@@ -127,11 +133,11 @@ def _execute(code: str, variables: str, time_limit_s: int, memory_limit_mb: int)
     except eryx.InitializationError as error:
         raise GradeFlowError("Couldn't start the Python sandbox.") from error
     try:
-        result = sandbox.execute(source, cancel=cancel)
+        execution = sandbox.execute(source, cancel=cancel)
     except eryx.CancelledError as error:
         raise CodeError(f"output reached the {OUTPUT_LIMIT_MB} MiB limit") from error
     except eryx.TimeoutError as error:
-        raise _timed_out(time_limit_s) from error
+        raise _timeout_error(time_limit_s) from error
     except eryx.PythonExceptionError as error:
         raise CodeError(str(error).strip().splitlines()[-1]) from error
     except eryx.ResourceLimitError as error:
@@ -140,7 +146,7 @@ def _execute(code: str, variables: str, time_limit_s: int, memory_limit_mb: int)
         raise CodeError("Code stopped before returning a result.") from error
     if cancel.cancelled:
         raise CodeError(f"output reached the {OUTPUT_LIMIT_MB} MiB limit")
-    return _returned(result)
+    return _returned_variables(execution)
 
 
 def _send(stream: IO[bytes], message: dict[str, Any]) -> None:
@@ -176,16 +182,16 @@ def _disable_core_dumps() -> None:
 
 
 def _serve() -> None:
-    """Runs each request, a line of stdin, and writes its outcome to stdout."""
+    """Runs each request, a line of stdin, and writes its response to stdout."""
     _disable_core_dumps()
     for line in sys.stdin.buffer:
         try:
-            outcome = {"variables": _execute(**json.loads(line))}
+            response = {"variables": _execute(**json.loads(line))}
         except CodeError as error:
-            outcome = {"error": error.reason}
+            response = {"code_error": error.reason}
         except GradeFlowError as error:
-            outcome = {"failure": str(error)}
-        _send(sys.stdout.buffer, outcome)
+            response = {"sandbox_error": str(error)}
+        _send(sys.stdout.buffer, response)
 
 
 class _Worker:
@@ -196,7 +202,7 @@ class _Worker:
         self._process: subprocess.Popen[bytes] | None = None
 
     def run(self, request: dict[str, Any], timeout_s: float) -> dict[str, str]:
-        process = self._started()
+        process = self._running_process()
         assert process.stdin is not None
         assert process.stdout is not None
         try:
@@ -204,12 +210,12 @@ class _Worker:
             line = _receive(process.stdout, timeout_s)
         except TimeoutError as error:
             self.close()
-            raise _timed_out(request["time_limit_s"]) from error
+            raise _timeout_error(request["time_limit_s"]) from error
         except (EOFError, OSError) as error:
             self.close()
             raise CodeError("it crashed the sandbox") from error
-        outcome: dict[str, str] = json.loads(line)
-        return outcome
+        response: dict[str, str] = json.loads(line)
+        return response
 
     def close(self) -> None:
         process, self._process = self._process, None
@@ -225,7 +231,7 @@ class _Worker:
             process.kill()
             process.wait()
 
-    def _started(self) -> subprocess.Popen[bytes]:
+    def _running_process(self) -> subprocess.Popen[bytes]:
         if self._process is not None and self._process.poll() is None:
             return self._process
         self.close()
@@ -277,16 +283,16 @@ def run(
     """
     request = {
         "code": code,
-        "variables": json.dumps(variables, default=_tag_set),
+        "variables": json.dumps(variables, default=_encode_set),
         "time_limit_s": time_limit_s,
         "memory_limit_mb": memory_limit_mb,
     }
-    outcome = _worker().run(request, time_limit_s + _WORKER_GRACE_S)
-    if "failure" in outcome:
-        raise GradeFlowError(outcome["failure"])
-    if "error" in outcome:
-        raise CodeError(outcome["error"])
-    variables.update(_decode(outcome["variables"]))
+    response = _worker().run(request, time_limit_s + _WORKER_GRACE_S)
+    if "sandbox_error" in response:
+        raise GradeFlowError(response["sandbox_error"])
+    if "code_error" in response:
+        raise CodeError(response["code_error"])
+    variables.update(_decode(response["variables"]))
 
 
 if __name__ == "__main__":

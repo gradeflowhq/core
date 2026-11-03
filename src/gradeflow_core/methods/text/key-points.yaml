@@ -28,19 +28,19 @@ checks:
   - for_each: "{{ inputs.points }}"
     uses: gradeflow/key-point@1
     with:
-      point: "{{ each }}"
+      point: "{{ item }}"
       match: "{{ inputs.match }}"
       strictness: "{{ inputs.strictness }}"
       whole_words: "{{ inputs.whole_words }}"
 feedback: >-
   {% if inputs.combine == "any" and not correct %}Missing {{ inputs.points | quoted | or_list }}.{% elif inputs.combine != "none" %}{{ feedback }}{% elif correct %}Has none of {{ inputs.points | quoted | or_list }}.{% else %}Not allowed. {{ parts | selectattr("correct") | map(attribute="feedback") | join(" ") }}{% endif %}
 description: |-
-  {% if inputs.combine == "none" %}Leaves out{% else %}Includes{% endif %}{% if inputs.points | long %}{% if inputs.combine in ["all", "none"] %} all of these{% elif inputs.combine == "any" %} any of these{% else %} these{% endif %}{% if inputs.whole_words and inputs.match == "exact" %} as whole words{% endif %}{% else %}{% if inputs.whole_words and inputs.match == "exact" %} the whole word{% if inputs.points | length > 1 %}s{% endif %}{% endif %} {% if inputs.combine == "any" %}{{ inputs.points | code | or_list }}{% else %}{{ inputs.points | code | and_list }}{% endif %}{% endif %}{% if inputs.match == "spelling" %} in similar spelling{% elif inputs.match == "meaning" %} in meaning{% endif %}{% if inputs.match != "exact" and inputs.strictness != "normal" %} ({{ inputs.strictness }}){% endif %}{% if inputs.points | length > 1 %}{% if inputs.combine == "proportional" %}, each counting{% elif inputs.combine == "total" %}, a mark each{% endif %}{% endif %}{% if inputs.points | long %}:
+  {% if inputs.combine == "none" %}Doesn't include{% else %}Includes{% endif %}{% if inputs.points | needs_list %}{% if inputs.combine in ["all", "none"] %} all of these{% elif inputs.combine == "any" %} any of these{% else %} these{% endif %}{% if inputs.whole_words and inputs.match == "exact" %} as whole words{% endif %}{% else %}{% if inputs.whole_words and inputs.match == "exact" %} the whole word{% if inputs.points | length > 1 %}s{% endif %}{% endif %} {% if inputs.combine == "any" %}{{ inputs.points | code | or_list }}{% else %}{{ inputs.points | code | and_list }}{% endif %}{% endif %}{% if inputs.match == "spelling" %} in similar spelling{% elif inputs.match == "meaning" %} in meaning{% endif %}{% if inputs.match != "exact" and inputs.strictness != "normal" %} ({{ inputs.strictness }}){% endif %}{% if inputs.points | length > 1 %}{% if inputs.combine == "proportional" %}, a share for each{% elif inputs.combine == "total" %}, a mark each{% endif %}{% endif %}{% if inputs.points | needs_list %}:
   {% for point in inputs.points %}{% if not loop.first %}{{ "\n" }}{% endif %}- {{ point | code }}{% endfor %}{% else %}.{% endif %}
 examples:
   - title: What does a plant need for photosynthesis?
     description: |-
-      Includes `light`, `water` and `carbon dioxide`, each counting.
+      Includes `light`, `water` and `carbon dioxide`, a share for each.
     questions:
       Q1: {type: text, max_marks: 3}
     with:
@@ -96,7 +96,7 @@ examples:
           Q1: {marks: 0.0, feedback: Missing “photosynthesis”.}
   - title: Why does ice float on water?
     description: |-
-      Includes `Ice is less dense than water` and `Water expands when it freezes` in meaning, each counting.
+      Includes `Ice is less dense than water` and `Water expands when it freezes` in meaning, a share for each.
     questions:
       Q1: {type: text, max_marks: 2, description: Why does ice float on water?}
     with:

@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from ...common.hints import hint
-from ...common.paths import Loc
+from ...common.paths import Location
 from ...questions import TYPE_LABELS
 from ...questions.types import QuestionType
 from ..example import Example
@@ -14,7 +14,7 @@ from ..method import Level
 
 COMBINATION = Combination().ref
 """What a method file's checks and ``combine`` make up."""
-BODY = ("checks", "combine")
+COMBINATION_KEYS = ("checks", "combine")
 """What of a method file is the settings of its Combination."""
 TEMPLATE_KEYS = frozenset({"if", "feedback"})
 """Keys of a check in a method file that hold templates, rendered when it marks."""
@@ -47,7 +47,7 @@ class Input(BaseModel):
     """The input applies only when other inputs have these values, as a setting's hint says."""
     examples: list[JsonValue] | None = None
     items: dict[str, ItemField] | None = None
-    """For a list a repeated check goes through: the fields ``each.…`` names, titled for it
+    """For a list a repeated check goes through: the fields ``item.…`` names, titled for it
     rather than as the settings they fill."""
 
 
@@ -78,16 +78,16 @@ class MethodFile(BaseModel):
         ),
     )
     question_types: list[QuestionType] | Literal["all"] = Field(
-        default=[], title="Answer types", json_schema_extra=hint(labels=TYPE_LABELS)
+        default=[], title="Question types", json_schema_extra=hint(labels=TYPE_LABELS)
     )
-    group: bool = False
+    marks_question_group: bool = False
     inputs: dict[str, Input] = {}
     combine: JsonValue = "all"
     checks: list[JsonValue] | str
     description: str | None = Field(
         default=None,
-        title="Summary template",
-        description="Replaces the summary its checks write.",
+        title="Description template",
+        description="Replaces the description its checks write.",
         json_schema_extra=hint(kind="markdown", advanced=True),
     )
     feedback: str | None = Field(
@@ -98,39 +98,44 @@ class MethodFile(BaseModel):
     )
     examples: list[Example] = []
 
-    def body(self) -> dict[str, Any]:
+    def combination(self) -> dict[str, Any]:
         """The Combination the method is, with the inputs not yet filled in."""
-        return to_body(self.model_dump(include=set(BODY)))
+        return as_combination(self.model_dump(include=set(COMBINATION_KEYS)))
 
 
-def to_body(file: Mapping[str, Any]) -> dict[str, Any]:
+def as_combination(file: Mapping[str, Any]) -> dict[str, Any]:
     """A method file's checks as the Combination of them."""
-    return {"uses": COMBINATION, "with": {key: deepcopy(file[key]) for key in BODY if key in file}}
+    return {
+        "uses": COMBINATION,
+        "with": {key: deepcopy(file[key]) for key in COMBINATION_KEYS if key in file},
+    }
 
 
-def to_file_body(check: Mapping[str, Any]) -> dict[str, Any]:
+def as_file_checks(check: Mapping[str, Any]) -> dict[str, Any]:
     """A check as a method file's checks: a Combination's own, or else the check alone."""
     if check.get("uses") == COMBINATION and check.keys() <= {"uses", "with"}:
-        return {key: value for key, value in check.get("with", {}).items() if key in BODY}
+        return {
+            key: value for key, value in check.get("with", {}).items() if key in COMBINATION_KEYS
+        }
     return {"checks": [check]}
 
 
-class Fault(ValueError):
-    def __init__(self, message: str, path: Loc) -> None:
+class MethodFileFieldError(ValueError):
+    def __init__(self, message: str, path: Location) -> None:
         super().__init__(message)
         self.path = path
 
 
-def methods_used(data: Any) -> set[str]:
+def methods_used(yaml_data: Any) -> set[str]:
     """The method references at any depth in a marking or method file, as YAML holds it."""
-    if isinstance(data, Mapping):
-        own = {data["uses"]} if isinstance(data.get("uses"), str) else set()
-        return own.union(*(methods_used(value) for value in data.values()))
-    if isinstance(data, list):
-        return set().union(*(methods_used(item) for item in data))
+    if isinstance(yaml_data, Mapping):
+        used_here = {yaml_data["uses"]} if isinstance(yaml_data.get("uses"), str) else set()
+        return used_here.union(*(methods_used(value) for value in yaml_data.values()))
+    if isinstance(yaml_data, list):
+        return set().union(*(methods_used(item) for item in yaml_data))
     return set()
 
 
-def definition_references(file: MethodFile) -> set[str]:
+def methods_used_by_file(file: MethodFile) -> set[str]:
     """Composition references, including defaults; examples are evaluated separately."""
     return methods_used(file.model_dump(exclude={"examples"}))

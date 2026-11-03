@@ -14,20 +14,20 @@ from gradeflow_core import (
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.text import TextQuestion
 
-QID = "Q1"
-CODE = CodeQuestion()
+QUESTION_ID = "Q1"
+CODE_QUESTION = CodeQuestion()
 
 
-def scheme(*markings: Mapping[str, Any], methods: Methods = BUILTINS) -> MarkScheme:
+def mark_scheme_of(*markings: Mapping[str, Any], methods: Methods = BUILTINS) -> MarkScheme:
     return MarkScheme.load(list(markings), methods=methods)
 
 
-def accepted(answer: str, **keys: Any) -> dict[str, Any]:
-    return {**keys, "uses": "gradeflow/accepted-answers@1", "with": {"answers": [answer]}}
+def accepted_answer(answer: str, **check_keys: Any) -> dict[str, Any]:
+    return {**check_keys, "uses": "gradeflow/accepted-answers@1", "with": {"answers": [answer]}}
 
 
-def key_point(point: str, **keys: Any) -> dict[str, Any]:
-    return {**keys, "uses": "gradeflow/key-point@1", "with": {"point": point}}
+def key_point(point: str, **check_keys: Any) -> dict[str, Any]:
+    return {**check_keys, "uses": "gradeflow/key-point@1", "with": {"point": point}}
 
 
 def code_tests(*tests: Mapping[str, Any], **settings: Any) -> dict[str, Any]:
@@ -43,14 +43,14 @@ def mark_all(
 ) -> list[QuestionResult]:
     """How ``check`` marks each answer to Q1, a text question unless ``question`` says, with the
     ``options`` of ``mark``."""
-    questions = QuestionSet({QID: question or TextQuestion()})
-    marking = scheme({"question": QID, **check}, methods=methods)
+    questions = QuestionSet({QUESTION_ID: question or TextQuestion()})
+    mark_scheme = mark_scheme_of({"question": QUESTION_ID, **check}, methods=methods)
     submissions = [
-        Submission(student_id=str(index), answers={QID: answer})
+        Submission(student_id=str(index), answers={QUESTION_ID: answer})
         for index, answer in enumerate(answers)
     ]
-    marked = gradeflow_core.mark(questions, marking, submissions, **options)
-    return [submission.results[QID] for submission in marked]
+    marked_submissions = gradeflow_core.mark(questions, mark_scheme, submissions, **options)
+    return [submission.results[QUESTION_ID] for submission in marked_submissions]
 
 
 def mark(check: Mapping[str, Any], answer: str, question: Question | None = None) -> QuestionResult:
@@ -63,7 +63,7 @@ def mark_group(
 ) -> dict[str, QuestionResult]:
     question_set = QuestionSet(dict(questions))
     [submission] = gradeflow_core.mark(
-        question_set, scheme(marking), [Submission(student_id="s", answers=dict(answers))]
+        question_set, mark_scheme_of(marking), [Submission(student_id="s", answers=dict(answers))]
     )
     return submission.results
 
@@ -71,8 +71,8 @@ def mark_group(
 def problems_of(
     check: Mapping[str, Any], question: Question | None = None
 ) -> list[tuple[str, tuple[Any, ...], str]]:
-    questions = QuestionSet({QID: question or TextQuestion()})
-    [marking] = scheme({"question": QID, **check}).markings
+    questions = QuestionSet({QUESTION_ID: question or TextQuestion()})
+    [marking] = mark_scheme_of({"question": QUESTION_ID, **check}).markings
     return [
         (problem.check, problem.field, problem.message) for problem in marking.problems(questions)
     ]
@@ -83,5 +83,5 @@ def proportions(results: list[QuestionResult]) -> list[float]:
 
 
 def describe(check: Mapping[str, Any]) -> str:
-    [marking] = scheme({"question": QID, **check}).markings
+    [marking] = mark_scheme_of({"question": QUESTION_ID, **check}).markings
     return marking.describe()

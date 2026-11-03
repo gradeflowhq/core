@@ -58,7 +58,7 @@ def test_checks_mark_only_where_they_can() -> None:
         key_point("a"),
         {"question": "Q3", "uses": "gradeflow/multiple-choice@1", "with": {"correct": ["a"]}},
     ) == [
-        ("markings.0", ("question",), "Q9 isn't in the supplied questions."),
+        ("markings.0", ("question",), "Q9 isn't one of the questions."),
         ("markings.1", (), "Key Points can't mark a number question."),
         ("markings.2", ("question",), "Choose the question it checks."),
         ("markings.3", (), "Multiple Choice can't mark a multiple values question."),
@@ -121,11 +121,11 @@ def test_markings_read_their_marked_questions_and_dependencies() -> None:
 )
 def test_checks_written_without_their_defaults_read_back_the_same(method: Method[Any]) -> None:
     for example in method.examples:
-        data: dict[str, Any] = {"uses": method.ref, "with": example.with_}
+        check: dict[str, Any] = {"uses": method.ref, "with": example.with_}
         if len(example.questions) == 1:
-            data["question"] = next(iter(example.questions))
-        written = Check.load(data).dump()
-        assert Check.load(written).dump() == written
+            check["question"] = next(iter(example.questions))
+        dumped = Check.load(check).dump()
+        assert Check.load(dumped).dump() == dumped
 
 
 def test_loading_markings_that_arent_checks_says_where_each_problem_is() -> None:

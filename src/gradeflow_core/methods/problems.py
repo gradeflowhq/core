@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from ..common.exceptions import InvalidError
-from ..common.paths import Loc, join
-from ..common.problems import Problem, placed
+from ..common.paths import Location, join
+from ..common.problems import Problem, at_innermost_check
 from ..questions.question_set import QuestionSet
 from .position import Position
 from .templates import EARLIER_RESULT, ListOf, Shape, TemplateError, template_errors
@@ -20,107 +20,124 @@ if TYPE_CHECKING:
 def located_problems(
     marking: Check,
     questions: QuestionSet,
-    at: Loc = (),
+    location: Location = (),
     *,
     scope: Mapping[str, Shape] = {},
-    is_check: Callable[[Loc], bool] | None = None,
+    is_check: Callable[[Location], bool] | None = None,
 ) -> list[Problem]:
-    """The problems of a marking found at ``at``, as in a mark scheme. Its templates may name
+    """The problems of a marking found at ``location``, as in a mark scheme. Its templates may name
     ``scope`` too, as the checks of a method name its inputs. ``is_check`` says where its data has
     a check, when that isn't where the marking has one."""
     position = Position(questions, marking.question, in_group=marking.question is None)
     try:
-        locations = {id(check): loc for loc, check in written_checks(marking, at)}
-        found = list(_problems(marking, position, at, at, scope, {}, locations))
+        locations = {
+            id(check): check_location for check_location, check in written_checks(marking, location)
+        }
+        problems_with_locations = list(
+            _problems(marking, position, location, location, scope, {}, locations)
+        )
         if marking.question is not None:
-            outside = (marking.questions_read() | marking.questions_marked()) - {marking.question}
-            if outside:
-                read = ", ".join(sorted(outside))
-                found.append((at, Problem(f"Use a group marking to read or award {read}.")))
+            other_questions = (marking.questions_read() | marking.questions_marked()) - {
+                marking.question
+            }
+            if other_questions:
+                question_list = ", ".join(sorted(other_questions))
+                problems_with_locations.append(
+                    (location, Problem(f"Use a group marking to read or award {question_list}."))
+                )
     except InvalidError as error:
         # A check generated inside a composed method: name its settings, not where they are written.
         message = " ".join(map(str, error.problems))
-        return [Problem(f"{marking.method.label}: {message}", join(*at))]
+        return [Problem(f"{marking.method.label}: {message}", join(*location))]
     except TemplateError as error:
-        return [Problem(f"{marking.method.label}: {error}", join(*at))]
-    editable = set(locations.values())
-    is_check = is_check or (lambda loc: loc in editable)
-    return [placed(problem, loc, is_check) for loc, problem in found]
+        return [Problem(f"{marking.method.label}: {error}", join(*location))]
+    written_locations = set(locations.values())
+    is_check = is_check or (lambda check_location: check_location in written_locations)
+    return [
+        at_innermost_check(problem, problem_location, is_check)
+        for problem_location, problem in problems_with_locations
+    ]
 
 
 def _problems(
     check: Check,
     position: Position,
-    at: Loc,
-    owner: Loc,
+    location: Location,
+    written_location: Location,
     scope: Mapping[str, Shape],
     earlier: Mapping[str, Shape],
-    locations: Mapping[int, Loc],
-) -> Iterator[tuple[Loc, Problem]]:
-    """Each problem with where it is, as YAML holds the marking. ``owner`` is where the check
-    written in the marking is: the check itself, or the one using the composed method that
+    locations: Mapping[int, Location],
+) -> Iterator[tuple[Location, Problem]]:
+    """Each problem with where it is, as YAML holds the marking. ``written_location`` is where the
+    check written in the marking is: the check itself, or the one using the composed method that
     generated it, which has its problems as a whole."""
     if id(check) in locations:
-        at = owner = locations[id(check)]
+        location = written_location = locations[id(check)]
 
-    def here(loc: Loc, problem: Problem) -> tuple[Loc, Problem]:
-        return (loc if at == owner else owner), problem
+    def at_written_check(problem_location: Location, problem: Problem) -> tuple[Location, Problem]:
+        return (problem_location if location == written_location else written_location), problem
 
-    if cant := _cant_mark_here(check, position):
-        field, message = cant
-        yield here((*at, *field), Problem(message))
+    if cannot_mark_reason := _cannot_mark_reason(check, position):
+        field, message = cannot_mark_reason
+        yield at_written_check((*location, *field), Problem(message))
         return
     method = check.method
-    own = position.at(check.question, check.value)
-    yield from (here(*found) for found in _template_problems(check, at, scope, earlier))
-    for found in method.problems(check, own):
-        yield here((*at, "with", *found.field), found)
-    lists: dict[Loc, dict[str, Any]] = {}
-    for loc, inner, in_list in method.expanded_checks(check):
-        slot = loc[:-1] if in_list else loc
-        siblings = lists.setdefault(slot, dict(earlier))
+    check_position = position.for_check(check.question, check.value)
+    for problem_location, problem in _template_problems(check, location, scope, earlier):
+        yield at_written_check(problem_location, problem)
+    for problem in method.problems(check, check_position):
+        yield at_written_check((*location, "with", *problem.field), problem)
+    earlier_by_list: dict[Location, dict[str, Any]] = {}
+    for inner_location, inner, in_list in method.expanded_checks(check):
+        list_location = inner_location[:-1] if in_list else inner_location
+        siblings = earlier_by_list.setdefault(list_location, dict(earlier))
         if inner.id is not None and inner.id in siblings and in_list:
-            yield here((*at, *loc, "id"), Problem(f"Another check here is called {inner.id}."))
-        inside = method.inside(position.inside(check.question, check.value, in_list=in_list), loc)
+            yield at_written_check(
+                (*location, *inner_location, "id"),
+                Problem(f"Another check here is called {inner.id}."),
+            )
+        inner_position = method.inner_position(
+            position.inner_position(check.question, check.value, in_list=in_list), inner_location
+        )
         yield from _problems(
             inner,
-            inside,
-            (*at, *loc),
-            owner,
+            inner_position,
+            (*location, *inner_location),
+            written_location,
             scope,
-            siblings if method.ordered(dict(check.with_)) else earlier,
+            siblings if method.reads_earlier_results(dict(check.with_)) else earlier,
             locations,
         )
         if inner.id is not None:
             siblings[inner.id] = EARLIER_RESULT
 
 
-def _cant_mark_here(check: Check, position: Position) -> tuple[Loc, str] | None:
+def _cannot_mark_reason(check: Check, position: Position) -> tuple[Location, str] | None:
     """What stops the check marking where it is, at its field at fault; until it can, nothing
     else about it matters."""
     if check.question is not None and check.question not in position.questions:
-        return ("question",), f"{check.question} isn't in the supplied questions."
-    own = position.at(check.question, check.value)
-    if check.value is not None and (message := _value_problem(check.value, own)):
+        return ("question",), f"{check.question} isn't one of the questions."
+    check_position = position.for_check(check.question, check.value)
+    if check.value is not None and (message := _value_problem(check.value, check_position)):
         return ("value",), message
-    if own.question is None and not check.method.group:
+    if check_position.question is None and not check.method.marks_question_group:
         return ("question",), "Choose the question it checks."
-    if message := misfit(check.method, own):
+    if message := misfit_reason(check.method, check_position):
         return (), message
     return None
 
 
-def written_checks(check: Check, at: Loc = ()) -> Iterator[tuple[Loc, Check]]:
-    """``check`` at ``at`` and the checks written in its settings, each where it is."""
-    yield at, check
-    for loc, inner, _ in check.method.inner_checks(check):
-        yield from written_checks(inner, (*at, *loc))
+def written_checks(check: Check, location: Location = ()) -> Iterator[tuple[Location, Check]]:
+    """``check`` at ``location`` and the checks written in its settings, each where it is."""
+    yield location, check
+    for inner_location, inner, _ in check.method.inner_checks(check):
+        yield from written_checks(inner, (*location, *inner_location))
 
 
-def _value_problem(value: int, own: Position) -> str | None:
-    if own.value_fixed:
+def _value_problem(value: int, check_position: Position) -> str | None:
+    if check_position.value_fixed:
         return "Its place in the list sets the value it checks."
-    question = own.questions.get(own.question or "")
+    question = check_position.questions.get(check_position.question or "")
     count = question.value_count if question else 0
     if not count:
         return "Only a question with several values has values to check."
@@ -129,14 +146,14 @@ def _value_problem(value: int, own: Position) -> str | None:
     return None
 
 
-def misfit(method: Method[Any], position: Position) -> str | None:
+def misfit_reason(method: Method[Any], position: Position) -> str | None:
     """Why ``method`` can't mark at ``position``, if it can't."""
-    if method.fits(position):
+    if method.can_mark_at(position):
         return None
-    return f"{method.label} can't mark {_what(position)}."
+    return f"{method.label} can't mark {_position_kind(position)}."
 
 
-def _what(position: Position) -> str:
+def _position_kind(position: Position) -> str:
     question = position.question_model
     if question is None:
         return "a question group"
@@ -146,12 +163,14 @@ def _what(position: Position) -> str:
 
 
 def _template_problems(
-    check: Check, at: Loc, scope: Mapping[str, Shape], earlier: Mapping[str, Shape]
-) -> Iterator[tuple[Loc, Problem]]:
-    written = check.model_dump(mode="json", by_alias=True, include={"if_", "feedback"})
-    own = {key: _shape(value) for key, value in check.scope.items()}
-    for loc, error in template_errors(written, {**scope, **own, "checks": dict(earlier)}):
-        yield (*at, *loc), Problem(str(error))
+    check: Check, location: Location, scope: Mapping[str, Shape], earlier: Mapping[str, Shape]
+) -> Iterator[tuple[Location, Problem]]:
+    templates = check.model_dump(mode="json", by_alias=True, include={"if_", "feedback"})
+    scope_shapes = {key: _shape(value) for key, value in check.scope.items()}
+    for template_location, error in template_errors(
+        templates, {**scope, **scope_shapes, "checks": dict(earlier)}
+    ):
+        yield (*location, *template_location), Problem(str(error))
 
 
 def _shape(value: Any) -> Shape:

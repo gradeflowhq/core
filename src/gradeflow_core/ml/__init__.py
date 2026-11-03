@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-MISSING_MODEL = (
+MISSING_MODEL_MESSAGE = (
     "Comparing by meaning requires gradeflow-core[ml]. "
     "Install it, then run python -m gradeflow_core setup."
 )

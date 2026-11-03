@@ -6,7 +6,7 @@ import pytest
 
 from gradeflow_core.questions.layouts import guess_layouts
 
-TUNED = {
+TUNING_SAMPLES = {
     "first_positive": """def first_positive(xs):
     for x in xs:
         if x > 0:
@@ -117,7 +117,7 @@ def sum_squares(xs):
 }
 
 # Never used to choose or tune a rule.
-HELD_OUT = {
+UNSEEN_SAMPLES = {
     "grade": """def grade(score):
     if score >= 80:
         letter = "A"
@@ -298,24 +298,24 @@ def variance(xs):
 }
 
 
-def flat(code: str) -> str:
+def without_indentation(code: str) -> str:
     return "\n".join(line.lstrip() for line in code.splitlines())
 
 
 def rank(code: str) -> int | None:
     """Where the layout meant comes among the first three guesses, from 1."""
-    guesses = guess_layouts(flat(code), 3)
+    guesses = guess_layouts(without_indentation(code), 3)
     return guesses.index(code) + 1 if code in guesses else None
 
 
-@pytest.mark.parametrize("name", TUNED)
-def test_tuned_cases_come_first(name: str) -> None:
-    assert rank(TUNED[name]) == (2 if name == "bfs" else 1)
+@pytest.mark.parametrize("name", TUNING_SAMPLES)
+def test_tuning_samples_come_first(name: str) -> None:
+    assert rank(TUNING_SAMPLES[name]) == (2 if name == "bfs" else 1)
 
 
-@pytest.mark.parametrize("name", HELD_OUT)
-def test_held_out_cases_come_in_the_first_three(name: str) -> None:
-    assert rank(HELD_OUT[name]) is not None
+@pytest.mark.parametrize("name", UNSEEN_SAMPLES)
+def test_unseen_samples_come_in_the_first_three(name: str) -> None:
+    assert rank(UNSEEN_SAMPLES[name]) is not None
 
 
 @pytest.mark.parametrize(
@@ -334,12 +334,12 @@ def test_code_no_layout_compiles_has_none(code: str) -> None:
 
 
 def test_leftover_indentation_is_ignored() -> None:
-    code = TUNED["first_positive"]
+    code = TUNING_SAMPLES["first_positive"]
     assert guess_layouts(code.replace("\n        ", "\n "), 1) == [code]
 
 
 def test_limit_caps_the_layouts() -> None:
-    code = flat("def f(xs):\nfor x in xs:\nif x:\nprint(x)\nprint(xs)")
+    code = without_indentation("def f(xs):\nfor x in xs:\nif x:\nprint(x)\nprint(xs)")
     guesses = guess_layouts(code, 10)
     assert len(guesses) > 2
     assert guess_layouts(code, 2) == guesses[:2]
@@ -354,12 +354,12 @@ def test_brackets_continue_their_statement() -> None:
     return {
         "total": total,
     }"""
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_backslash_continues_its_statement() -> None:
     code = "def f(a, b):\n    total = a + \\\n        b\n    return total"
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_string_lines_stay_as_typed() -> None:
@@ -372,8 +372,8 @@ def test_string_lines_stay_as_typed() -> None:
  # not a comment
 """
     return s'''
-    typed = code.replace("\n    ", "\n")
-    assert guess_layouts(typed, 1) == [code]
+    unindented = code.replace("\n    ", "\n")
+    assert guess_layouts(unindented, 1) == [code]
 
 
 def test_strings_and_comparisons_do_not_read_as_names_or_assignments() -> None:
@@ -384,7 +384,7 @@ def test_strings_and_comparisons_do_not_read_as_names_or_assignments() -> None:
             out.append(x)
     print("x")
     return out"""
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_comments_take_the_depth_of_the_statement_after() -> None:
@@ -397,12 +397,12 @@ def f(xs):
         total += x  # running
     return total
     # done"""
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_blank_lines_stay_blank() -> None:
     code = "def a():\n    return 1\n\n\ndef b():\n\n    return 2"
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_continuation_keywords_line_up_with_their_block() -> None:
@@ -420,12 +420,12 @@ def test_continuation_keywords_line_up_with_their_block() -> None:
             return ""
     finally:
         print(path)"""
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_one_line_blocks_can_be_continued() -> None:
     code = "def f(x):\n    if x: y = 1\n    else: y = 2\n    return y"
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_decorated_methods_stay_in_their_class() -> None:
@@ -438,7 +438,7 @@ def test_decorated_methods_stay_in_their_class() -> None:
     @staticmethod
     def origin():
         return Point(0)"""
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_lines_using_a_functions_names_stay_in_it() -> None:
@@ -446,11 +446,11 @@ def test_lines_using_a_functions_names_stay_in_it() -> None:
     message = "Hi " + name
     print(message)
 print(greet("Ana"))"""
-    assert guess_layouts(flat(code), 1) == [code]
+    assert guess_layouts(without_indentation(code), 1) == [code]
 
 
 def test_long_answers_are_fast() -> None:
-    body = flat(TUNED["count_words"])
+    body = without_indentation(TUNING_SAMPLES["count_words"])
     code = "\n".join(body.replace("count_words", f"count_{i}") for i in range(8))
     start = time.perf_counter()
     guesses = guess_layouts(code, 3)
@@ -468,7 +468,7 @@ def test_long_functions_are_fast() -> None:
     assert guesses
 
 
-def test_hopeless_long_answers_stop_in_time() -> None:
+def test_long_code_that_no_indentation_compiles_stops_in_time() -> None:
     code = "\n".join(["x = 0", *["if x:\nx += 1"] * 50, "return x"])
     start = time.perf_counter()
     assert guess_layouts(code, 3) == []

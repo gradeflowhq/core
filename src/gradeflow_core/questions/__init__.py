@@ -22,16 +22,18 @@ else:
         Field(discriminator="type"),
     ]
     """A question of any type, validated as the type its ``type`` names."""
-ANY_QUESTION: TypeAdapter[AnyQuestion] = TypeAdapter(AnyQuestion)
+QUESTION_ADAPTER: TypeAdapter[AnyQuestion] = TypeAdapter(AnyQuestion)
 QUESTION_TYPES: Mapping[QuestionType, type[Question]] = MappingProxyType(
     {cls.model_fields["type"].default: cls for cls in get_args(get_args(AnyQuestion)[0])}
 )
 """Each type of question, in catalogue order: the first is the default for new questions."""
-TYPE_LABELS = {kind: cls.label for kind, cls in QUESTION_TYPES.items()}
+TYPE_LABELS = {question_type: cls.label for question_type, cls in QUESTION_TYPES.items()}
 
 
 def new_question(question_type: QuestionType, data: Mapping[str, Any] | None = None) -> Question:
     """A question of ``question_type`` from ``data``, as its JSON schema describes it; without it,
     one to start from. Raises ``InvalidError`` if it isn't valid."""
-    kind = QUESTION_TYPES[question_type]
-    return kind.load({**(kind.starting if data is None else data), "type": question_type})
+    question_class = QUESTION_TYPES[question_type]
+    return question_class.load(
+        {**(question_class.new_question_data if data is None else data), "type": question_type}
+    )

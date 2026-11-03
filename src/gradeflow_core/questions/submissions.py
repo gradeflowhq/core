@@ -11,7 +11,9 @@ class AnswerSheet(BaseModel):
     answers: dict[QuestionId, str]
     marks: dict[QuestionId, float] = Field(
         default_factory=dict,
-        description="Marks already given, such as by an exam system, kept where nothing marks",
+        description=(
+            "Marks already given, such as by an exam system, used for questions no marking marks"
+        ),
     )
 
 

@@ -5,7 +5,13 @@ from pydantic import Field, field_validator
 
 from ...common.hints import hint
 from ...common.problems import Problem
-from ...common.text import markdown_code_list, markdown_join, quoted_join, runs_long, sentence
+from ...common.text import (
+    as_sentence,
+    code_join,
+    markdown_code_list,
+    quoted_join,
+    reads_better_listed,
+)
 from ...questions.base import Question
 from ...questions.choice import ChoiceQuestion
 from ...questions.types import Answer
@@ -14,15 +20,15 @@ from ..example import examples_beside
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
-from ..settings import Settings, literal, specialised
+from ..settings import Settings, literal, specialized
 
-Compare = Literal["exactly", "all", "none", "any", "each"]
+Compare = Literal["exactly", "all", "none", "any", "share_each"]
 COMPARE_LABELS = {
     "exactly": "Exactly these",
-    "all": "All of these, extras allowed",
+    "all": "All of these, other options allowed",
     "none": "None of these",
     "any": "Any one of these",
-    "each": "Each one counts",
+    "share_each": "A share for each",
 }
 
 
@@ -35,23 +41,23 @@ class MultipleChoiceSettings(Settings):
     compare: Compare = Field(
         default="exactly",
         title="How to compare",
-        description="Each one counts gives a share for each right option and takes one off for "
-        "each wrong one.",
+        description="A share for each gives a share for each correct option and a penalty of one "
+        "share for each wrong one.",
         json_schema_extra=hint(labels=COMPARE_LABELS),
     )
 
     @field_validator("correct")
     @classmethod
-    def _once_each(cls, correct: list[str]) -> list[str]:
+    def _without_duplicates(cls, correct: list[str]) -> list[str]:
         return list(dict.fromkeys(correct))
 
 
-_LISTED = {
+_DESCRIPTION_OPENINGS = {
     "exactly": "Chooses exactly these",
-    "all": "Chooses all of these, extras allowed",
+    "all": "Chooses all of these, other options allowed",
     "none": "Chooses none of these",
     "any": "Chooses any of these",
-    "each": "Chooses these, each counting",
+    "share_each": "Chooses these, a share for each",
 }
 """How a description listing the options opens, for each way of comparing."""
 
@@ -60,81 +66,84 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
     name = "gradeflow/multiple-choice"
     version = 1
     label = "Multiple Choice"
-    summary = "Marks for choosing the right options."
+    summary = "Marks for choosing the correct options."
     guide = (
         "**Use it when:** Students choose one or more options.\n\n"
-        "**How it marks:** The options chosen are compared with the right ones, as **How to "
-        "compare** says. **Exactly these** needs the right options and nothing else. **Each one "
-        "counts** gives a share for each right option and takes one off for each wrong one, never "
-        "below zero."
+        "**How it marks:** The options chosen are compared with the correct ones, as **How to "
+        "compare** says. **Exactly these** needs the correct options and nothing else. **A share "
+        "for each** gives a share for each correct option and a penalty of one share for each "
+        "wrong one, never below zero."
     )
     question_types = frozenset({"choice"})
     settings = MultipleChoiceSettings
     examples = examples_beside(__file__)
 
-    def settings_at(self, position: Position) -> type[Settings]:
+    def settings_model_at(self, position: Position) -> type[Settings]:
         question = position.question_model
         if not isinstance(question, ChoiceQuestion):
             return self.settings
         options = literal(sorted(question.options))
-        return specialised(self.settings, correct={"annotation": list[options]})  # type: ignore[valid-type]
+        return specialized(self.settings, correct={"annotation": list[options]})  # type: ignore[valid-type]
 
-    def read_at(self, settings: Mapping[str, Any], position: Position) -> dict[str, Any]:
+    def settings_read_at(self, settings: Mapping[str, Any], position: Position) -> dict[str, Any]:
         question, correct = position.question_model, settings.get("correct")
         if not isinstance(question, ChoiceQuestion) or not isinstance(correct, list):
             return dict(settings)
-        read = (
-            question.reading.option(each) if isinstance(each, str) else each for each in correct
+        normalized_options = (
+            question.reading.normalized(each) if isinstance(each, str) else each for each in correct
         )
-        return {**settings, "correct": list(dict.fromkeys(read))}
+        return {**settings, "correct": list(dict.fromkeys(normalized_options))}
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
-        if runs_long(settings.correct):
-            return f"{_LISTED[settings.compare]}:\n{markdown_code_list(settings.correct)}"
-        either = markdown_join(settings.correct, conjunction="or")
-        every = markdown_join(settings.correct, conjunction="and")
+        if reads_better_listed(settings.correct):
+            opening = _DESCRIPTION_OPENINGS[settings.compare]
+            return f"{opening}:\n{markdown_code_list(settings.correct)}"
+        or_list = code_join(settings.correct, conjunction="or")
+        and_list = code_join(settings.correct, conjunction="and")
         match settings.compare:
             case "exactly":
-                return f"Chooses exactly {every}."
+                return f"Chooses exactly {and_list}."
             case "all":
-                return f"Chooses {every}, extras allowed."
+                return f"Chooses {and_list}, other options allowed."
             case "none":
-                return f"Chooses none of {every}."
+                return f"Chooses none of {and_list}."
             case "any":
-                return f"Chooses {either}."
-            case "each":
-                return f"Chooses {every}, each counting."
+                return f"Chooses {or_list}."
+            case "share_each":
+                return f"Chooses {and_list}, a share for each."
 
     def _mark_answer(
         self, settings: MultipleChoiceSettings, answer: Answer, question: Question
     ) -> Outcome:
         assert isinstance(question, ChoiceQuestion)
-        chosen = answer if isinstance(answer, frozenset) else frozenset()
-        right = {question.reading.option(option) for option in settings.correct}
+        chosen_options = answer if isinstance(answer, frozenset) else frozenset()
+        correct_options = {question.reading.normalized(option) for option in settings.correct}
         match settings.compare:
             case "exactly":
-                proportion = float(chosen == right)
+                proportion = float(chosen_options == correct_options)
             case "all":
-                proportion = float(right <= chosen)
+                proportion = float(correct_options <= chosen_options)
             case "none":
-                proportion = float(not right & chosen)
+                proportion = float(not correct_options & chosen_options)
             case "any":
-                proportion = float(bool(right & chosen))
-            case "each":
-                proportion = max(0.0, (len(chosen & right) - len(chosen - right)) / len(right))
+                proportion = float(bool(correct_options & chosen_options))
+            case "share_each":
+                chosen_correct = len(chosen_options & correct_options)
+                chosen_wrong = len(chosen_options - correct_options)
+                proportion = max(0.0, (chosen_correct - chosen_wrong) / len(correct_options))
         if proportion >= 1:
             return Outcome(1.0, CORRECT)
-        listed = quoted_join(
+        expected_options = quoted_join(
             settings.correct, conjunction="or" if settings.compare == "any" else "and"
         )
-        none = "none of " if settings.compare == "none" else ""
-        return Outcome(proportion, sentence(f"Expected {none}{listed}"))
+        none_of_prefix = "none of " if settings.compare == "none" else ""
+        return Outcome(proportion, as_sentence(f"Expected {none_of_prefix}{expected_options}"))
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         question = position.question_model
         if not isinstance(question, ChoiceQuestion):
             return
         for index, option in enumerate(self._settings_of(check).correct):
-            if question.reading.option(option) not in question.options:
+            if question.reading.normalized(option) not in question.options:
                 yield Problem(f"{option} isn't one of the options.", field=("correct", index))

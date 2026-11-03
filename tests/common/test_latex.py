@@ -1,6 +1,6 @@
 import pytest
 
-from gradeflow_core.common.latex import latex_text
+from gradeflow_core.common.latex import typed_latex
 
 
 @pytest.mark.parametrize(
@@ -25,9 +25,9 @@ from gradeflow_core.common.latex import latex_text
     ],
 )
 def test_latex_reads_as_people_type_it(latex: str, text: str) -> None:
-    assert latex_text(latex) == text
+    assert typed_latex(latex) == text
 
 
 def test_latex_nested_too_deeply_stays_as_it_is() -> None:
     latex = "{" * 5000 + "x" + "}" * 5000
-    assert latex_text(latex) == latex
+    assert typed_latex(latex) == latex

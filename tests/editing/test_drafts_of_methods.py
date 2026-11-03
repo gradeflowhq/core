@@ -13,7 +13,7 @@ QUESTIONS = QuestionSet({"Q1": TextQuestion()})
 
 def test_any_order_values_give_their_checks_no_earlier_checks() -> None:
     questions = QuestionSet({"Q1": ValuesQuestion(value_types=["text", "text"])})
-    data = {
+    marking = {
         "question": "Q1",
         "uses": "gradeflow/multiple-values@1",
         "with": {
@@ -24,13 +24,13 @@ def test_any_order_values_give_their_checks_no_earlier_checks() -> None:
             ],
         },
     }
-    draft = MarkingDraft(data, questions, "Q1")
-    assert draft.earlier("with.checks.1") == []
+    draft = MarkingDraft(marking, questions, "Q1")
+    assert draft.earlier_checks("with.checks.1") == []
     assert "if" not in draft.schema("with.checks.0")["properties"]
 
 
-def test_a_misfit_inside_a_composed_method_is_its_users_problem_with_no_slots() -> None:
-    library = BUILTINS.with_files(
+def test_a_composed_methods_check_that_cant_mark_the_question_is_its_users_problem() -> None:
+    methods = BUILTINS.with_files(
         [
             (
                 "sample/wrapped",
@@ -46,17 +46,17 @@ checks:
         ]
     )
     draft = MarkingDraft(
-        {"question": "Q1", "uses": "sample/wrapped@1"}, QUESTIONS, "Q1", methods=library
+        {"question": "Q1", "uses": "sample/wrapped@1"}, QUESTIONS, "Q1", methods=methods
     )
-    assert [(p.check, p.field, p.message) for p in draft.problems] == [
+    assert [(problem.check, problem.field, problem.message) for problem in draft.problems] == [
         ("", (), "Number Range can't mark a text question.")
     ]
-    assert draft.slots("") == []
+    assert draft.checks_settings("") == []
 
 
 def test_a_drafts_problems_are_where_the_check_is_in_a_branch() -> None:
     questions = QuestionSet({"Q1": TextQuestion(), "Q2": TextQuestion()})
-    data: dict[str, Any] = {
+    marking: dict[str, Any] = {
         "uses": "gradeflow/conditional@1",
         "with": {
             "condition": [{"question": "Q1", "uses": "gradeflow/full-marks@1"}],
@@ -65,12 +65,12 @@ def test_a_drafts_problems_are_where_the_check_is_in_a_branch() -> None:
             ],
         },
     }
-    draft = MarkingDraft(data, questions, None)
+    draft = MarkingDraft(marking, questions, None)
     assert draft.problems[0].check == "with.then.0"
 
 
 def test_a_drafts_earlier_checks_match_generated_execution_order() -> None:
-    data = {
+    marking = {
         "uses": "gradeflow/conditional@1",
         "with": {
             "condition": [{"question": "Q1", "uses": "gradeflow/full-marks@1"}],
@@ -80,9 +80,9 @@ def test_a_drafts_earlier_checks_match_generated_execution_order() -> None:
             ],
         },
     }
-    draft = MarkingDraft(data, QUESTIONS, None)
+    draft = MarkingDraft(marking, QUESTIONS, None)
     assert not draft.problems
-    assert draft.earlier("with.then.1") == ["with.then.0"]
+    assert draft.earlier_checks("with.then.1") == ["with.then.0"]
 
 
 MARKING = {
@@ -111,13 +111,13 @@ def test_a_marking_saved_as_a_method_marks_like_it_with_its_fields_as_inputs() -
         label="Term, not look-alike",
         summary="The term, not its look-alike.",
     )
-    draft.expose("with.checks.0.with.points", label="Points", default=["term"])
-    draft.expose("with.checks.1.with.check.with.point", label="Look-alike", default="turm")
-    lib = BUILTINS.with_files([(name, draft.to_yaml())])
+    draft.bind_new_input("with.checks.0.with.points", label="Points", default=["term"])
+    draft.bind_new_input("with.checks.1.with.check.with.point", label="Look-alike", default="turm")
+    methods = BUILTINS.with_files([(name, draft.to_yaml())])
     saved = {"uses": draft.ref}
     filled = {"uses": draft.ref, "with": {"points": ["photon"], "point": "foton"}}
-    assert proportions(mark_all(saved, ["the term", "a turm term"], methods=lib)) == [1, 0]
-    assert proportions(mark_all(filled, ["a photon", "a foton photon"], methods=lib)) == [1, 0]
+    assert proportions(mark_all(saved, ["the term", "a turm term"], methods=methods)) == [1, 0]
+    assert proportions(mark_all(filled, ["a photon", "a foton photon"], methods=methods)) == [1, 0]
 
 
 def test_exposing_a_setting_refuses_unknown_paths() -> None:
@@ -125,4 +125,4 @@ def test_exposing_a_setting_refuses_unknown_paths() -> None:
         Check.load(MARKING), QUESTIONS, name="x", version=1, label="X", summary="X."
     )
     with pytest.raises(EditingError, match="isn't a setting an input can fill"):
-        draft.expose("with.nope", label="Missing")
+        draft.bind_new_input("with.nope", label="Missing")

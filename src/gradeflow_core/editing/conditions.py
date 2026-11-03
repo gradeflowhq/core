@@ -8,8 +8,8 @@ from jinja2 import TemplateSyntaxError, nodes
 
 from ..methods.templates import ENVIRONMENT, reference
 
-type Join = Literal["all", "any"]
-type ConditionTest = Literal["correct", "incorrect", "half"]
+type Match = Literal["all", "any"]
+type ConditionTest = Literal["correct", "incorrect", "half_correct"]
 
 
 @dataclass(frozen=True)
@@ -22,23 +22,23 @@ class ConditionRow:
 @dataclass(frozen=True)
 class Condition:
     rows: tuple[ConditionRow, ...] = ()
-    join: Join = "all"
+    match: Match = "all"
 
-    tests: ClassVar[Mapping[ConditionTest, str]] = {
+    test_labels: ClassVar[Mapping[ConditionTest, str]] = {
         "correct": "is correct",
         "incorrect": "isn't correct",
-        "half": "is at least half correct",
+        "half_correct": "is at least half correct",
     }
     """What a row may test of its check, with how it reads."""
-    joins: ClassVar[Mapping[Join, str]] = {"all": "All of these", "any": "Any of these"}
+    match_labels: ClassVar[Mapping[Match, str]] = {"all": "All of these", "any": "Any of these"}
     """Whether all or any of the rows must hold, with how each reads."""
 
-    def describe(self, label: Callable[[str], str] = str) -> str:
-        """The condition in words, naming each check by ``label`` of what its row has:
+    def describe(self, check_label: Callable[[str], str] = str) -> str:
+        """The condition in words, naming each check by ``check_label`` of what its row has:
         ``Only when Test is correct and Units isn't correct``."""
-        joined = " and " if self.join == "all" else " or "
-        return "Only when " + joined.join(
-            f"{label(row.check)} {self.tests[row.test]}" for row in self.rows
+        conjunction = " and " if self.match == "all" else " or "
+        return "Only when " + conjunction.join(
+            f"{check_label(row.check)} {self.test_labels[row.test]}" for row in self.rows
         )
 
 
@@ -52,53 +52,58 @@ def read_condition(text: str) -> Condition | None:
     if tree is None or len(tree.body) != 1 or not isinstance(output := tree.body[0], nodes.Output):
         return None
     node = output.nodes[0]
-    join: Join = "any" if isinstance(node, nodes.Or) else "all"
-    rows = [_row(term) for term in _terms(node, nodes.Or if join == "any" else nodes.And)]
-    found = [row for row in rows if row is not None]
-    return Condition(tuple(found), join) if len(found) == len(rows) else None
+    match: Match = "any" if isinstance(node, nodes.Or) else "all"
+    rows = [
+        _condition_row(operand)
+        for operand in _operands(node, nodes.Or if match == "any" else nodes.And)
+    ]
+    valid_rows = [row for row in rows if row is not None]
+    return Condition(tuple(valid_rows), match) if len(valid_rows) == len(rows) else None
 
 
-def written_condition(condition: Condition) -> str:
+def condition_template(condition: Condition) -> str:
     """The condition as a check's ``if``, its rows naming checks by ID; empty, so always, without
     a row."""
-    parts = [_written(row) for row in condition.rows if row.check]
-    joined = f" {'or' if condition.join == 'any' else 'and'} ".join(parts)
-    return f"{{{{ {joined} }}}}" if parts else ""
+    parts = [_row_template(row) for row in condition.rows if row.check]
+    expression = f" {'or' if condition.match == 'any' else 'and'} ".join(parts)
+    return f"{{{{ {expression} }}}}" if parts else ""
 
 
-def _written(row: ConditionRow) -> str:
+def _row_template(row: ConditionRow) -> str:
     match row.test:
         case "incorrect":
             return f"not checks.{row.check}.correct"
-        case "half":
+        case "half_correct":
             return f"checks.{row.check}.proportion >= 0.5"
     return f"checks.{row.check}.correct"
 
 
-def _terms(node: nodes.Node, kind: type[nodes.BinExpr]) -> list[nodes.Node]:
-    if isinstance(node, kind):
-        return [*_terms(node.left, kind), *_terms(node.right, kind)]
+def _operands(node: nodes.Node, operator: type[nodes.BinExpr]) -> list[nodes.Node]:
+    if isinstance(node, operator):
+        return [*_operands(node.left, operator), *_operands(node.right, operator)]
     return [node]
 
 
-def _row(node: nodes.Node) -> ConditionRow | None:
+def _condition_row(node: nodes.Node) -> ConditionRow | None:
     if isinstance(node, nodes.Not):
-        check = _result(node.node, "correct")
+        check = _check_id_read(node.node, "correct")
         return ConditionRow(check, "incorrect") if check else None
     if isinstance(node, nodes.Compare):
         (operand,) = node.ops if len(node.ops) == 1 else (None,)
-        half = operand is not None and operand.op == "gteq" and _is(operand.expr, 0.5)
-        check = _result(node.expr, "proportion") if half else None
-        return ConditionRow(check, "half") if check else None
-    check = _result(node, "correct")
+        is_half_test = (
+            operand is not None and operand.op == "gteq" and _is_constant(operand.expr, 0.5)
+        )
+        check = _check_id_read(node.expr, "proportion") if is_half_test else None
+        return ConditionRow(check, "half_correct") if check else None
+    check = _check_id_read(node, "correct")
     return ConditionRow(check, "correct") if check else None
 
 
-def _is(node: nodes.Node, value: object) -> bool:
+def _is_constant(node: nodes.Node, value: object) -> bool:
     return isinstance(node, nodes.Const) and node.value == value
 
 
-def _result(node: nodes.Node, attribute: str) -> str | None:
+def _check_id_read(node: nodes.Node, attribute: str) -> str | None:
     """The ID of the check whose result ``node`` reads ``attribute`` of, as in
     ``checks.<id>.correct``."""
     if not (isinstance(node, nodes.Getattr) and node.attr == attribute):

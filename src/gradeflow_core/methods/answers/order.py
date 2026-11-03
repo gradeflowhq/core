@@ -7,41 +7,41 @@ from rapidfuzz.distance import LCSseq
 
 from ...common.hints import hint
 from ...common.problems import Problem
-from ...common.text import markdown_code, runs_long
+from ...common.text import code_span, reads_better_listed
 from ...questions.base import Question
 from ...questions.types import Answer, Value
 from ...questions.values import ValuesQuestion
 from ..check import Check
 from ..example import examples_beside
-from ..matching import read_or_none, reading_problems
+from ..matching import read_or_none, unreadable_problems
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
-from ..settings import Settings, Text
+from ..settings import NonBlankText, Settings
 
 MARKS_FOR_LABELS = {
-    "exact": "Only the right order",
-    "longest": "Items in order",
-    "pairs": "Neighbours in order",
+    "exact": "Only the correct order",
+    "items_in_order": "Items in order",
+    "pairs_in_order": "Pairs in order",
 }
 
 
 class OrderSettings(Settings):
-    order: list[Text] = Field(
+    order: list[NonBlankText] = Field(
         min_length=2,
-        title="Right order",
+        title="Correct order",
         description="First to last.",
-        json_schema_extra={"uniqueItems": True, **hint(item="item")},
+        json_schema_extra={"uniqueItems": True, **hint(item_label="item")},
     )
-    marks_for: Literal["exact", "longest", "pairs"] = Field(
-        default="longest",
+    marks_for: Literal["exact", "items_in_order", "pairs_in_order"] = Field(
+        default="items_in_order",
         title="Marks for",
         json_schema_extra=hint(labels=MARKS_FOR_LABELS),
     )
 
     @field_validator("order")
     @classmethod
-    def _different(cls, order: list[str]) -> list[str]:
+    def _check_unique(cls, order: list[str]) -> list[str]:
         if len(set(order)) < len(order):
             raise ValueError("Each item must be different.")
         return order
@@ -51,18 +51,18 @@ class Order(AnswerMethod[OrderSettings]):
     name = "gradeflow/order"
     version = 1
     label = "Order"
-    summary = "Marks for putting items in the right order."
+    summary = "Marks for putting items in the correct order."
     guide = (
         "**Use it when:** Students put items in order, such as the stages of a process or events "
         "in time.\n\n"
-        "**How it marks:** **Marks for** sets how the answer is compared with **Right order**. "
-        "**Only the right order** gives full marks or none, and **Items in order** gives a share "
+        "**How it marks:** **Marks for** sets how the answer is compared with **Correct order**. "
+        "**Only the correct order** gives full marks or none, and **Items in order** gives a share "
         "for the most items kept in order, so one item out of place costs one share. "
-        "**Neighbours in order** gives a share for each pair side by side as in the right "
+        "**Pairs in order** gives a share for each pair side by side as in the correct "
         "order.\n\n"
         "**Good to know:** The question needs one value for each item, all text or all "
         "numbers.\n\n"
-        "**Related:** When each value has its own right answer, use Multiple Values."
+        "**Related:** When each value has its own correct answer, use Multiple Values."
     )
     question_types = frozenset({"values"})
     settings = OrderSettings
@@ -70,36 +70,38 @@ class Order(AnswerMethod[OrderSettings]):
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
-        partial = (
+        partial_marks_note = (
             ""
             if settings.marks_for == "exact"
-            else f", with a share for {MARKS_FOR_LABELS[settings.marks_for].lower()}"
+            else f", with partial marks for {MARKS_FOR_LABELS[settings.marks_for].lower()}"
         )
-        if runs_long(settings.order):
+        if reads_better_listed(settings.order):
             items = "\n".join(
-                f"{place}. {markdown_code(item)}" for place, item in enumerate(settings.order, 1)
+                f"{place}. {code_span(item)}" for place, item in enumerate(settings.order, 1)
             )
-            return f"Puts these in order{partial}:\n{items}"
-        return f"Puts {', '.join(map(markdown_code, settings.order))} in order{partial}."
+            return f"Puts these in order{partial_marks_note}:\n{items}"
+        return f"Puts {', '.join(map(code_span, settings.order))} in order{partial_marks_note}."
 
     def _mark_answer(self, settings: OrderSettings, answer: Answer, question: Question) -> Outcome:
         assert isinstance(question, ValuesQuestion)
         assert isinstance(answer, list)
-        right = [read_or_none(_item_reading(question), item) for item in settings.order]
+        correct_order = [read_or_none(_item_reader(question), item) for item in settings.order]
         expected = f"Expected {', '.join(settings.order)}."
         match settings.marks_for:
             case "exact":
-                proportion = float(answer == right)
-                said = expected
-            case "longest":
-                kept = LCSseq.similarity(answer, right)
-                proportion = kept / len(right)
-                said = f"{kept} of {len(right)} in order. {expected}"
-            case "pairs":
-                neighbours = len(set(pairwise(answer)) & set(pairwise(right)))
-                proportion = neighbours / (len(right) - 1)
-                said = f"{neighbours} of {len(right) - 1} pairs in order. {expected}"
-        return Outcome(1.0, CORRECT) if proportion >= 1 else Outcome(proportion, said)
+                proportion = float(answer == correct_order)
+                feedback = expected
+            case "items_in_order":
+                in_order_count = LCSseq.similarity(answer, correct_order)
+                proportion = in_order_count / len(correct_order)
+                feedback = f"{in_order_count} of {len(correct_order)} in order. {expected}"
+            case "pairs_in_order":
+                pairs_in_order = len(set(pairwise(answer)) & set(pairwise(correct_order)))
+                proportion = pairs_in_order / (len(correct_order) - 1)
+                feedback = (
+                    f"{pairs_in_order} of {len(correct_order) - 1} pairs in order. {expected}"
+                )
+        return Outcome(1.0, CORRECT) if proportion >= 1 else Outcome(proportion, feedback)
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         question = position.question_model
@@ -115,10 +117,10 @@ class Order(AnswerMethod[OrderSettings]):
                 "The question's values must all be text or all numbers.", field=("order",)
             )
             return
-        yield from reading_problems(order, _item_reading(question), "order")
+        yield from unreadable_problems(order, _item_reader(question), "order")
 
 
-def _item_reading(question: ValuesQuestion) -> Callable[[str], Value]:
+def _item_reader(question: ValuesQuestion) -> Callable[[str], Value]:
     """How each item is read: as the first value is, the values being all of one type."""
     first = question.value_question(1)
     assert first is not None

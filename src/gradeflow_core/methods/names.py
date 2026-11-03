@@ -7,21 +7,24 @@ from ..common.exceptions import MethodFileError
 BUILTIN_NAMESPACE = "gradeflow"
 """The namespace of the methods the core ships, which no one else can have."""
 
-_PART = r"[a-z0-9]+(?:-[a-z0-9]+)*"
-_LIMITS = {"namespace": 60, "name": 100}
-_REF = re.compile(rf"({_PART})/({_PART})@([1-9][0-9]*)")
+_NAME_PATTERN = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+_MAX_LENGTHS = {"namespace": 60, "name": 100}
+_REF = re.compile(rf"({_NAME_PATTERN})/({_NAME_PATTERN})@([1-9][0-9]*)")
 
 
 def method_name(namespace: str, name: str) -> str:
     """``namespace/name``. Raises `MethodFileError` unless both are lowercase words joined by
     hyphens and the namespace isn't the core's."""
-    for what, part in (("namespace", namespace), ("name", name)):
-        if not re.fullmatch(_PART, part):
+    for part_label, part in (("namespace", namespace), ("name", name)):
+        if not re.fullmatch(_NAME_PATTERN, part):
             raise MethodFileError(
-                f"Use lowercase letters, numbers and hyphens in the {what}, such as intro-biology."
+                f"Use lowercase letters, numbers and hyphens in the {part_label}, "
+                "such as intro-biology."
             )
-        if len(part) > _LIMITS[what]:
-            raise MethodFileError(f"Keep the {what} to {_LIMITS[what]} characters.")
+        if len(part) > _MAX_LENGTHS[part_label]:
+            raise MethodFileError(
+                f"Keep the {part_label} to {_MAX_LENGTHS[part_label]} characters."
+            )
     if namespace == BUILTIN_NAMESPACE:
         raise MethodFileError(f"{namespace} is GradeFlow's own.")
     return f"{namespace}/{name}"
@@ -35,7 +38,7 @@ def method_ref(name: str, version: int) -> str:
 def split_ref(ref: str) -> tuple[str, str, int]:
     """The namespace, name and version of a method reference. Raises `MethodFileError` if it isn't
     one."""
-    found = _REF.fullmatch(ref)
-    if found is None:
+    match = _REF.fullmatch(ref)
+    if match is None:
         raise MethodFileError(f"{ref} isn't a method and version, such as gradeflow/key-points@1.")
-    return found[1], found[2], int(found[3])
+    return match[1], match[2], int(match[3])

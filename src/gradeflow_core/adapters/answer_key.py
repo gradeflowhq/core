@@ -13,12 +13,14 @@ def read_answer_key(row: Mapping[QuestionId, str]) -> AnswerSheet:
     ``|``; each blank's first accepted answer stands for it, so ``0.63|0.625|~Terminal|terminal|``
     is ``0.63~Terminal``. Empty cells answer nothing."""
     answers = {
-        key: BLANK_SEPARATOR.join(_first(blank) for blank in cell.split(BLANK_SEPARATOR))
+        key: BLANK_SEPARATOR.join(
+            _first_accepted_answer(blank) for blank in cell.split(BLANK_SEPARATOR)
+        )
         for key, cell in row.items()
         if cell.strip()
     }
     return AnswerSheet(answers=answers)
 
 
-def _first(blank: str) -> str:
+def _first_accepted_answer(blank: str) -> str:
     return next((accepted for accepted in blank.split("|") if accepted.strip()), "")

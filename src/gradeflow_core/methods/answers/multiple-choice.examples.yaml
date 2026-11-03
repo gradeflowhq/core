@@ -16,12 +16,12 @@ examples:
           Q1: nitrogen
         expected: {Q1: {marks: 0.0, feedback: Expected “carbon dioxide”.}}
   - title: Which of these numbers are prime?
-    description: Chooses `2` and `3`, each counting.
+    description: Chooses `2` and `3`, a share for each.
     questions:
       Q1: {type: choice, options: ['2', '3', '4', '9'], max_marks: 2, allow_multiple: true}
     with:
       correct: ['2', '3']
-      compare: each
+      compare: share_each
     rows:
       - answers:
           Q1: 2, 3

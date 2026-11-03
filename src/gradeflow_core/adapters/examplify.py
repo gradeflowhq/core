@@ -23,31 +23,31 @@ from ..questions.reading import ListReading
 from ..questions.text import TextQuestion
 from ..questions.types import QuestionId, ValueType
 from ..questions.values import BLANK_SEPARATOR, ValuesQuestion
-from .errors import adapter_errors
-from .mathml import mathml_latex
-from .rtf import Part, paragraphs
+from .errors import file_read_errors
+from .mathml import mathml_to_latex
+from .rtf import ParagraphPart, paragraphs
 
 _QUESTION = re.compile(r"Question #:\s*(\d+)")
-_FIELD = re.compile(r"Item (\w+):\s*(.*)")
+_ITEM_FIELD = re.compile(r"Item (\w+):\s*(.*)")
 _CHOICE = re.compile(r"✓?([A-Z])\.(?:\s.*)?")
-_ACCEPTED = re.compile(r"(\d+)\.(?:\s(.*))?")
+_ACCEPTED_ANSWERS_LINE = re.compile(r"(\d+)\.(?:\s(.*))?")
 _BLANK = re.compile(r"\xa0+(\d+)\xa0+")
-_RULE = re.compile(r"_{10,}")
-_INLINE_MARK = re.compile(r"[\\`*_$]|\[(?=.*\][(\[:])|<(?=[^<>\s]*>)|&(?=#?\w+;)")
+_UNDERLINE_RULE = re.compile(r"_{10,}")
+_INLINE_MARKUP = re.compile(r"[\\`*_$]|\[(?=.*\][(\[:])|<(?=[^<>\s]*>)|&(?=#?\w+;)")
 """What Markdown would read as formatting, a link, an autolink or an entity, wherever it is."""
-_BLOCK_MARK = re.compile(r"\d{1,9}(?=[.)](?:\s|$))|(?=[#>+=~-])")
+_BLOCK_MARKUP = re.compile(r"\d{1,9}(?=[.)](?:\s|$))|(?=[#>+=~-])")
 """What Markdown would read as a heading, list, quote, rule or fence at a paragraph's start."""
-_CLOSING = ".,;:?!)]"
+_CLOSING_PUNCTUATION = ".,;:?!)]"
 _PNG = b"\x89PNG\r\n\x1a\n"
 
 
 @dataclass(frozen=True)
-class _Item:
+class _DocumentQuestion:
     description: str
     max_marks: float | None
     choices: tuple[str, ...]
     """The choices' letters, if it has choices."""
-    ticked: int
+    correct_choice_count: int
     """How many choices are marked correct."""
     blanks: tuple[tuple[str, ...], ...]
     """Each blank's accepted answers, if it has blanks."""
@@ -61,7 +61,7 @@ def read_question_document(data: bytes, questions: QuestionSet) -> QuestionSet:
     choices nor blanks keeps its type, and a choice question that allows several options still
     does.
     """
-    items = _items(data)
+    items = _document_questions(data)
     return QuestionSet(
         {
             key: _question(item, question)
@@ -71,134 +71,169 @@ def read_question_document(data: bytes, questions: QuestionSet) -> QuestionSet:
     )
 
 
-def _question(item: _Item, current: Question) -> Question:
-    shared = {
+def _question(item: _DocumentQuestion, existing: Question) -> Question:
+    common_fields = {
         "description": item.description,
-        "max_marks": current.max_marks if item.max_marks is None else item.max_marks,
+        "max_marks": existing.max_marks if item.max_marks is None else item.max_marks,
     }
     if item.choices:
-        several = isinstance(current, ChoiceQuestion) and current.allow_multiple
+        allows_multiple = isinstance(existing, ChoiceQuestion) and existing.allow_multiple
         return ChoiceQuestion.model_validate(
-            {**shared, "options": item.choices, "allow_multiple": several or item.ticked > 1}
+            {
+                **common_fields,
+                "options": item.choices,
+                "allow_multiple": allows_multiple or item.correct_choice_count > 1,
+            }
         )
     if not item.blanks:
-        return current.model_copy(update=shared)
-    types: list[ValueType] = ["number" if _numbers(blank) else "text" for blank in item.blanks]
-    if len(types) > 1:
+        return existing.model_copy(update=common_fields)
+    value_types: list[ValueType] = [
+        "number" if _all_numbers(blank) else "text" for blank in item.blanks
+    ]
+    if len(value_types) > 1:
         return ValuesQuestion.model_validate(
-            {**shared, "reading": ListReading(separator=BLANK_SEPARATOR), "value_types": types}
+            {
+                **common_fields,
+                "reading": ListReading(separator=BLANK_SEPARATOR),
+                "value_types": value_types,
+            }
         )
-    return (NumberQuestion if types == ["number"] else TextQuestion).model_validate(shared)
+    return (NumberQuestion if value_types == ["number"] else TextQuestion).model_validate(
+        common_fields
+    )
 
 
-def _numbers(accepted: tuple[str, ...]) -> bool:
+def _all_numbers(accepted: tuple[str, ...]) -> bool:
     """Whether every accepted answer is a number."""
     return bool(accepted) and all(map(reads_as_number, accepted))
 
 
-@adapter_errors()
-def _items(data: bytes) -> dict[QuestionId, _Item]:
-    blocks: dict[QuestionId, list[str]] = {}
+@file_read_errors()
+def _document_questions(data: bytes) -> dict[QuestionId, _DocumentQuestion]:
+    lines_by_question: dict[QuestionId, list[str]] = {}
     if data.startswith(b"{\\rtf"):
-        current: list[str] | None = None
+        current_lines: list[str] | None = None
         for line in _lines(data.decode("latin-1")):
             if question := _QUESTION.fullmatch(line):
-                current = blocks.setdefault(f"Q{question[1]}", [])
-            elif current is not None:
-                current.append(line)
-    if not blocks:
+                current_lines = lines_by_question.setdefault(f"Q{question[1]}", [])
+            elif current_lines is not None:
+                current_lines.append(line)
+    if not lines_by_question:
         raise GradeFlowError("Couldn't read the file: it isn't an ExamSoft question document.")
-    return {key: _item(lines) for key, lines in blocks.items()}
+    return {key: _document_question(lines) for key, lines in lines_by_question.items()}
 
 
-def _item(lines: list[str]) -> _Item:
-    end = next((i for i, line in enumerate(lines) if _FIELD.fullmatch(line)), len(lines))
-    fields = {match[1]: match[2] for line in lines[end:] if (match := _FIELD.fullmatch(line))}
-    content, blanks = _accepted(lines[:end])
-    start = None
+def _document_question(lines: list[str]) -> _DocumentQuestion:
+    fields_start = next(
+        (i for i, line in enumerate(lines) if _ITEM_FIELD.fullmatch(line)), len(lines)
+    )
+    fields = {
+        match[1]: match[2]
+        for line in lines[fields_start:]
+        if (match := _ITEM_FIELD.fullmatch(line))
+    }
+    stem_lines, blanks = _split_accepted_answers(lines[:fields_start])
+    choices_start = None
     if not blanks:
-        start = next((i for i in reversed(range(end)) if _choice(content[i]) == "A"), None)
+        choices_start = next(
+            (i for i in reversed(range(fields_start)) if _choice_letter(stem_lines[i]) == "A"), None
+        )
     choices: tuple[str, ...] = ()
-    ticked = 0
-    if start is not None:
-        choices = tuple(letter for line in content[start:] if (letter := _choice(line)))
-        ticked = sum(line.startswith("✓") for line in content[start:])
-        content = [*content[:start], *(line.removeprefix("✓") for line in content[start:])]
-    description = "\n\n".join(map(_paragraph, content))
-    return _Item(description, _number(fields.get("Weight", "")), choices, ticked, blanks)
+    correct_choice_count = 0
+    if choices_start is not None:
+        choices = tuple(
+            letter for line in stem_lines[choices_start:] if (letter := _choice_letter(line))
+        )
+        correct_choice_count = sum(line.startswith("✓") for line in stem_lines[choices_start:])
+        stem_lines = [
+            *stem_lines[:choices_start],
+            *(line.removeprefix("✓") for line in stem_lines[choices_start:]),
+        ]
+    description = "\n\n".join(map(_escaped_paragraph, stem_lines))
+    return _DocumentQuestion(
+        description, _float_or_none(fields.get("Weight", "")), choices, correct_choice_count, blanks
+    )
 
 
-def _paragraph(line: str) -> str:
+def _escaped_paragraph(line: str) -> str:
     """``line`` as a Markdown paragraph that reads as it is."""
-    mark = _BLOCK_MARK.match(line)
-    return line if mark is None else f"{mark[0]}\\{line[mark.end() :]}"
+    markup = _BLOCK_MARKUP.match(line)
+    return line if markup is None else f"{markup[0]}\\{line[markup.end() :]}"
 
 
-def _choice(line: str) -> str | None:
+def _choice_letter(line: str) -> str | None:
     return match[1] if (match := _CHOICE.fullmatch(line)) else None
 
 
-def _number(text: str) -> float | None:
+def _float_or_none(text: str) -> float | None:
     try:
         return float(text)
     except ValueError:
         return None
 
 
-def _accepted(lines: list[str]) -> tuple[list[str], tuple[tuple[str, ...], ...]]:
+def _split_accepted_answers(lines: list[str]) -> tuple[list[str], tuple[tuple[str, ...], ...]]:
     """``lines`` without the accepted answers listed after a stem with blanks (1) to (n), and
     each blank's accepted answers, escaped as Markdown like the rest."""
-    last = _ACCEPTED.fullmatch(lines[-1]) if lines else None
-    count = int(last[1]) if last else 0
-    if not 0 < count < len(lines) or f"({count})" not in "\n".join(lines[:-count]):
+    last_match = _ACCEPTED_ANSWERS_LINE.fullmatch(lines[-1]) if lines else None
+    blank_count = int(last_match[1]) if last_match else 0
+    if not 0 < blank_count < len(lines) or f"({blank_count})" not in "\n".join(
+        lines[:-blank_count]
+    ):
         return lines, ()
-    matches = [_ACCEPTED.fullmatch(line) for line in lines[-count:]]
-    if [int(match[1]) if match else 0 for match in matches] != list(range(1, count + 1)):
+    matches = [_ACCEPTED_ANSWERS_LINE.fullmatch(line) for line in lines[-blank_count:]]
+    if [int(match[1]) if match else 0 for match in matches] != list(range(1, blank_count + 1)):
         return lines, ()
     blanks = tuple(
         tuple(answer for answer in (match[2] or "").split("|") if answer.strip())
         for match in matches
         if match
     )
-    return lines[:-count], blanks
+    return lines[:-blank_count], blanks
 
 
 def _lines(text: str) -> list[str]:
     """The document's non-blank paragraphs, with formulas and blanks joined to the text around."""
     lines: list[str] = []
-    attach = False
+    previous_is_inline = False
     for parts in paragraphs(text):
-        line, inline = _line(parts)
+        line, is_inline = _markdown_line(parts)
         if not line:
             continue
-        joins = inline or (attach and not _starts_entry(line))
-        if joins and lines and not _starts_entry(lines[-1], (_QUESTION, _FIELD)):
-            lines[-1] += line if line[0] in _CLOSING else f" {line}"
+        joins_previous = is_inline or (previous_is_inline and not _starts_entry(line))
+        if joins_previous and lines and not _starts_entry(lines[-1], (_QUESTION, _ITEM_FIELD)):
+            lines[-1] += line if line[0] in _CLOSING_PUNCTUATION else f" {line}"
         else:
             lines.append(line)
-        attach = inline
+        previous_is_inline = is_inline
     return lines
 
 
-def _line(parts: list[Part]) -> tuple[str, bool]:
+def _markdown_line(parts: list[ParagraphPart]) -> tuple[str, bool]:
     """A paragraph's Markdown and whether it joins the text around it; nothing for a rule."""
     text = [part for part in parts if isinstance(part, str)]
-    if len(text) == len(parts) and _RULE.fullmatch("".join(text).strip()):
+    if len(text) == len(parts) and _UNDERLINE_RULE.fullmatch("".join(text).strip()):
         return "", False
-    raw = "".join(
-        _INLINE_MARK.sub(r"\\\g<0>", part) if isinstance(part, str) else _formula(part)
+    markdown = "".join(
+        _INLINE_MARKUP.sub(r"\\\g<0>", part) if isinstance(part, str) else _formula(part)
         for part in parts
     )
-    if blank := _BLANK.fullmatch(raw.strip(" \t")):
+    if blank := _BLANK.fullmatch(markdown.strip(" \t")):
         return f"({blank[1]})", True
-    line = " ".join(raw.split())
+    line = " ".join(markdown.split())
     return line, bool(line) and all(isinstance(part, bytes) or part.isspace() for part in parts)
 
 
 def _starts_entry(
-    line: str, entries: tuple[re.Pattern[str], ...] = (_CHOICE, _FIELD, _QUESTION, _ACCEPTED)
+    line: str,
+    patterns: tuple[re.Pattern[str], ...] = (
+        _CHOICE,
+        _ITEM_FIELD,
+        _QUESTION,
+        _ACCEPTED_ANSWERS_LINE,
+    ),
 ) -> bool:
-    return any(entry.fullmatch(line) for entry in entries)
+    return any(pattern.fullmatch(line) for pattern in patterns)
 
 
 def _formula(picture: bytes) -> str:
@@ -207,11 +242,11 @@ def _formula(picture: bytes) -> str:
         return ""
     position = len(_PNG)
     while position + 8 <= len(picture):
-        length, kind = struct.unpack_from(">I4s", picture, position)
-        name, _, value = picture[position + 8 : position + 8 + length].partition(b"\0")
-        if kind == b"tEXt" and name == b"MathML":
+        length, chunk_type = struct.unpack_from(">I4s", picture, position)
+        keyword, _, text = picture[position + 8 : position + 8 + length].partition(b"\0")
+        if chunk_type == b"tEXt" and keyword == b"MathML":
             try:
-                latex = mathml_latex(value.decode("utf-8", "replace"))
+                latex = mathml_to_latex(text.decode("utf-8", "replace"))
             except ParseError, RecursionError:
                 return ""
             return f"${latex}$" if latex else ""

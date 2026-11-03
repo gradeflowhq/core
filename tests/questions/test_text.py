@@ -12,9 +12,9 @@ def test_text_trims_whitespace_by_default() -> None:
     assert TextQuestion().read("  leading and trailing  ") == "leading and trailing"
 
 
-def test_text_keeps_whitespace_when_trimming_is_off() -> None:
-    q = TextQuestion(reading=TextReading(trim_spaces=False))
-    assert q.read("  leading and trailing  ") == "  leading and trailing  "
+def test_text_keeps_whitespace_without_trim_spaces() -> None:
+    question = TextQuestion(reading=TextReading(trim_spaces=False))
+    assert question.read("  leading and trailing  ") == "  leading and trailing  "
 
 
 def test_text_ignores_capitals_unless_told_not_to() -> None:
@@ -23,16 +23,21 @@ def test_text_ignores_capitals_unless_told_not_to() -> None:
 
 
 def test_text_blank_marker_survives_trimming_and_case_normalization() -> None:
-    q = TextQuestion()
-    assert q.read("  N/A ") is None
-    assert q.read("   ") is None
+    question = TextQuestion()
+    assert question.read("  N/A ") is None
+    assert question.read("   ") is None
     assert TextQuestion(reading=TextReading(trim_spaces=False)).read(" ") == " "
 
 
 def test_text_ignores_punctuation_when_configured() -> None:
-    q = TextQuestion(reading=TextReading(ignore_punctuation=True))
-    assert [q.read(a) for a in ("(LL)", "LL,", "L, L", "a.b-c!")] == ["ll", "ll", "l l", "abc"]
-    assert q.read("N/A") is None
+    question = TextQuestion(reading=TextReading(ignore_punctuation=True))
+    assert [question.read(answer) for answer in ("(LL)", "LL,", "L, L", "a.b-c!")] == [
+        "ll",
+        "ll",
+        "l l",
+        "abc",
+    ]
+    assert question.read("N/A") is None
     assert TextQuestion().read("(LL)") == "(ll)"
 
 

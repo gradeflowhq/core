@@ -5,7 +5,7 @@ examples:
       Q1: {type: number, description: What is its side?}
       Q2: {type: number, description: What is its area?}
     with:
-      target: Q2
+      question_to_mark: Q2
       formula: Q1^2
     rows:
       - answers:
@@ -30,7 +30,7 @@ examples:
       Q1: {type: number, description: How much do 5 pens cost?}
       Q2: {type: number, description: How much change do you get from $10?}
     with:
-      target: Q2
+      question_to_mark: Q2
       formula: 10 - Q1
       tolerance: 0.01
     rows:

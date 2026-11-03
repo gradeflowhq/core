@@ -26,10 +26,11 @@ def test_an_empty_cell_answers_nothing() -> None:
 
 
 def test_the_answer_key_sets_questions_up_with_the_students_answers() -> None:
-    students = [
-        Submission(student_id=str(n), answers={"Q1": answer}) for n, answer in enumerate("AB")
+    submissions = [
+        Submission(student_id=str(index), answers={"Q1": answer})
+        for index, answer in enumerate("AB")
     ]
-    questions = QuestionSet({}).updated_from([*students, read_answer_key({"Q1": "A,C"})])
+    questions = QuestionSet({}).updated_from([*submissions, read_answer_key({"Q1": "A,C"})])
     question = questions["Q1"]
     assert isinstance(question, ChoiceQuestion)
     assert question.allow_multiple

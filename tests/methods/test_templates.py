@@ -7,7 +7,7 @@ from gradeflow_core.methods import templates
 from gradeflow_core.methods.outcome import EarlierResult, Outcome, feedback_scope
 from gradeflow_core.methods.templates import (
     EARLIER_RESULT,
-    PART,
+    PART_RESULT,
     ListOf,
     Shape,
     TemplateError,
@@ -22,10 +22,10 @@ from gradeflow_core.questions.text import TextQuestion
 
 from .helpers import mark, mark_all, mark_group, problems_of
 
-SCOPE: Mapping[str, Shape] = {
+TEMPLATE_SCOPE: Mapping[str, Shape] = {
     "checks": {"test": EARLIER_RESULT},
     "inputs": {"points": ListOf("text")},
-    "parts": ListOf(PART),
+    "parts": ListOf(PART_RESULT),
 }
 
 
@@ -80,43 +80,43 @@ def test_templates_branch_loop_and_use_the_filters() -> None:
 )
 def test_templates_are_refused_on_load_for_what_they_cant_do(source: str, message: str) -> None:
     with pytest.raises(TemplateError) as caught:
-        validate(source, SCOPE)
+        validate(source, TEMPLATE_SCOPE)
     assert str(caught.value) == message
 
 
 def test_a_checks_feedback_template_replaces_its_feedback_with_the_answer_as_written() -> None:
-    check_ = {
+    check = {
         "uses": "gradeflow/accepted-answers@1",
         "with": {"answers": ["Paris"]},
         "feedback": (
             "{% if correct %}Yes, {{ answer }}.{% else %}{{ answer }} isn't the capital.{% endif %}"
         ),
     }
-    assert [mark(check_, answer).feedback for answer in ("Paris ", "Lyon")] == [
+    assert [mark(check, answer).feedback for answer in ("Paris ", "Lyon")] == [
         "Yes, Paris.",
         "Lyon isn't the capital.",
     ]
 
 
 def test_feedback_for_each_outcome_replaces_its_feedback_and_an_empty_one_keeps_it() -> None:
-    check_ = {
+    check = {
         "uses": "gradeflow/accepted-answers@1",
         "with": {"answers": ["Paris"]},
         "feedback": {"correct": "Yes, {{ answer }}.", "incorrect": ""},
     }
-    assert [mark(check_, answer).feedback for answer in ("paris", "lyon")] == [
+    assert [mark(check, answer).feedback for answer in ("paris", "lyon")] == [
         "Yes, paris.",
         "Expected “Paris”.",
     ]
 
 
 def test_feedback_for_an_outcome_says_where_its_template_is_wrong() -> None:
-    check_ = {
+    check = {
         "uses": "gradeflow/accepted-answers@1",
         "with": {"answers": ["Paris"]},
         "feedback": {"partly_correct": "{{ anser }}"},
     }
-    assert problems_of(check_) == [("", ("feedback", "partly_correct"), "There's no anser.")]
+    assert problems_of(check) == [("", ("feedback", "partly_correct"), "There's no anser.")]
 
 
 def test_feedback_can_name_earlier_checks_results() -> None:
@@ -150,34 +150,34 @@ def test_feedback_can_name_earlier_checks_results() -> None:
 
 
 def test_a_marking_with_a_template_it_cant_use_says_where() -> None:
-    check_ = {"uses": "gradeflow/key-point@1", "with": {"point": "a"}, "feedback": "{{ score }}"}
-    assert problems_of(check_) == [("", ("feedback",), "There's no score.")]
-    listed = {
+    check = {"uses": "gradeflow/key-point@1", "with": {"point": "a"}, "feedback": "{{ score }}"}
+    assert problems_of(check) == [("", ("feedback",), "There's no score.")]
+    combination = {
         "uses": "gradeflow/combination@1",
-        "with": {"checks": [{**check_, "feedback": None, "if": "{{ checks.later.correct }}"}]},
+        "with": {"checks": [{**check, "feedback": None, "if": "{{ checks.later.correct }}"}]},
     }
-    assert problems_of(listed) == [
+    assert problems_of(combination) == [
         ("with.checks.0", ("if",), "No check before this one is called later.")
     ]
 
 
 def test_a_condition_that_doesnt_parse_says_so_plainly() -> None:
-    check_ = {"uses": "gradeflow/key-point@1", "with": {"point": "a"}, "if": "{{ x garbage(( }}"}
-    assert problems_of(check_) == [("", ("if",), "Can't read this condition.")]
+    check = {"uses": "gradeflow/key-point@1", "with": {"point": "a"}, "if": "{{ x garbage(( }}"}
+    assert problems_of(check) == [("", ("if",), "Can't read this condition.")]
 
 
-@pytest.mark.parametrize("written", ["{{ false }}", "{{ 1 > 0 }}"])
-def test_a_condition_reads_an_earlier_check_or_an_input(written: str) -> None:
-    check_ = {"uses": "gradeflow/key-point@1", "with": {"point": "a"}}
+@pytest.mark.parametrize("condition_text", ["{{ false }}", "{{ 1 > 0 }}"])
+def test_a_condition_reads_an_earlier_check_or_an_input(condition_text: str) -> None:
+    check = {"uses": "gradeflow/key-point@1", "with": {"point": "a"}}
     message = (
         "Make a condition read an earlier check or an input, such as {{ checks.test.correct }}."
     )
-    assert problems_of({**check_, "if": written}) == [("", ("if",), message)]
-    listed = {
+    assert problems_of({**check, "if": condition_text}) == [("", ("if",), message)]
+    combination = {
         "uses": "gradeflow/combination@1",
-        "with": {"checks": [check_, {**check_, "if": written}]},
+        "with": {"checks": [check, {**check, "if": condition_text}]},
     }
-    assert problems_of(listed) == [("with.checks.1", ("if",), message)]
+    assert problems_of(combination) == [("with.checks.1", ("if",), message)]
 
 
 @pytest.mark.parametrize(
@@ -199,23 +199,23 @@ def test_a_condition_reads_an_earlier_checks_correct_proportion_and_feedback(
         "uses": "gradeflow/key-point@1",
         "with": {"point": "a"},
     }
-    then = {
+    second = {
         "if": f"{{{{ checks.first.{field} }}}}",
         "uses": "gradeflow/key-point@1",
         "with": {"point": "b"},
     }
-    marking = {"uses": "gradeflow/combination@1", "with": {"checks": [first, then]}}
+    marking = {"uses": "gradeflow/combination@1", "with": {"checks": [first, second]}}
     expected = [("with.checks.1", ("if",), problem)] if problem else []
     assert problems_of(marking) == expected
 
 
 def test_feedback_can_add_to_the_methods_own() -> None:
-    check_ = {
+    check = {
         "uses": "gradeflow/key-point@1",
         "with": {"point": "a"},
         "feedback": "{{ feedback }} See page 3.",
     }
-    assert mark(check_, "a").feedback == "Has “a”. See page 3."
+    assert mark(check, "a").feedback == "Has “a”. See page 3."
 
 
 def test_marking_compiles_each_template_once_for_every_student(
@@ -224,19 +224,19 @@ def test_marking_compiles_each_template_once_for_every_student(
     compiled: list[str] = []
     original = templates.ENVIRONMENT.from_string
 
-    def counted(source: str) -> Any:
+    def recording_from_string(source: str) -> Any:
         compiled.append(source)
         return original(source)
 
-    monkeypatch.setattr(templates.ENVIRONMENT, "from_string", counted)
+    monkeypatch.setattr(templates.ENVIRONMENT, "from_string", recording_from_string)
     feedback = "{{ answer }} was marked {{ feedback }} once per template"
     check = {"uses": "gradeflow/key-point@1", "with": {"point": "x"}, "feedback": feedback}
-    mark_all(check, [f"answer {n}" for n in range(5)])
+    mark_all(check, [f"answer {index}" for index in range(5)])
     assert compiled.count(feedback) == 1
 
 
-def test_templates_are_checked_against_what_they_see() -> None:
+def test_template_shapes_match_what_marking_gives_them() -> None:
     outcome = Outcome(1.0)
     assert EARLIER_RESULT.keys() == EarlierResult.__annotations__.keys()
-    assert PART.keys() == outcome.view("Q1").keys()
-    assert templates.MARKED.keys() == feedback_scope(outcome, "Paris", "Q1").keys()
+    assert PART_RESULT.keys() == outcome.template_values("Q1").keys()
+    assert templates.FEEDBACK_SCOPE.keys() == feedback_scope(outcome, "Paris", "Q1").keys()

@@ -4,27 +4,27 @@ from natsort import natsorted
 from pydantic import Field
 
 from ...common.problems import Problem
-from ...common.text import format_number, markdown_code, plain_join, plural
+from ...common.text import code_span, format_number, plain_join, plural
 from ...questions.types import Answer, QuestionId, Unreadable
 from ..check import Check, Context
 from ..example import examples_beside
-from ..matching import TOLERANCE, expecting, within
+from ..matching import TOLERANCE_FIELD, expected_text, within
 from ..method import Method
-from ..outcome import CORRECT, Outcome, unanswered
+from ..outcome import CORRECT, Outcome, unanswered_outcome
 from ..position import Position
-from ..settings import Settings, Text, literal, specialised
+from ..settings import NonBlankText, Settings, literal, specialized
 from . import expressions
 from .expressions import Expression
 
 
 class FormulaOfAnswersSettings(Settings):
-    target: QuestionId = Field(title="Question to mark")
-    formula: Text = Field(
+    question_to_mark: QuestionId = Field(title="Question to mark")
+    formula: NonBlankText = Field(
         title="Expected answer",
         description="A formula of other answers.",
         examples=["Q1 * 12"],
     )
-    tolerance: float = TOLERANCE
+    tolerance: float = TOLERANCE_FIELD
 
 
 class FormulaOfAnswers(Method[FormulaOfAnswersSettings]):
@@ -41,32 +41,32 @@ class FormulaOfAnswers(Method[FormulaOfAnswersSettings]):
         "Equivalent Expression.\n\n"
         "**Good to know:** Write a question whose name has spaces or starts with a digit in "
         "brackets, such as `[1a]`. Mark the earlier questions on their own too, so they get "
-        "marks only when they're right.\n\n"
+        "marks only when they're correct.\n\n"
         "**Related:** For known mistakes, or answers that aren't numbers, use Answer Sets."
     )
     level = "advanced"
-    group = True
+    marks_question_group = True
     settings = FormulaOfAnswersSettings
     examples = examples_beside(__file__)
 
-    def fits(self, position: Position) -> bool:
+    def can_mark_at(self, position: Position) -> bool:
         return position.question is None and len(_number_questions(position)) > 1
 
-    def settings_at(self, position: Position) -> type[Settings]:
+    def settings_model_at(self, position: Position) -> type[Settings]:
         keys = _number_questions(position)
         if not keys:
             return self.settings
-        return specialised(self.settings, target={"annotation": literal(keys)})
+        return specialized(self.settings, question_to_mark={"annotation": literal(keys)})
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
-        formula = markdown_code(settings.formula)
-        how = (
-            f"is within {markdown_code(settings.tolerance)} of {formula}"
+        formula = code_span(settings.formula)
+        comparison = (
+            f"is within {code_span(settings.tolerance)} of {formula}"
             if settings.tolerance > 0
             else f"equals {formula}"
         )
-        return f"**{settings.target}** {how}, from the student's own answers."
+        return f"**{settings.question_to_mark}** {comparison}, from the student's own answers."
 
     def mark(
         self,
@@ -76,77 +76,81 @@ class FormulaOfAnswers(Method[FormulaOfAnswersSettings]):
         value: int | None,
     ) -> dict[QuestionId, Outcome]:
         settings = self._settings_of(check)
-        return {settings.target: _outcome(settings, context)}
+        return {settings.question_to_mark: _mark_with_formula(settings, context)}
 
     def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return {self._settings_of(check).target}
+        return {self._settings_of(check).question_to_mark}
 
     def questions_read(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
         settings = self._settings_of(check)
         try:
-            return {settings.target, *_read(settings.formula).names}
+            return {settings.question_to_mark, *_parse_formula(settings.formula).variables}
         except ValueError:
-            return {settings.target}
+            return {settings.question_to_mark}
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(check)
-        if message := _not_a_number_question(settings.target, position):
-            yield Problem(message, field=("target",))
+        if message := _number_question_problem(settings.question_to_mark, position):
+            yield Problem(message, field=("question_to_mark",))
         try:
-            names = _read(settings.formula).names
+            question_keys = _parse_formula(settings.formula).variables
         except ValueError as error:
             yield Problem(str(error), field=("formula",))
             return
-        if not names:
+        if not question_keys:
             yield Problem("Use another answer, such as Q1 * 12.", field=("formula",))
-        if settings.target in names:
-            yield Problem(f"{settings.target} can't follow from itself.", field=("formula",))
-        for key in natsorted(names - {settings.target}):
-            if message := _not_a_number_question(key, position):
+        if settings.question_to_mark in question_keys:
+            yield Problem(
+                f"{settings.question_to_mark} can't follow from itself.", field=("formula",)
+            )
+        for key in natsorted(question_keys - {settings.question_to_mark}):
+            if message := _number_question_problem(key, position):
                 yield Problem(message, field=("formula",))
 
 
-def _read(formula: str) -> Expression:
-    return expressions.read(formula, whole_names=True)
+def _parse_formula(formula: str) -> Expression:
+    return expressions.parse(formula, names_as_written=True)
 
 
 def _number_questions(position: Position) -> list[QuestionId]:
     return [key for key, question in position.questions.items() if question.type == "number"]
 
 
-def _not_a_number_question(key: QuestionId, position: Position) -> str | None:
+def _number_question_problem(key: QuestionId, position: Position) -> str | None:
     question = position.questions.get(key)
     if question is None:
         return f"There's no question {key}."
     return None if question.type == "number" else f"{key} isn't a number question."
 
 
-def _outcome(settings: FormulaOfAnswersSettings, context: Context) -> Outcome:
-    answer = context.answers.get(settings.target)
-    if (unread := unanswered(answer)) is not None:
-        return unread
-    expression = _read(settings.formula)
-    keys = natsorted(expression.names)
+def _mark_with_formula(settings: FormulaOfAnswersSettings, context: Context) -> Outcome:
+    answer = context.answers.get(settings.question_to_mark)
+    if (outcome := unanswered_outcome(answer)) is not None:
+        return outcome
+    expression = _parse_formula(settings.formula)
+    keys = natsorted(expression.variables)
     values: dict[str, float] = {}
     for key in keys:
-        given = context.answers.get(key)
-        if given is None:
+        other_answer = context.answers.get(key)
+        if other_answer is None:
             return Outcome(0.0, f"No answer to {key} to work from.")
-        if isinstance(given, Unreadable):
-            return Outcome(0.0, f"{key}: {given.reason}", marked=False)
-        values[key] = _number(given)
-    source = f"the {plural('answer', len(keys))} to {plain_join(keys, conjunction='and')}"
+        if isinstance(other_answer, Unreadable):
+            return Outcome(0.0, f"{key}: {other_answer.reason}", marked=False)
+        values[key] = _as_number(other_answer)
+    answers_used = f"the {plural('answer', len(keys))} to {plain_join(keys, conjunction='and')}"
     try:
         expected = expression.value(values)
     except ValueError as error:
-        return Outcome(0.0, f"Can't work out the expected answer from {source}. {error}")
-    if within(_number(answer), expected, settings.tolerance):
+        return Outcome(0.0, f"Can't work out the expected answer from {answers_used}. {error}")
+    if within(_as_number(answer), expected, settings.tolerance):
         return Outcome(1.0, CORRECT)
-    shown = format_number(float(f"{expected:.10g}"))
-    return Outcome(0.0, f"{expecting(shown, settings.tolerance)}, from {source}.")
+    expected_number = format_number(float(f"{expected:.10g}"))
+    return Outcome(
+        0.0, f"{expected_text(expected_number, settings.tolerance)}, from {answers_used}."
+    )
 
 
-def _number(answer: Answer | Unreadable) -> float:
+def _as_number(answer: Answer | Unreadable) -> float:
     # Problems refuse questions that aren't numbers, and unreadable answers aren't marked.
     assert isinstance(answer, int | float)
     return float(answer)

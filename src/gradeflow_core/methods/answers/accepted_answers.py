@@ -5,14 +5,14 @@ from pydantic import Field
 from ...common.hints import hint
 from ...common.problems import Problem
 from ...common.text import (
-    markdown_code,
+    as_sentence,
+    code_join,
+    code_span,
     markdown_code_list,
-    markdown_join,
     plain_join,
     quoted,
     quoted_join,
-    runs_long,
-    sentence,
+    reads_better_listed,
 )
 from ...ml import nli
 from ...questions.base import Question
@@ -20,39 +20,39 @@ from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
 from ..matching import (
-    MATCH,
+    MATCH_FIELD,
     SPELLING_CUTOFFS,
-    TOLERANCE,
+    TOLERANCE_FIELD,
     Match,
     Strictness,
-    context_of,
-    expecting,
-    how_matched,
+    closest_spelling,
+    expected_text,
+    match_note,
     match_problems,
-    most_alike,
+    model_context,
     read_or_none,
-    reading_problems,
     strictness_field,
+    unreadable_problems,
     within,
 )
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
-from ..settings import Settings, Text, specialised
+from ..settings import NonBlankText, Settings, specialized
 
 # The lower, over both directions, of entailment minus contradiction; calibrated on real students'
 # answers to science, civics and computing questions.
-MEANING_CUTOFFS: dict[Strictness, float] = {"lenient": -0.1, "normal": 0.005, "strict": 0.5}
+ANSWER_MEANING_CUTOFFS: dict[Strictness, float] = {"lenient": -0.1, "normal": 0.005, "strict": 0.5}
 
 
 class AcceptedAnswersSettings(Settings):
-    answers: list[Text] = Field(
+    answers: list[NonBlankText] = Field(
         title="Accepted answers",
-        json_schema_extra=hint(accepts_answers=True),
+        json_schema_extra=hint(lists_answers=True),
     )
-    match: Match = MATCH
+    match: Match = MATCH_FIELD
     strictness: Strictness = strictness_field(applies_when={"match": ["spelling", "meaning"]})
-    tolerance: float = TOLERANCE
+    tolerance: float = TOLERANCE_FIELD
 
 
 class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
@@ -61,7 +61,7 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
     label = "Accepted Answers"
     summary = "Full marks if the answer is one you accept."
     guide = (
-        "**Use it when:** There are one or a few right answers, such as a name, a term, a number "
+        "**Use it when:** There are one or a few correct answers, such as a name, a term, a number "
         "or a one-sentence explanation.\n\n"
         "**How it marks:** The whole answer is compared with each accepted answer, and a match "
         "gets full marks. **Exactly** needs the same text, and **Similar spelling** forgives "
@@ -78,25 +78,27 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
     settings = AcceptedAnswersSettings
     examples = examples_beside(__file__)
 
-    def settings_at(self, position: Position) -> type[Settings]:
-        drop = {
+    def settings_model_at(self, position: Position) -> type[Settings]:
+        hidden_fields = {
             "number": ("match", "strictness"),
             "code": ("match", "strictness", "tolerance"),
-        }.get(position.answer_type or "", ("tolerance",))
-        return specialised(AcceptedAnswersSettings, drop=drop)
+        }.get(position.question_type or "", ("tolerance",))
+        return specialized(AcceptedAnswersSettings, without=hidden_fields)
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
         if not settings.answers:
             return "No accepted answers."
-        how = (
-            f", within {markdown_code(settings.tolerance)}"
+        comparison_note = (
+            f", within {code_span(settings.tolerance)}"
             if settings.tolerance > 0
-            else how_matched(settings.match, settings.strictness)
+            else match_note(settings.match, settings.strictness)
         )
-        if runs_long(settings.answers):
-            return f"Matches any of these{how}:\n{markdown_code_list(settings.answers)}"
-        return sentence(f"Matches {markdown_join(settings.answers, conjunction='or')}{how}")
+        if reads_better_listed(settings.answers):
+            return f"Matches any of these{comparison_note}:\n{markdown_code_list(settings.answers)}"
+        return as_sentence(
+            f"Matches {code_join(settings.answers, conjunction='or')}{comparison_note}"
+        )
 
     def _mark_answer(
         self, settings: AcceptedAnswersSettings, answer: Answer, question: Question
@@ -104,43 +106,45 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
         if not settings.answers:
             return Outcome(0.0, "No accepted answers.")
         accepted = {
-            text: read
+            text: value_read
             for text in settings.answers
-            if (read := read_or_none(question.read, text)) is not None
+            if (value_read := read_or_none(question.read, text)) is not None
         }
         if isinstance(answer, int | float) and not isinstance(answer, bool):
-            close = any(
+            within_tolerance = any(
                 within(answer, value, settings.tolerance)
                 for value in accepted.values()
                 if isinstance(value, int | float)
             )
-            if close:
+            if within_tolerance:
                 return Outcome(1.0, CORRECT)
             answers = plain_join(settings.answers, conjunction="or")
-            return Outcome(0.0, f"{expecting(answers, settings.tolerance)}.")
+            return Outcome(0.0, f"{expected_text(answers, settings.tolerance)}.")
         text = str(answer)
         if text in accepted.values():
             return Outcome(1.0, CORRECT)
         expected = Outcome(
-            0.0, sentence(f"Expected {quoted_join(settings.answers, conjunction='or')}")
+            0.0, as_sentence(f"Expected {quoted_join(settings.answers, conjunction='or')}")
         )
         if settings.match == "exact" or not accepted:
             return expected
-        written = list(accepted)
-        references = [str(value) for value in accepted.values()]
+        accepted_texts = list(accepted)
+        accepted_readings = [str(value) for value in accepted.values()]
         if settings.match == "spelling":
-            index = most_alike(text, references, SPELLING_CUTOFFS[settings.strictness])
+            index = closest_spelling(text, accepted_readings, SPELLING_CUTOFFS[settings.strictness])
         else:
-            cutoff = MEANING_CUTOFFS[settings.strictness]
-            best, close = nli.best_match(text, references, context_of(question), cutoff)
-            index = best if close else None
+            cutoff = ANSWER_MEANING_CUTOFFS[settings.strictness]
+            best_index, is_match = nli.best_match(
+                text, accepted_readings, model_context(question), cutoff
+            )
+            index = best_index if is_match else None
         if index is None:
             return expected
-        return Outcome(1.0, f"Accepted as {quoted(written[index])}.")
+        return Outcome(1.0, f"Accepted as {quoted(accepted_texts[index])}.")
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(check)
         yield from match_problems(settings.match)
         question = position.question_model
         if question is not None:
-            yield from reading_problems(settings.answers, question.read, "answers")
+            yield from unreadable_problems(settings.answers, question.read, "answers")

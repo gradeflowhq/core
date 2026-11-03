@@ -12,7 +12,7 @@ from rapidfuzz.fuzz import ratio
 
 from ..ml import embeddings
 
-type Similar = Literal["exact", "normalized", "spelling", "meaning"]
+type Similarity = Literal["exact", "normalized", "spelling", "meaning"]
 type _Index = Annotated[int, Field(ge=0, strict=True)]
 type _Score = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 type _Link = tuple[_Index, _Index, _Score]
@@ -30,22 +30,24 @@ class AnswerComparison(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     texts: tuple[str, ...]
-    similar: Similar
-    members: tuple[_Index, ...] = Field(repr=False)
-    links: tuple[_Link, ...] = Field(repr=False)
+    similarity: Similarity
+    key_indices: tuple[_Index, ...] = Field(repr=False)
+    similarity_links: tuple[_Link, ...] = Field(repr=False)
 
     @model_validator(mode="after")
     def _valid_structure(self) -> Self:
-        size = len(set(self.members))
-        if len(self.members) != len(self.texts) or set(self.members) != set(range(size)):
+        key_count = len(set(self.key_indices))
+        if len(self.key_indices) != len(self.texts) or set(self.key_indices) != set(
+            range(key_count)
+        ):
             raise ValueError("Comparison membership must cover every input text.")
-        if self.similar in ("exact", "normalized") and self.links:
+        if self.similarity in ("exact", "normalized") and self.similarity_links:
             raise ValueError("Equal-answer comparisons cannot contain similarity links.")
-        roots = _Roots(size)
-        for left, right, _ in self.links:
-            if max(left, right) >= size or roots.find(left) == roots.find(right):
-                raise ValueError("Comparison links must form a forest over its members.")
-            roots.join(left, right)
+        sets = _DisjointSets(key_count)
+        for left, right, _ in self.similarity_links:
+            if max(left, right) >= key_count or sets.find(left) == sets.find(right):
+                raise ValueError("Comparison links must join known answers without forming a loop.")
+            sets.union(left, right)
         return self
 
     def groups(self, threshold: float = 0.85) -> list[list[int]]:
@@ -57,46 +59,53 @@ class AnswerComparison(BaseModel):
         """
         if not 0 <= threshold <= 1:
             raise ValueError("The comparison threshold must be between 0 and 1.")
-        if self.similar == "meaning":
+        if self.similarity == "meaning":
             # Cosine scores and their inclusive thresholds use the same float32 precision.
             threshold = struct.unpack("f", struct.pack("f", threshold))[0]
-        roots = _Roots(len(set(self.members)))
-        for left, right, score in self.links:
+        sets = _DisjointSets(len(set(self.key_indices)))
+        for left, right, score in self.similarity_links:
             if score >= threshold:
-                roots.join(left, right)
-        grouped: dict[int, list[int]] = {}
-        for index, member in enumerate(self.members):
-            grouped.setdefault(roots.find(member), []).append(index)
-        return list(grouped.values())
+                sets.union(left, right)
+        groups_by_root: dict[int, list[int]] = {}
+        for index, key_index in enumerate(self.key_indices):
+            groups_by_root.setdefault(sets.find(key_index), []).append(index)
+        return list(groups_by_root.values())
 
 
-def compare_answers(answers: Sequence[str], *, similar: Similar = "exact") -> AnswerComparison:
+def compare_answers(
+    answers: Sequence[str], *, similarity: Similarity = "exact"
+) -> AnswerComparison:
     """Prepare ordered answers for repeated grouping at different thresholds.
 
     Supply canonical answers from ``Question.normalize``. Exact comparison preserves text;
     other modes overlook case, punctuation and spacing. ``normalized`` compares equality
     only. Meaning comparison requires the ``ml`` extra and performs document inference here.
     """
-    distinct: dict[str, int] = {}
-    members = []
+    index_of_key: dict[str, int] = {}
+    key_indices = []
     for text in answers:
-        key = text if similar == "exact" else _normalise(text)
-        members.append(distinct.setdefault(key, len(distinct)))
-    links: list[_Link] = []
-    if similar in ("spelling", "meaning"):
-        eligible = {
-            key: index for key, index in distinct.items() if key and not _NUMBER.fullmatch(key)
+        normalized = text if similarity == "exact" else _normalized(text)
+        key_indices.append(index_of_key.setdefault(normalized, len(index_of_key)))
+    similarity_links: list[_Link] = []
+    if similarity in ("spelling", "meaning"):
+        comparable = {
+            key: index for key, index in index_of_key.items() if key and not _NUMBER.fullmatch(key)
         }
-        if len(eligible) > 1:
-            keys, indices = list(eligible), list(eligible.values())
-            found = _meaning_links(keys) if similar == "meaning" else _spelling_links(keys)
-            links = [(indices[left], indices[right], score) for left, right, score in found]
+        if len(comparable) > 1:
+            keys, indices = list(comparable), list(comparable.values())
+            key_links = _meaning_links(keys) if similarity == "meaning" else _spelling_links(keys)
+            similarity_links = [
+                (indices[left], indices[right], score) for left, right, score in key_links
+            ]
     return AnswerComparison(
-        texts=tuple(answers), similar=similar, members=tuple(members), links=tuple(links)
+        texts=tuple(answers),
+        similarity=similarity,
+        key_indices=tuple(key_indices),
+        similarity_links=tuple(similarity_links),
     )
 
 
-def _normalise(text: str) -> str:
+def _normalized(text: str) -> str:
     if _NUMBER.fullmatch(text.strip()):
         return text.strip()
     text = _PUNCTUATION.sub("", unicodedata.normalize("NFKC", text).casefold())
@@ -106,19 +115,19 @@ def _normalise(text: str) -> str:
 def _spelling_links(keys: list[str]) -> list[_Link]:
     """A maximum spanning forest preserves connected groups at every threshold, in n-1 links."""
     remaining = set(range(1, len(keys)))
-    best = [ratio(keys[0], key) / 100 for key in keys]
-    source = [0] * len(keys)
+    best_score = [ratio(keys[0], key) / 100 for key in keys]
+    nearest = [0] * len(keys)
     links = []
     while remaining:
-        selected = max(remaining, key=lambda index: (best[index], -index))
+        selected = max(remaining, key=lambda index: (best_score[index], -index))
         remaining.remove(selected)
-        if best[selected] > 0:
-            links.append((source[selected], selected, best[selected]))
+        if best_score[selected] > 0:
+            links.append((nearest[selected], selected, best_score[selected]))
         for index in remaining:
             score = ratio(keys[selected], keys[index]) / 100
-            if score > best[index]:
-                best[index] = score
-                source[index] = selected
+            if score > best_score[index]:
+                best_score[index] = score
+                nearest[index] = selected
     return links
 
 
@@ -131,16 +140,18 @@ def _meaning_links(keys: list[str]) -> list[_Link]:
     vectors = np.asarray(embeddings.embed_texts(keys), dtype=np.float32)
     scores = (vectors @ vectors.T)[np.triu_indices(len(keys), 1)]
     tree = linkage(np.clip(1 - scores.astype(np.float64), 0, 2), method="complete")
-    first = list(range(len(keys)))
+    first_answer = list(range(len(keys)))
     links = []
     for left, right, distance, _ in tree:
-        first.append(first[int(left)])
+        first_answer.append(first_answer[int(left)])
         if distance <= 1:
-            links.append((first[int(left)], first[int(right)], float(np.float32(1 - distance))))
+            links.append(
+                (first_answer[int(left)], first_answer[int(right)], float(np.float32(1 - distance)))
+            )
     return links
 
 
-class _Roots:
+class _DisjointSets:
     def __init__(self, size: int) -> None:
         self.parent = list(range(size))
 
@@ -150,5 +161,5 @@ class _Roots:
             index = self.parent[index]
         return index
 
-    def join(self, left: int, right: int) -> None:
+    def union(self, left: int, right: int) -> None:
         self.parent[self.find(left)] = self.find(right)

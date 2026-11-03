@@ -5,15 +5,15 @@ from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
-from .helpers import describe, mark, mark_all, problems_of, proportions, scheme
+from .helpers import describe, mark, mark_all, mark_scheme_of, problems_of, proportions
 
 
 def test_pattern_matches_with_its_options() -> None:
     check = {"uses": "gradeflow/pattern@1", "with": {"pattern": "^colou?r$", "ignore_case": True}}
     assert proportions(mark_all(check, ["colour", "Color", "colours"])) == [1, 1, 0]
-    assert mark(check, "color").feedback == "Right format."
+    assert mark(check, "color").feedback == "Correct format."
     assert mark(check, "red").feedback == "Not in the expected format."
-    assert describe(check) == "Matches the pattern `^colou?r$`, ignoring capitals."
+    assert describe(check) == "Matches the pattern `^colou?r$`, ignoring case."
 
 
 def test_a_pattern_must_compile() -> None:
@@ -32,7 +32,7 @@ def test_a_number_range_needs_its_limits_in_order() -> None:
 def test_length_counts_words_or_characters() -> None:
     check = {
         "uses": "gradeflow/length@1",
-        "with": {"min_length": 3, "max_length": 5, "count": "words"},
+        "with": {"min_length": 3, "max_length": 5, "unit": "words"},
     }
     assert proportions(mark_all(check, ["one two three", "one two", "a b c d e f"])) == [1, 0, 0]
     assert mark(check, "one two").feedback == "Too short: 2 words. Expected at least 3."
@@ -44,7 +44,7 @@ def test_a_blank_answer_gets_no_marks_before_the_method_marks_it() -> None:
     check = {"uses": "gradeflow/length@1", "with": {"min_length": 1}}
     assert (mark(check, "").proportion, mark(check, "").feedback) == (0, "No answer.")
     with pytest.raises(InvalidError, match="blank"):
-        scheme({"question": "Q1", "blank": "mark", **check})
+        mark_scheme_of({"question": "Q1", "blank": "mark", **check})
 
 
 def test_full_marks_gives_everyone_full_marks_blank_answers_too() -> None:
@@ -53,7 +53,9 @@ def test_full_marks_gives_everyone_full_marks_blank_answers_too() -> None:
 
 
 def test_only_full_marks_marks_blank_answers() -> None:
-    assert [method.name for method in BUILTINS if method.marks_blank] == ["gradeflow/full-marks"]
+    assert [method.name for method in BUILTINS if method.marks_blank_answers] == [
+        "gradeflow/full-marks"
+    ]
 
 
 @pytest.mark.parametrize(

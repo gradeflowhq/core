@@ -7,13 +7,13 @@ from gradeflow_core import QuestionResult
 from .helpers import mark
 
 
-def _mark(code: str, answer: str = "x") -> QuestionResult:
+def mark_with_code(code: str, answer: str = "x") -> QuestionResult:
     return mark({"uses": "gradeflow/custom-code@1", "with": {"code": code}}, answer)
 
 
 def test_user_code_environ_excludes_host_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GRADEFLOW_TEST_SECRET", "s3cret")
-    result = _mark(
+    result = mark_with_code(
         "import os\n"
         "correct = 'GRADEFLOW_TEST_SECRET' not in os.environ\n"
         "feedback = ', '.join(sorted(os.environ))\n"
@@ -31,10 +31,10 @@ def test_user_code_environ_excludes_host_variables(monkeypatch: pytest.MonkeyPat
     ],
 )
 def test_user_code_exiting_fails_only_that_answer(code: str, message: str) -> None:
-    result = _mark(code)
+    result = mark_with_code(code)
     assert result.correct is False
     assert message in result.feedback
-    assert _mark("correct = True").correct
+    assert mark_with_code("correct = True").correct
 
 
 @pytest.mark.parametrize(
@@ -49,15 +49,19 @@ def test_user_code_exiting_fails_only_that_answer(code: str, message: str) -> No
         "import sys\nsys.stdout.write('x' * 600000)\nsys.stderr.write('x' * 600000)",
     ],
 )
-def test_output_floods_stop_only_that_answer(code: str) -> None:
-    result = _mark(f"{code}\ncorrect = True")
-    assert not result.marked
+def test_output_over_the_limit_stops_only_that_answer(code: str) -> None:
+    result = mark_with_code(f"{code}\ncorrect = True")
+    assert not result.is_marked
     assert "output reached the 1 MiB limit" in result.feedback
-    assert _mark("correct = True").correct
+    assert mark_with_code("correct = True").correct
 
 
-def test_concurrent_grading_keeps_results_apart() -> None:
+def test_concurrent_marking_keeps_results_apart() -> None:
     answers = [f"answer-{i}" for i in range(16)]
     with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(lambda a: _mark("feedback = answer\ncorrect = True", a), answers))
-    assert [r.feedback for r in results] == answers
+        results = list(
+            pool.map(
+                lambda answer: mark_with_code("feedback = answer\ncorrect = True", answer), answers
+            )
+        )
+    assert [result.feedback for result in results] == answers

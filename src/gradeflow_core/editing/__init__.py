@@ -5,7 +5,7 @@ from ..common.documents import dump_yaml, load_yaml
 from ..common.exceptions import EditingError
 from ..common.hints import HINT_KEY
 from ..common.model_service import list_models
-from ..marking.examples import RowResult, evaluate_rows
+from ..marking.examples import RowResult, mark_rows
 from ..marking.model_choice import ModelTrial, try_model
 from ..methods.check import Marking
 from ..methods.collection import rewrite_references
@@ -14,17 +14,18 @@ from ..methods.example import Example, ExampleRow, ExpectedResult
 from ..methods.names import method_name, method_ref, split_ref
 from ..methods.position import Position
 from ..questions import QUESTION_TYPES, new_question
-from ..questions.inference import infer_question_as
+from ..questions.inference import converted_question
 from ..questions.types import QuestionType
 from .by_example import DECISIONS, Decision, answer_decisions, can_mark_by_example, mark_by_example
 from .conditions import Condition, ConditionRow
-from .drafts import MarkingDraft, Slot, compatible_methods
+from .drafts import ChecksSetting, MarkingDraft, compatible_methods
 from .method_drafts import MethodDraft
 
 __all__ = [
     "DECISIONS",
     "HINT_KEY",
     "QUESTION_TYPES",
+    "ChecksSetting",
     "Condition",
     "ConditionRow",
     "Decision",
@@ -39,16 +40,15 @@ __all__ = [
     "Position",
     "QuestionType",
     "RowResult",
-    "Slot",
     "answer_decisions",
     "can_mark_by_example",
     "compatible_methods",
+    "converted_question",
     "dump_yaml",
-    "evaluate_rows",
-    "infer_question_as",
     "list_models",
     "load_yaml",
     "mark_by_example",
+    "mark_rows",
     "method_name",
     "method_ref",
     "methods_used",

@@ -4,11 +4,11 @@ summary: Full marks unless the answer does what you forbid.
 level: advanced
 question_types: all
 guide: |-
-  **Use it when:** An answer must not do something, such as make a common mistake or use a forbidden construct.
+  **Use it when:** An answer must not do something, such as make a common mistake or use a forbidden loop or function.
 
   **How it marks:** The check inside is marked and its result reversed: full marks if it isn't correct, none if it is.
 
-  **Good to know:** On its own it gives marks to any answer that avoids the mistake. Put it in a Combination with **All must be correct**, beside the check for the right answer.
+  **Good to know:** On its own it gives marks to any answer that avoids the mistake. Put it in a Combination with **All must be correct**, beside the check for the correct answer.
 
   **Related:** To forbid words or points, Key Points with **None may be correct** is simpler.
 inputs:

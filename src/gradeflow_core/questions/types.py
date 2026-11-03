@@ -16,5 +16,5 @@ Answer = Value | frozenset[str] | list[Value]
 class Unreadable:
     """An answer the question couldn't read, as written, and why."""
 
-    raw: str
+    answer: str
     reason: str

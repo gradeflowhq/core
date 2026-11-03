@@ -11,10 +11,10 @@ from typing import Any, Self
 
 from pydantic import ValidationError
 
-from ..common.documents import DocumentError, load_document, on_line, plain
+from ..common.documents import YamlError, as_plain_data, load_yaml_with_lines, with_line
 from ..common.error_formatting import error_message
 from ..common.exceptions import GradeFlowError, MethodFileError
-from .composed.file import Fault, MethodFile, definition_references, methods_used
+from .composed.file import MethodFile, MethodFileFieldError, methods_used, methods_used_by_file
 from .composed.method import ComposedMethod
 from .method import Method
 from .names import method_name, method_ref
@@ -28,12 +28,12 @@ class Methods(tuple[Method[Any], ...]):
 
     def __new__(cls, methods: Iterable[Method[Any]] = ()) -> Self:
         self = super().__new__(cls, methods)
-        found: dict[str, Method[Any]] = {}
+        by_ref: dict[str, Method[Any]] = {}
         for method in self:
-            if method.ref in found:
+            if method.ref in by_ref:
                 raise MethodFileError(f"Duplicate method {method.ref}.")
-            found[method.ref] = method
-        self._by_ref = MappingProxyType(found)
+            by_ref[method.ref] = method
+        self._by_ref = MappingProxyType(by_ref)
         return self
 
     @property
@@ -50,11 +50,14 @@ class Methods(tuple[Method[Any], ...]):
 
     def latest(self) -> Methods:
         """The highest version of each method, in the order each name first appears."""
-        found: dict[str, Method[Any]] = {}
+        latest_by_name: dict[str, Method[Any]] = {}
         for method in self:
-            if method.name not in found or method.version > found[method.name].version:
-                found[method.name] = method
-        return Methods(found.values())
+            if (
+                method.name not in latest_by_name
+                or method.version > latest_by_name[method.name].version
+            ):
+                latest_by_name[method.name] = method
+        return Methods(latest_by_name.values())
 
     def with_files(self, files: Sequence[tuple[str, str]]) -> Methods:
         """These methods followed by those the ``(name, YAML)`` files define, in order.
@@ -63,13 +66,13 @@ class Methods(tuple[Method[Any], ...]):
         methods and each other.
         """
         for name, _ in files:
-            namespace, slash, rest = name.partition("/")
-            if not slash:
+            namespace, separator, short_name = name.partition("/")
+            if not separator:
                 raise MethodFileError(
                     f"{name}: Name it as a namespace and name, such as intro-biology/term."
                 )
             try:
-                method_name(namespace, rest)
+                method_name(namespace, short_name)
             except MethodFileError as error:
                 raise MethodFileError(f"{name}: {error}") from None
         return load_files(files, self)
@@ -87,45 +90,47 @@ class Methods(tuple[Method[Any], ...]):
             if method is None:
                 raise MethodFileError(f"There's no method {current}.")
             references = (
-                methods_used(method.file.body()) | definition_references(method.file)
+                methods_used(method.file.combination()) | methods_used_by_file(method.file)
                 if isinstance(method, ComposedMethod)
                 else set()
             )
             graph[current] = references
             pending.extend(references - graph.keys())
-        _ordered(graph)
+        _dependency_order(graph)
         return set(graph) - {ref}
 
 
 def load_files(files: Sequence[tuple[str, str]], methods: Methods) -> Methods:
     """`Methods.with_files`, whatever the names are, as for the built-in methods' own files."""
-    lookup = dict(methods.by_ref)
+    methods_by_ref = dict(methods.by_ref)
     parsed = {}
     for name, text in files:
         try:
-            document, file = _file(text)
+            document, file = _parsed_file(text)
         except MethodFileError as error:
             raise MethodFileError(f"{name}: {error}") from None
         ref = method_ref(name, file.version)
-        if ref in lookup or ref in parsed:
+        if ref in methods_by_ref or ref in parsed:
             raise MethodFileError(f"Duplicate method {ref}.")
         parsed[ref] = name, document, file
-    dependencies = {ref: definition_references(file) for ref, (_, _, file) in parsed.items()}
+    dependencies = {ref: methods_used_by_file(file) for ref, (_, _, file) in parsed.items()}
     for ref, references in dependencies.items():
-        for missing in sorted(references - lookup.keys() - parsed.keys()):
+        for missing in sorted(references - methods_by_ref.keys() - parsed.keys()):
             raise MethodFileError(f"{ref}: There's no method {missing}.")
-    for ref in _ordered({ref: used & parsed.keys() for ref, used in dependencies.items()}):
+    for ref in _dependency_order({ref: used & parsed.keys() for ref, used in dependencies.items()}):
         try:
-            lookup[ref] = _composed(*parsed[ref], lookup)
+            methods_by_ref[ref] = _composed_method(*parsed[ref], methods_by_ref)
         except MethodFileError as error:
             raise MethodFileError(f"{ref}: {error}") from None
-    return Methods([*methods, *(lookup[ref] for ref in parsed)])
+    return Methods([*methods, *(methods_by_ref[ref] for ref in parsed)])
 
 
-def method_of(name: str, data: Mapping[str, Any], lookup: Mapping[str, Method[Any]]) -> Method[Any]:
-    """The method a method file's ``data`` defines, using the methods of ``lookup``. Raises
-    ``MethodFileError`` with its problem, said without a line, as data has none."""
-    return _composed(name, data, _validated(data, data), lookup)
+def method_of(
+    name: str, data: Mapping[str, Any], methods_by_ref: Mapping[str, Method[Any]]
+) -> Method[Any]:
+    """The method a method file's ``data`` defines, using the methods of ``methods_by_ref``. Raises
+    ``MethodFileError`` with its problem and no line, as data has none."""
+    return _composed_method(name, data, _validated(data, data), methods_by_ref)
 
 
 def rewrite_references(data: Any, replacements: Mapping[str, str]) -> Any:
@@ -142,11 +147,11 @@ def rewrite_references(data: Any, replacements: Mapping[str, str]) -> Any:
     return data
 
 
-def _file(text: str) -> tuple[Any, MethodFile]:
+def _parsed_file(text: str) -> tuple[Any, MethodFile]:
     try:
-        document = load_document(text)
-        data = plain(document)
-    except DocumentError as error:
+        document = load_yaml_with_lines(text)
+        data = as_plain_data(document)
+    except YamlError as error:
         raise MethodFileError(str(error)) from None
     return document, _validated(document, data)
 
@@ -155,22 +160,24 @@ def _validated(document: Any, data: Any) -> MethodFile:
     try:
         return MethodFile.model_validate(data)
     except ValidationError as error:
-        first = error.errors()[0]
-        path = tuple(first["loc"])
-        where = ".".join(map(str, path))
-        raise MethodFileError(on_line(document, path, f"{where}: {error_message(first)}")) from None
+        first_error = error.errors()[0]
+        path = tuple(first_error["loc"])
+        field_path = ".".join(map(str, path))
+        raise MethodFileError(
+            with_line(document, path, f"{field_path}: {error_message(first_error)}")
+        ) from None
 
 
-def _composed(
-    name: str, document: Any, file: MethodFile, lookup: Mapping[str, Method[Any]]
+def _composed_method(
+    name: str, document: Any, file: MethodFile, methods_by_ref: Mapping[str, Method[Any]]
 ) -> ComposedMethod:
     try:
-        return ComposedMethod(name, file, lookup)
-    except Fault as fault:
-        raise MethodFileError(on_line(document, fault.path, str(fault))) from None
+        return ComposedMethod(name, file, methods_by_ref)
+    except MethodFileFieldError as error:
+        raise MethodFileError(with_line(document, error.path, str(error))) from None
 
 
-def _ordered(dependencies: Mapping[str, set[str]]) -> list[str]:
+def _dependency_order(dependencies: Mapping[str, set[str]]) -> list[str]:
     try:
         return list(TopologicalSorter(dependencies).static_order())
     except CycleError as error:

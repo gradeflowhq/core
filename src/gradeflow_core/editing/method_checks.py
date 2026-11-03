@@ -8,10 +8,10 @@ from typing import Any
 from pydantic.fields import FieldInfo
 
 from ..common.exceptions import EditingError
-from ..common.paths import get, put
+from ..common.paths import get, set_at
 from ..common.problems import Problem
 from ..common.schemas import JsonDict
-from ..methods.check import CHECK_FIELDS, Check, holds_checks
+from ..methods.check import CHECK_FIELDS, Check, how_many_checks
 from ..methods.collection import Methods
 from ..methods.composed.file import COMBINATION, TEMPLATE_KEYS
 from ..methods.templates import Shape, is_template, reference
@@ -37,14 +37,14 @@ class MethodChecksDraft(MarkingDraft):
         super().__init__(data, questions, question, methods=methods)
         self._inputs = inputs
 
-    def set_input(self, name: str, spec: dict[str, Any]) -> None:
+    def set_input(self, name: str, declaration: dict[str, Any]) -> None:
         """Declare the input ``name``, or replace its declaration."""
-        self._inputs[name] = spec
-        self._validated = None
+        self._inputs[name] = declaration
+        self._cached_validation = None
 
-    def drop_input(self, name: str) -> None:
+    def remove_input(self, name: str) -> None:
         self._inputs.pop(name, None)
-        self._validated = None
+        self._cached_validation = None
 
     def methods(self, path: str, question: QuestionId | None = None) -> Methods:
         return Methods([self._method(COMBINATION)]) if not path else super().methods(path, question)
@@ -54,17 +54,23 @@ class MethodChecksDraft(MarkingDraft):
         if path:
             return schema
         properties = schema["properties"].items()
-        return {**schema, "properties": {k: v for k, v in properties if k not in CHECK_FIELDS}}
+        return {
+            **schema,
+            "properties": {key: value for key, value in properties if key not in CHECK_FIELDS},
+        }
 
-    def _resolved(self, value: Any) -> Any:
+    def _resolved_value(self, value: Any) -> Any:
         """``value``, or the default of the input it is bound to."""
         name = input_reference(value)
         if name is None or name not in self._inputs:
             return deepcopy(value)
         return deepcopy(self._inputs[name].get("default"))
 
-    def _place(self, node: Mapping[str, Any]) -> tuple[Any, Any]:
-        question, value = self._resolved(node.get("question")), self._resolved(node.get("value"))
+    def _question_and_value(self, node: Mapping[str, Any]) -> tuple[Any, Any]:
+        question, value = (
+            self._resolved_value(node.get("question")),
+            self._resolved_value(node.get("value")),
+        )
         return (
             question if isinstance(question, str) and not is_template(question) else None,
             value if isinstance(value, int) else None,
@@ -74,69 +80,71 @@ class MethodChecksDraft(MarkingDraft):
         values = super().values(path)
         for name, value in values.items():
             if name not in TEMPLATE_KEYS:
-                values[name] = self._resolved(value)
+                values[name] = self._resolved_value(value)
         return values
 
     def update(self, path: str, values: Mapping[str, Any]) -> None:
         """Sets the check's fields; a bound field sets its input's default instead."""
-        old = self._node(path)
-        fields = fields_of(old)
-        bound = {
+        old_check = self._check_data(path)
+        fields = fields_of(old_check)
+        bound_inputs = {
             key: name
             for key, value in fields.items()
             if key not in TEMPLATE_KEYS and (name := input_reference(value)) in self._inputs
         }
         defaults: dict[str, Any] = {}
-        for key, name in bound.items():
-            if key not in values or values[key] == self._resolved(fields[key]):
+        for key, name in bound_inputs.items():
+            if key not in values or values[key] == self._resolved_value(fields[key]):
                 continue
             if name in defaults and defaults[name] != values[key]:
                 raise EditingError(f"Fields sharing input {name} must have the same default.")
             defaults[name] = values[key]
         for name, value in defaults.items():
             self._inputs[name].pop("default", None)
-            if not empty(value):
+            if not is_empty(value):
                 self._inputs[name]["default"] = deepcopy(value)
         super().update(path, values)
-        node = self._node(path)
-        for key in bound:
-            put(node, field_path("", key), fields[key])
+        node = self._check_data(path)
+        for key in bound_inputs:
+            set_at(node, field_path("", key), fields[key])
 
     @property
-    def _scope(self) -> Mapping[str, Shape]:
+    def _template_names(self) -> Mapping[str, Shape]:
         return {"inputs": dict.fromkeys(self._inputs, "any")}
 
     @property
     def problems(self) -> list[Problem]:
         """What is wrong with the checks but their fields inputs fill, which are the method's."""
-        return [problem for problem in super().problems if not self._filled(problem)]
+        return [problem for problem in super().problems if not self._is_filled_by_input(problem)]
 
-    def _checked(self, data: JsonDict) -> tuple[Check | None, list[Problem]]:
-        return super()._checked(self._resolve(data))
+    def _validation_of(self, data: JsonDict) -> tuple[Check | None, list[Problem]]:
+        return super()._validation_of(self._resolved_tree(data))
 
-    def _filled(self, problem: Problem) -> bool:
+    def _is_filled_by_input(self, problem: Problem) -> bool:
         if not problem.field or not self.is_check(problem.check):
             return False
         key, method = str(problem.field[0]), self.method(problem.check)
-        if not fillable(key, method.settings.model_fields if method else {}):
+        if not can_input_fill(key, method.settings.model_fields if method else {}):
             return False
         return input_reference(get(self._data, field_path(problem.check, key))) in self._inputs
 
-    def _resolve(self, value: Any) -> Any:
+    def _resolved_tree(self, value: Any) -> Any:
         if isinstance(value, dict):
             return {
-                key: item if key in TEMPLATE_KEYS else self._resolve(item)
+                key: item if key in TEMPLATE_KEYS else self._resolved_tree(item)
                 for key, item in value.items()
             }
         if isinstance(value, list):
-            return [self._resolve(item) for item in value]
-        return self._resolved(value)
+            return [self._resolved_tree(item) for item in value]
+        return self._resolved_value(value)
 
 
-def fillable(key: str, settings: Mapping[str, FieldInfo]) -> bool:
+def can_input_fill(key: str, settings: Mapping[str, FieldInfo]) -> bool:
     """Whether an input can fill the field ``key`` of a check with these settings: one that is
     neither a template nor holds checks."""
-    return key not in TEMPLATE_KEYS and (key not in settings or holds_checks(settings[key]) is None)
+    return key not in TEMPLATE_KEYS and (
+        key not in settings or how_many_checks(settings[key]) is None
+    )
 
 
 def input_reference(value: Any) -> str | None:
@@ -145,5 +153,5 @@ def input_reference(value: Any) -> str | None:
     return match[1] if match else None
 
 
-def empty(value: Any) -> bool:
+def is_empty(value: Any) -> bool:
     return value is None or value == "" or value == [] or value == {}

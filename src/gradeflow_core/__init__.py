@@ -5,11 +5,11 @@ from .adapters.examplify import read_question_document
 from .common.exceptions import GradeFlowError, InvalidError, MethodFileError
 from .common.model_service import ModelEndpoint
 from .common.problems import Problem
-from .marking.examples import MarkedExample, evaluate_examples
+from .marking.examples import MarkedExample, mark_examples
 from .marking.mark import mark
 from .marking.mark_scheme import MarkScheme
 from .marking.model_choice import ModelChoice, choose_models
-from .marking.results import CheckResult, MarkedSheet, MarkedSubmission, QuestionResult, Report
+from .marking.results import CheckResult, MarkedSheet, MarkedSubmission, QuestionResult, ReportLine
 from .methods.catalogue import BUILTINS
 from .methods.check import Check
 from .methods.collection import Methods
@@ -52,15 +52,15 @@ __all__ = [
     "Question",
     "QuestionResult",
     "QuestionSet",
-    "Report",
+    "ReportLine",
     "ResultsCsv",
     "Submission",
     "TextQuestion",
     "ValuesQuestion",
     "choose_models",
     "compare_answers",
-    "evaluate_examples",
     "mark",
+    "mark_examples",
     "read_answer_key",
     "read_question_document",
 ]

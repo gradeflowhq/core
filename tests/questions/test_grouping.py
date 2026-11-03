@@ -15,7 +15,7 @@ from gradeflow_core import AnswerComparison, compare_answers
 from gradeflow_core.ml import embeddings
 
 
-def connected(size: int, pairs: Sequence[tuple[int, int]]) -> list[list[int]]:
+def connected_groups(size: int, pairs: Sequence[tuple[int, int]]) -> list[list[int]]:
     remaining = set(range(size))
     groups = []
     while remaining:
@@ -23,8 +23,8 @@ def connected(size: int, pairs: Sequence[tuple[int, int]]) -> list[list[int]]:
         while neighbors := {
             other
             for left, right in pairs
-            for here, other in ((left, right), (right, left))
-            if here in component and other not in component
+            for answer, other in ((left, right), (right, left))
+            if answer in component and other not in component
         }:
             component.update(neighbors)
         remaining.difference_update(component)
@@ -36,44 +36,44 @@ def test_exact_answers_preserve_text_and_original_indices() -> None:
     texts = ["Water", "water!", "Water", "", " ", "", "water!"]
     comparison = compare_answers(texts)
     assert comparison.texts == tuple(texts)
-    assert comparison.similar == "exact"
+    assert comparison.similarity == "exact"
     assert comparison.groups() == [[0, 2], [1, 6], [3, 5], [4]]
     assert texts == ["Water", "water!", "Water", "", " ", "", "water!"]
 
 
 def test_normalized_equality_ignores_case_punctuation_and_unicode_width() -> None:
     comparison = compare_answers(
-        ["  Ｈ₂Ｏ  IS\n wet!", "h₂o is wet", "water", "waters"], similar="normalized"
+        ["  Ｈ₂Ｏ  IS\n wet!", "h₂o is wet", "water", "waters"], similarity="normalized"
     )
     assert comparison.groups() == [[0, 1], [2], [3]]
 
 
-@pytest.mark.parametrize("similar", ["normalized", "spelling", "meaning"])
-def test_numbers_and_blanks_only_group_when_equal(similar: Any) -> None:
+@pytest.mark.parametrize("similarity", ["normalized", "spelling", "meaning"])
+def test_numbers_and_blanks_only_group_when_equal(similarity: Any) -> None:
     texts = ["-9.81", "9.81", "+9.81", "9.8", "1e-3", "1e3", "", " ", "!!!", "Water", "water!"]
-    comparison = compare_answers(texts, similar=similar)
+    comparison = compare_answers(texts, similarity=similarity)
     assert comparison.groups(threshold=0) == [[0], [1], [2], [3], [4], [5], [6, 7, 8], [9, 10]]
 
 
-@pytest.mark.parametrize("similar", ["exact", "normalized", "spelling", "meaning"])
+@pytest.mark.parametrize("similarity", ["exact", "normalized", "spelling", "meaning"])
 def test_empty_and_single_answer_need_no_model(
-    similar: Any, monkeypatch: pytest.MonkeyPatch
+    similarity: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def forbidden(*args: Any, **kwargs: Any) -> Any:
         pytest.fail("Equal answers need no model.")
 
     monkeypatch.setattr(embeddings, "_model", forbidden)
-    assert compare_answers([], similar=similar).groups() == []
-    assert compare_answers(["single", "single"], similar=similar).groups() == [[0, 1]]
+    assert compare_answers([], similarity=similarity).groups() == []
+    assert compare_answers(["single", "single"], similarity=similarity).groups() == [[0, 1]]
 
 
 def test_spelling_overlooks_case_and_punctuation() -> None:
-    comparison = compare_answers(["H2O", "h2o.", "water"], similar="spelling")
+    comparison = compare_answers(["H2O", "h2o.", "water"], similarity="spelling")
     assert comparison.groups(threshold=1) == [[0, 1], [2]]
 
 
 def test_spelling_joins_transitively_at_the_requested_threshold() -> None:
-    comparison = compare_answers(["abc", "abd", "bde", "abc"], similar="spelling")
+    comparison = compare_answers(["abc", "abd", "bde", "abc"], similarity="spelling")
     assert comparison.groups(threshold=2 / 3) == [[0, 1, 2, 3]]
     assert comparison.groups(threshold=0.7) == [[0, 3], [1], [2]]
     assert comparison.groups(threshold=1) == [[0, 3], [1], [2]]
@@ -81,12 +81,12 @@ def test_spelling_joins_transitively_at_the_requested_threshold() -> None:
 
 def test_spelling_compact_comparison_matches_all_pairwise_thresholds() -> None:
     texts = ["water", "waters", "waiter", "later", "taller", "salt", "zzz", "water"]
-    comparison = compare_answers(texts, similar="spelling")
+    comparison = compare_answers(texts, similarity="spelling")
     scores = {
         (i, j): ratio(texts[i], texts[j]) / 100 for i, j in combinations(range(len(texts)), 2)
     }
     for threshold in {0, 0.1, 0.85, 1, *scores.values()}:
-        expected = connected(
+        expected = connected_groups(
             len(texts), [pair for pair, score in scores.items() if score and score >= threshold]
         )
         assert comparison.groups(threshold=threshold) == expected
@@ -105,11 +105,11 @@ def test_meaning_prepares_documents_once_then_groups_without_inference(
 
     monkeypatch.setattr(embeddings, "embed_texts", embed)
     texts = ["First!", "middle", "last", "opposite", "FIRST"]
-    comparison = compare_answers(texts, similar="meaning")
+    comparison = compare_answers(texts, similarity="meaning")
     assert calls == [["first", "middle", "last", "opposite"]]
     restored = AnswerComparison.model_validate_json(comparison.model_dump_json())
     assert restored.texts == tuple(texts)
-    assert restored.similar == "meaning"
+    assert restored.similarity == "meaning"
     assert restored.groups(threshold=0.8) == [[0, 1, 4], [2], [3]]
     assert restored.groups(threshold=0.6) == [[0, 1, 4], [2], [3]]
     assert restored.groups(threshold=1) == [[0, 4], [1], [2], [3]]
@@ -125,10 +125,14 @@ def test_meaning_groups_only_answers_similar_to_every_other(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pytest.importorskip("scipy")
-    ab, bc = acos(0.95), acos(0.9)
-    vectors = [[1.0, 0.0], [cos(ab), sin(ab)], [cos(ab + bc), sin(ab + bc)]]
+    first_angle, second_angle = acos(0.95), acos(0.9)
+    vectors = [
+        [1.0, 0.0],
+        [cos(first_angle), sin(first_angle)],
+        [cos(first_angle + second_angle), sin(first_angle + second_angle)],
+    ]
     monkeypatch.setattr(embeddings, "embed_texts", lambda texts: vectors)
-    comparison = compare_answers(["cold", "chilly", "cool"], similar="meaning")
+    comparison = compare_answers(["cold", "chilly", "cool"], similarity="meaning")
     assert comparison.groups(threshold=0.85) == [[0, 1], [2]]
     assert comparison.groups(threshold=0.7) == [[0, 1, 2]]
 
@@ -141,7 +145,7 @@ def test_meaning_threshold_uses_the_same_precision_as_document_scores(
     pytest.importorskip("scipy")
     vectors = [[1.0, 0.0], [score, sqrt(1 - score**2)]]
     monkeypatch.setattr(embeddings, "embed_texts", lambda texts: vectors)
-    comparison = compare_answers(["first", "second"], similar="meaning")
+    comparison = compare_answers(["first", "second"], similarity="meaning")
     restored = AnswerComparison.model_validate_json(comparison.model_dump_json())
     matrix = np.asarray(vectors, dtype=np.float32)
     scores = matrix @ matrix.T
@@ -152,39 +156,41 @@ def test_meaning_threshold_uses_the_same_precision_as_document_scores(
 
 def test_meaning_never_compares_numbers_or_blanks(monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("scipy")
-    seen: list[str] = []
+    embedded_texts: list[str] = []
 
     def embed(texts: Sequence[str]) -> list[list[float]]:
-        seen.extend(texts)
+        embedded_texts.extend(texts)
         return [[1, 0] for _ in texts]
 
     monkeypatch.setattr(embeddings, "embed_texts", embed)
-    comparison = compare_answers(["9", "word", "another", "", "9"], similar="meaning")
+    comparison = compare_answers(["9", "word", "another", "", "9"], similarity="meaning")
     assert comparison.groups(threshold=0) == [[0, 4], [1, 2], [3]]
-    assert seen == ["word", "another"]
+    assert embedded_texts == ["word", "another"]
 
 
 def test_restoring_and_regrouping_work_without_optional_dependencies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pytest.importorskip("scipy")
-    payload = compare_answers(["water", "waters", "later"], similar="spelling").model_dump_json()
+    spelling_json = compare_answers(
+        ["water", "waters", "later"], similarity="spelling"
+    ).model_dump_json()
     monkeypatch.setattr(embeddings, "embed_texts", lambda texts: [[1, 0], [0.8, 0.6]])
-    meaning = compare_answers(["ice", "frozen water"], similar="meaning").model_dump_json()
+    meaning_json = compare_answers(["ice", "frozen water"], similarity="meaning").model_dump_json()
     code = f"""
 import builtins
 real_import = builtins.__import__
-def guarded(name, *args, **kwargs):
+def import_without_optional_packages(name, *args, **kwargs):
     if name.split('.')[0] in {{'numpy', 'scipy', 'fastembed', 'onnxruntime'}}:
         raise ImportError('Optional dependency unavailable')
     return real_import(name, *args, **kwargs)
-builtins.__import__ = guarded
+builtins.__import__ = import_without_optional_packages
 from gradeflow_core import AnswerComparison, compare_answers
-assert compare_answers(['water', 'waters'], similar='spelling').groups() == [[0, 1]]
-restored = AnswerComparison.model_validate_json({payload!r})
+assert compare_answers(['water', 'waters'], similarity='spelling').groups() == [[0, 1]]
+restored = AnswerComparison.model_validate_json({spelling_json!r})
 assert restored.groups(threshold=1) == [[0], [1], [2]]
 assert restored.groups(threshold=0.8) == [[0, 1, 2]]
-restored = AnswerComparison.model_validate_json({meaning!r})
+restored = AnswerComparison.model_validate_json({meaning_json!r})
 assert restored.groups(threshold=0.85) == [[0], [1]]
 assert restored.groups(threshold=0.75) == [[0, 1]]
 """
@@ -198,35 +204,37 @@ def test_threshold_must_be_a_finite_fraction(threshold: float) -> None:
 
 
 def test_unrecognized_comparison_mode_is_rejected() -> None:
-    with pytest.raises(ValueError, match="similar"):
-        compare_answers(["a", "b"], similar="unknown")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="similarity"):
+        compare_answers(["a", "b"], similarity="unknown")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("members", [0]),
-        ("members", [0, 2]),
-        ("members", [0, -1]),
-        ("links", [[0, 2, 0.9]]),
-        ("links", [[0, 0, 0.9]]),
-        ("links", [[0, 1, float("nan")]]),
-        ("links", [[0, 1, 0.9], [1, 0, 0.8]]),
+        ("key_indices", [0]),
+        ("key_indices", [0, 2]),
+        ("key_indices", [0, -1]),
+        ("similarity_links", [[0, 2, 0.9]]),
+        ("similarity_links", [[0, 0, 0.9]]),
+        ("similarity_links", [[0, 1, float("nan")]]),
+        ("similarity_links", [[0, 1, 0.9], [1, 0, 0.8]]),
     ],
 )
 def test_serialized_comparison_rejects_invalid_membership_or_links(
     field: str, value: object
 ) -> None:
-    data = json.loads(compare_answers(["water", "waters"], similar="spelling").model_dump_json())
-    data[field] = value
+    comparison_json = json.loads(
+        compare_answers(["water", "waters"], similarity="spelling").model_dump_json()
+    )
+    comparison_json[field] = value
     with pytest.raises(ValidationError):
-        AnswerComparison.model_validate(data)
+        AnswerComparison.model_validate(comparison_json)
 
 
 def test_a_serialized_comparison_has_linear_links_and_no_vectors() -> None:
-    comparison = compare_answers([f"answer {index}" for index in range(100)], similar="spelling")
-    data = json.loads(comparison.model_dump_json())
-    assert len(data["links"]) <= 99
-    assert len(data["members"]) == 100
+    comparison = compare_answers([f"answer {index}" for index in range(100)], similarity="spelling")
+    comparison_json = json.loads(comparison.model_dump_json())
+    assert len(comparison_json["similarity_links"]) <= 99
+    assert len(comparison_json["key_indices"]) == 100
     assert not hasattr(gradeflow_core, "embed_texts")
     assert not hasattr(gradeflow_core, "EMBEDDING_MODEL")

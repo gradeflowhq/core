@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core.ml import MISSING_MODEL, nli
+from gradeflow_core.ml import MISSING_MODEL_MESSAGE, nli
 from gradeflow_core.questions.text import TextQuestion
 
 from .helpers import describe, mark, mark_all, problems_of, proportions
@@ -10,7 +10,7 @@ from .helpers import describe, mark, mark_all, problems_of, proportions
 KEY_POINT = "gradeflow/key-point@1"
 KEY_POINTS = "gradeflow/key-points@1"
 
-type Call = tuple[str, str, str, float]
+type MeaningModelCall = tuple[str, str, str, float]
 
 
 def key_points(*points: str, **settings: Any) -> dict[str, Any]:
@@ -18,27 +18,31 @@ def key_points(*points: str, **settings: Any) -> dict[str, Any]:
 
 
 @pytest.fixture
-def judged(monkeypatch: pytest.MonkeyPatch) -> list[Call]:
+def meaning_model_calls(monkeypatch: pytest.MonkeyPatch) -> list[MeaningModelCall]:
     """Calls to the meaning model, which says an answer makes a point when it contains it."""
-    calls: list[Call] = []
+    calls: list[MeaningModelCall] = []
 
-    def says(answer: str, point: str, context: str, cutoff: float) -> bool:
+    def entails(answer: str, point: str, context: str, cutoff: float) -> bool:
         calls.append((answer, point, context, cutoff))
         return point.lower() in answer.lower()
 
-    monkeypatch.setattr(nli, "says", says)
+    monkeypatch.setattr(nli, "entails", entails)
     return calls
 
 
 def test_a_point_is_found_anywhere_ignoring_capitals_or_as_whole_words() -> None:
     check = {"uses": KEY_POINT, "with": {"point": "for"}}
-    found, inside, missing = mark_all(check, ["for loop", "Format", "nothing"])
+    found, within_a_word, missing = mark_all(check, ["for loop", "Format", "nothing"])
     assert (found.proportion, found.feedback) == (1, "Has “for”.")
-    assert (inside.proportion, missing.proportion, missing.feedback) == (1, 0, "Missing “for”.")
+    assert (within_a_word.proportion, missing.proportion, missing.feedback) == (
+        1,
+        0,
+        "Missing “for”.",
+    )
     assert describe(check) == "Includes `for`."
-    whole = {"uses": KEY_POINT, "with": {"point": "for", "whole_words": True}}
-    assert proportions(mark_all(whole, ["for loop", "format"])) == [1, 0]
-    assert describe(whole) == "Includes the whole word `for`."
+    whole_words = {"uses": KEY_POINT, "with": {"point": "for", "whole_words": True}}
+    assert proportions(mark_all(whole_words, ["for loop", "format"])) == [1, 0]
+    assert describe(whole_words) == "Includes the whole word `for`."
 
 
 def test_a_point_is_read_as_the_question_reads_answers() -> None:
@@ -62,30 +66,30 @@ def test_similar_spelling_compares_runs_of_as_many_words() -> None:
 
 
 @pytest.mark.parametrize(
-    ("strictness", "proportions_given"),
+    ("strictness", "expected"),
     [("lenient", [1, 1, 1]), ("normal", [1, 1, 0]), ("strict", [1, 0, 0])],
 )
-def test_how_strict_sets_how_alike_the_words_must_be(
-    strictness: str, proportions_given: list[int]
-) -> None:
+def test_how_strict_sets_how_alike_the_words_must_be(strictness: str, expected: list[int]) -> None:
     check = {
         "uses": KEY_POINT,
         "with": {"point": "mitochondria", "match": "spelling", "strictness": strictness},
     }
     answers = ["the mitocondria", "the mitokondria", "the mitocondrai"]  # 92%, 83% and 75% alike
-    assert proportions(mark_all(check, answers)) == proportions_given
+    assert proportions(mark_all(check, answers)) == expected
 
 
-def test_same_meaning_reads_the_question_and_quotes_the_point(judged: list[Call]) -> None:
+def test_same_meaning_reads_the_question_and_quotes_the_point(
+    meaning_model_calls: list[MeaningModelCall],
+) -> None:
     check = {"uses": KEY_POINT, "with": {"point": "Ice is less dense", "match": "meaning"}}
-    said, unsaid = mark_all(
+    has_point, lacks_point = mark_all(
         check,
         ["ice is less dense, so it floats", "Ice is solid"],
         TextQuestion(description=" Why?\n"),
     )
-    assert (said.proportion, said.feedback) == (1, "Has “Ice is less dense”.")
-    assert (unsaid.proportion, unsaid.feedback) == (0, "Missing “Ice is less dense”.")
-    assert judged == [
+    assert (has_point.proportion, has_point.feedback) == (1, "Has “Ice is less dense”.")
+    assert (lacks_point.proportion, lacks_point.feedback) == (0, "Missing “Ice is less dense”.")
+    assert meaning_model_calls == [
         ("ice is less dense, so it floats", "Ice is less dense", "Why?", 0.1),
         ("ice is solid", "Ice is less dense", "Why?", 0.1),
     ]
@@ -96,24 +100,27 @@ def test_same_meaning_reads_the_question_and_quotes_the_point(judged: list[Call]
     ("strictness", "cutoff"), [("lenient", -0.05), ("normal", 0.1), ("strict", 0.9)]
 )
 def test_how_strict_sets_the_meaning_cutoff(
-    judged: list[Call], strictness: str, cutoff: float
+    meaning_model_calls: list[MeaningModelCall], strictness: str, cutoff: float
 ) -> None:
     mark(
         {"uses": KEY_POINT, "with": {"point": "a", "match": "meaning", "strictness": strictness}},
         "b",
     )
-    assert judged == [("b", "a", "", cutoff)]
+    assert meaning_model_calls == [("b", "a", "", cutoff)]
 
 
-def test_without_the_ml_extra_same_meaning_is_a_problem(
+def test_without_the_meaning_model_installed_same_meaning_is_a_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(nli, "available", lambda: False)
     assert problems_of({"uses": KEY_POINT, "with": {"point": "a", "match": "meaning"}}) == [
-        ("", ("match",), MISSING_MODEL)
+        ("", ("match",), MISSING_MODEL_MESSAGE)
     ]
-    each_point = problems_of(key_points("a", "b", match="meaning"))
-    assert [message for _, _, message in each_point] == [MISSING_MODEL, MISSING_MODEL]
+    problems = problems_of(key_points("a", "b", match="meaning"))
+    assert [message for _, _, message in problems] == [
+        MISSING_MODEL_MESSAGE,
+        MISSING_MODEL_MESSAGE,
+    ]
     assert problems_of({"uses": KEY_POINT, "with": {"point": "a"}}) == []
 
 
@@ -127,13 +134,13 @@ def test_key_points_count_each_point_or_add_up_a_mark_for_each() -> None:
         0,
     ]
     assert mark(check, "light").feedback == "Has “light”.\nMissing “water”.\nMissing “glucose”."
-    assert describe(check) == "Includes `light`, `water` and `glucose`, each counting."
+    assert describe(check) == "Includes `light`, `water` and `glucose`, a share for each."
     assert describe(key_points("light")) == "Includes `light`."
-    two = key_points("light", "water", "glucose", combine="total")
-    full, half = mark_all(two, ["light and water", "light"], TextQuestion(max_marks=2))
+    a_mark_each = key_points("light", "water", "glucose", combine="total")
+    full, half = mark_all(a_mark_each, ["light and water", "light"], TextQuestion(max_marks=2))
     assert (full.proportion, full.feedback) == (1, "Has “light”.\nHas “water”.")
     assert half.proportion == 0.5
-    assert describe(two) == "Includes `light`, `water` and `glucose`, a mark each."
+    assert describe(a_mark_each) == "Includes `light`, `water` and `glucose`, a mark each."
 
 
 def test_key_points_any_one_of_which_is_missing_names_them_all() -> None:
@@ -149,41 +156,45 @@ def test_key_points_none_of_which_may_appear_say_which_did() -> None:
         "Has none of “for” or “while”.",
         "Not allowed. Has “for”.",
     ]
-    assert describe(check) == "Leaves out `for` and `while`."
-    whole = key_points("for", "while", combine="none", whole_words=True)
-    assert mark(whole, "format").proportion == 1
-    assert describe(whole) == "Leaves out the whole words `for` and `while`."
+    assert describe(check) == "Doesn't include `for` and `while`."
+    whole_words = key_points("for", "while", combine="none", whole_words=True)
+    assert mark(whole_words, "format").proportion == 1
+    assert describe(whole_words) == "Doesn't include the whole words `for` and `while`."
 
 
-def test_key_points_pass_how_they_match_to_each_point(judged: list[Call]) -> None:
+def test_key_points_pass_how_they_match_to_each_point(
+    meaning_model_calls: list[MeaningModelCall],
+) -> None:
     spelling = key_points("photosynthesis", "chlorophyll", match="spelling")
     assert mark(spelling, "Fotosynthesis needs chlorofyll").feedback == (
         "Has “photosynthesis” (as “fotosynthesis”).\nHas “chlorophyll” (as “chlorofyll”)."
     )
     assert describe(spelling) == (
-        "Includes `photosynthesis` and `chlorophyll` in similar spelling, each counting."
+        "Includes `photosynthesis` and `chlorophyll` in similar spelling, a share for each."
     )
-    meant = key_points("ice is less dense", "water expands", match="meaning", strictness="strict")
-    half = mark(meant, "Water expands")
+    same_meaning = key_points(
+        "ice is less dense", "water expands", match="meaning", strictness="strict"
+    )
+    half = mark(same_meaning, "Water expands")
     assert (half.proportion, half.feedback) == (
         0.5,
         "Missing “ice is less dense”.\nHas “water expands”.",
     )
-    assert {cutoff for *_, cutoff in judged} == {0.9}
-    assert describe(meant) == (
-        "Includes `ice is less dense` and `water expands` in meaning (strict), each counting."
+    assert {cutoff for *_, cutoff in meaning_model_calls} == {0.9}
+    assert describe(same_meaning) == (
+        "Includes `ice is less dense` and `water expands` in meaning (strict), a share for each."
     )
 
 
 @pytest.mark.parametrize(
-    ("settings", "opening"),
+    ("settings", "heading"),
     [
         ({"combine": "all"}, "Includes all of these:"),
         ({"combine": "any"}, "Includes any of these:"),
-        ({"combine": "none", "whole_words": True}, "Leaves out all of these as whole words:"),
+        ({"combine": "none", "whole_words": True}, "Doesn't include all of these as whole words:"),
         (
             {"combine": "proportional", "match": "meaning"},
-            "Includes these in meaning, each counting:",
+            "Includes these in meaning, a share for each:",
         ),
         (
             {"combine": "total", "match": "spelling", "strictness": "lenient"},
@@ -191,11 +202,11 @@ def test_key_points_pass_how_they_match_to_each_point(judged: list[Call]) -> Non
         ),
     ],
 )
-def test_long_points_are_listed_one_per_line(settings: dict[str, Any], opening: str) -> None:
+def test_long_points_are_listed_one_per_line(settings: dict[str, Any], heading: str) -> None:
     points = [
         "Ice is less dense than liquid water",
         "The hydrogen-bonded lattice holds molecules apart",
     ]
     assert describe(key_points(*points, **settings)) == (
-        f"{opening}\n- `{points[0]}`\n- `{points[1]}`"
+        f"{heading}\n- `{points[0]}`\n- `{points[1]}`"
     )

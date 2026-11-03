@@ -1,7 +1,7 @@
 examples:
   - title: Write add(a, b), which returns the sum of a and b.
     description: |-
-      Passes these tests, each counting:
+      Passes these tests, a share for each:
       - `add(2, 3)` gives `5`.
       - `add(-1, 1)` gives `0`.
     questions:

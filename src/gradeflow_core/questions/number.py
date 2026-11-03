@@ -1,6 +1,6 @@
 from typing import ClassVar, Literal
 
-from ..common.schemas import tag
+from ..common.schemas import type_field
 from .base import Question
 from .reading import Reading, read_number, reading_field
 
@@ -9,7 +9,7 @@ class NumberQuestion(Question):
     label: ClassVar[str] = "Number"
     summary: ClassVar[str] = "A number, which may have a unit, such as 9.81 m/s^2."
 
-    type: Literal["number"] = tag("number")
+    type: Literal["number"] = type_field("number")
     reading: Reading = reading_field(Reading)
 
     def python_type(self) -> str:

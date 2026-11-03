@@ -5,15 +5,15 @@ question_types: [text, code]
 guide: |-
   **Use it when:** An answer needs a marker's judgement, such as a calculation whose working earns marks.
 
-  **How it marks:** AI decides which **Criteria** fit the answer, and each one that fits gives or takes off its marks. **How to decide** chooses fast, careful, which leaves answers it is unsure about for you, or careful only where a fast decision is unsure.
+  **How it marks:** AI decides which **Criteria** fit the answer, and each one that fits gives its marks, or a penalty when negative. **How to decide** chooses fast, careful, which leaves answers it is unsure about for you, or careful only where a fast decision is unsure.
 
-  **Good to know:** Answers are sent to your AI service, and careful decisions take minutes where fast ones take seconds. Each criterion gives or takes off marks of the question, and the total stays between zero and full marks, so give marks for what's right as well as taking them off for mistakes.
+  **Good to know:** Answers are sent to your AI service, and careful decisions take minutes where fast ones take seconds. Each criterion gives marks of the question, or a penalty when negative, and the total stays between zero and full marks, so give marks for what's correct as well as penalties for mistakes.
 
   **Related:** To look only for what the answer says, use Key Points.
 inputs:
   criteria:
     title: Criteria
-    description: What to look for in an answer, and the question's marks it gives, or takes off when negative.
+    description: What to look for in an answer, and the question's marks it gives, or a penalty when negative.
     items:
       marks:
         title: Marks
@@ -22,26 +22,26 @@ inputs:
   model_answer:
     default: null
   decide_with:
-    default: decision
-  confidence:
+    default: fast
+  confidence_needed:
     default: 0.9
-  reasoning_effort:
+  careful_effort:
     default: automatic
 combine: total
 checks:
   - for_each: "{{ inputs.criteria }}"
-    name: "{{ each.text }}"
-    weight: "{{ each.marks }}"
+    name: "{{ item.criterion }}"
+    weight: "{{ item.marks }}"
     uses: gradeflow/answer-criterion@1
     with:
-      criterion: "{{ each.text }}"
+      criterion: "{{ item.criterion }}"
       model_answer: "{{ inputs.model_answer }}"
       decide_with: "{{ inputs.decide_with }}"
-      confidence: "{{ inputs.confidence }}"
-      reasoning_effort: "{{ inputs.reasoning_effort }}"
+      confidence_needed: "{{ inputs.confidence_needed }}"
+      careful_effort: "{{ inputs.careful_effort }}"
 description: |-
   AI checks the answer for {% if inputs.criteria | length > 1 %}each of these:
-  {% for criterion in inputs.criteria %}{% if not loop.first %}{{ "\n" }}{% endif %}- {{ criterion.text | text }} ({{ criterion.marks }} mark{% if criterion.marks not in [1, -1] %}s{% endif %}){% endfor %}{% else %}{% for criterion in inputs.criteria %}{{ criterion.text | text }} ({{ criterion.marks }} mark{% if criterion.marks not in [1, -1] %}s{% endif %}).{% endfor %}{% endif %}
+  {% for each in inputs.criteria %}{% if not loop.first %}{{ "\n" }}{% endif %}- {{ each.criterion | escaped }} ({{ each.marks }} mark{% if each.marks not in [1, -1] %}s{% endif %}){% endfor %}{% else %}{% for each in inputs.criteria %}{{ each.criterion | escaped }} ({{ each.marks }} mark{% if each.marks not in [1, -1] %}s{% endif %}).{% endfor %}{% endif %}
 examples:
   - title: Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working.
     description: |-
@@ -53,9 +53,9 @@ examples:
       Q1: {type: text, max_marks: 3, description: "Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working."}
     with:
       criteria:
-        - {text: Correct total, marks: 2}
-        - {text: Shows the working, marks: 1}
-        - {text: Forgot to sum, marks: -1}
+        - {criterion: Correct total, marks: 2}
+        - {criterion: Shows the working, marks: 1}
+        - {criterion: Forgot to sum, marks: -1}
       model_answer: 3 × 2 = 6 and 2 × 5 = 10, so 6 + 10 = $16
     rows:
       - answers:
@@ -74,7 +74,7 @@ examples:
             feedback: |-
               Correct total: Not met.
               Shows the working.
-              Marks taken off: Forgot to sum.
+              Penalty: Forgot to sum.
       - answers:
           Q1: $16
         expected:
@@ -93,9 +93,9 @@ examples:
       Q1: {type: text, max_marks: 2, description: Why does ice float on water?}
     with:
       criteria:
-        - {text: Says ice is less dense than water, marks: 1}
-        - {text: Explains that water expands as it freezes, marks: 1}
-        - {text: Says ice is denser than water, marks: -1}
+        - {criterion: Says ice is less dense than water, marks: 1}
+        - {criterion: Explains that water expands as it freezes, marks: 1}
+        - {criterion: Says ice is denser than water, marks: -1}
     rows:
       - answers:
           Q1: Water expands as it freezes, so ice is less dense than liquid water.
@@ -121,28 +121,28 @@ examples:
             feedback: |-
               Says ice is less dense than water: Not met.
               Explains that water expands as it freezes: Not met.
-              Marks taken off: Says ice is denser than water.
-  - title: Write largest(xs), which returns the largest number in a non-empty list.
+              Penalty: Says ice is denser than water.
+  - title: Write largest(numbers), which returns the largest number in a non-empty list.
     description: |-
       AI checks the answer for each of these:
       - Compares each number with the largest so far (1 mark)
       - Works when every number is negative (1 mark)
       - Uses max (-2 marks)
     questions:
-      Q1: {type: code, max_marks: 2, description: "Write largest(xs), which returns the largest number in a non-empty list."}
+      Q1: {type: code, max_marks: 2, description: "Write largest(numbers), which returns the largest number in a non-empty list."}
     with:
       criteria:
-        - {text: Compares each number with the largest so far, marks: 1}
-        - {text: Works when every number is negative, marks: 1}
-        - {text: Uses max, marks: -2}
+        - {criterion: Compares each number with the largest so far, marks: 1}
+        - {criterion: Works when every number is negative, marks: 1}
+        - {criterion: Uses max, marks: -2}
     rows:
       - answers:
           Q1: |-
-            def largest(xs):
-                best = xs[0]
-                for x in xs:
-                    if x > best:
-                        best = x
+            def largest(numbers):
+                best = numbers[0]
+                for number in numbers:
+                    if number > best:
+                        best = number
                 return best
         expected:
           Q1:
@@ -152,11 +152,11 @@ examples:
               Works when every number is negative.
       - answers:
           Q1: |-
-            def largest(xs):
+            def largest(numbers):
                 best = 0
-                for x in xs:
-                    if x > best:
-                        best = x
+                for number in numbers:
+                    if number > best:
+                        best = number
                 return best
         expected:
           Q1:
@@ -166,12 +166,12 @@ examples:
               Works when every number is negative: Not met.
       - answers:
           Q1: |-
-            def largest(xs):
-                return max(xs)
+            def largest(numbers):
+                return max(numbers)
         expected:
           Q1:
             marks: 0.0
             feedback: |-
               Compares each number with the largest so far: Not met.
               Works when every number is negative.
-              Marks taken off: Uses max.
+              Penalty: Uses max.

@@ -1,6 +1,6 @@
-from gradeflow_core import MarkedSubmission, QuestionResult, Report
+from gradeflow_core import MarkedSubmission, QuestionResult, ReportLine
 
-MARKED = MarkedSubmission(
+MARKED_SUBMISSION = MarkedSubmission(
     student_id="s1",
     answers={},
     results={
@@ -11,7 +11,7 @@ MARKED = MarkedSubmission(
 
 
 def test_report_gives_each_question_its_marks_then_feedback_in_natural_order() -> None:
-    found = MARKED.report()
-    assert found == [Report("Q2", 1.5, 3, ""), Report("Q10", 1, 1, "Correct.")]
-    assert [entry.heading for entry in found] == ["Q2 [1.5/3]", "Q10 [1/1]"]
-    assert "\n".join(map(str, found)) == "Q2 [1.5/3]\nQ10 [1/1]\nCorrect."
+    reports = MARKED_SUBMISSION.report()
+    assert reports == [ReportLine("Q2", 1.5, 3, ""), ReportLine("Q10", 1, 1, "Correct.")]
+    assert [report.heading for report in reports] == ["Q2 [1.5/3]", "Q10 [1/1]"]
+    assert "\n".join(map(str, reports)) == "Q2 [1.5/3]\nQ10 [1/1]\nCorrect."

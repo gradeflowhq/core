@@ -10,13 +10,13 @@ from gradeflow_core import (
     Submission,
     mark,
 )
-from gradeflow_core.methods.code import runner as code_runner
+from gradeflow_core.methods.code import runner
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
 
-def evaluate(check: dict[str, Any], answer: str = "x", *, values: bool = False) -> Any:
-    question = ValuesQuestion(value_types=["text", "text"]) if values else TextQuestion()
+def mark_q1(check: dict[str, Any], answer: str = "x", *, two_values: bool = False) -> Any:
+    question = ValuesQuestion(value_types=["text", "text"]) if two_values else TextQuestion()
     questions = QuestionSet({"Q1": question})
     scheme = MarkScheme.load([{"question": "Q1", **check}])
     assert not scheme.problems(questions)
@@ -25,18 +25,21 @@ def evaluate(check: dict[str, Any], answer: str = "x", *, values: bool = False) 
     ).results["Q1"]
 
 
-GATE = {
-    "id": "gate",
+NEVER_CORRECT = {
+    "id": "never_correct",
     "read_only": True,
     "uses": "gradeflow/not-allowed@1",
     "with": {"check": {"uses": "gradeflow/full-marks@1"}},
 }
 """A check that is never correct, for conditions to read."""
-SKIP, KEEP = "{{ checks.gate.correct }}", "{{ not checks.gate.correct }}"
+ALWAYS_FALSE, ALWAYS_TRUE = (
+    "{{ checks.never_correct.correct }}",
+    "{{ not checks.never_correct.correct }}",
+)
 
 
-def gated(check: dict[str, Any]) -> dict[str, Any]:
-    return {"uses": "gradeflow/combination@1", "with": {"checks": [GATE, check]}}
+def after_never_correct(check: dict[str, Any]) -> dict[str, Any]:
+    return {"uses": "gradeflow/combination@1", "with": {"checks": [NEVER_CORRECT, check]}}
 
 
 @pytest.mark.parametrize(
@@ -48,7 +51,7 @@ def test_a_false_condition_precedes_method_execution(
     def forbidden(*args: Any, **kwargs: Any) -> Any:
         pytest.fail("A skipped check executed custom code")
 
-    monkeypatch.setattr(code_runner, "run", forbidden)
+    monkeypatch.setattr(runner, "run", forbidden)
     settings = (
         {"check": {"uses": "gradeflow/full-marks@1"}}
         if method == "gradeflow/not-allowed@1"
@@ -56,27 +59,29 @@ def test_a_false_condition_precedes_method_execution(
         if method == "gradeflow/custom-code@1"
         else {}
     )
-    result = evaluate(gated({"uses": method, "with": settings, "if": SKIP}))
-    assert (result.proportion, result.feedback, result.marked) == (0, "", True)
+    result = mark_q1(after_never_correct({"uses": method, "with": settings, "if": ALWAYS_FALSE}))
+    assert (result.proportion, result.feedback, result.is_marked) == (0, "", True)
 
 
 @pytest.mark.parametrize("combine", ["all", "any", "none", "total", "proportional"])
 @pytest.mark.parametrize("method", ["gradeflow/combination@1", "gradeflow/multiple-values@1"])
-def test_skipped_children_are_omitted_even_when_all_skipped(combine: str, method: str) -> None:
+def test_skipped_checks_count_for_nothing_even_when_all_are_skipped(
+    combine: str, method: str
+) -> None:
     check = {
         "uses": method,
         "with": {
             "combine": combine,
             "checks": [
-                {"uses": "gradeflow/full-marks@1", "if": SKIP},
-                {"uses": "gradeflow/full-marks@1", "if": SKIP},
+                {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
+                {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
             ],
         },
     }
-    result = evaluate(
-        gated(check),
+    result = mark_q1(
+        after_never_correct(check),
         "x, y" if method == "gradeflow/multiple-values@1" else "x",
-        values=method == "gradeflow/multiple-values@1",
+        two_values=method == "gradeflow/multiple-values@1",
     )
     assert result.proportion == 0
 
@@ -89,15 +94,15 @@ def test_skipped_values_count_for_nothing(any_order: bool) -> None:
             "combine": "proportional",
             "any_order": any_order,
             "checks": [
-                {"uses": "gradeflow/full-marks@1", "if": SKIP},
-                {"uses": "gradeflow/full-marks@1", "if": KEEP},
+                {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
+                {"uses": "gradeflow/full-marks@1", "if": ALWAYS_TRUE},
             ],
         },
     }
-    assert evaluate(gated(check), "x, y", values=True).proportion == 1
+    assert mark_q1(after_never_correct(check), "x, y", two_values=True).proportion == 1
     check["with"]["combine"] = "total"
     check["with"]["checks"][1]["weight"] = 0.5
-    assert evaluate(gated(check), "x, y", values=True).proportion == 0.5
+    assert mark_q1(after_never_correct(check), "x, y", two_values=True).proportion == 0.5
 
 
 @pytest.mark.parametrize("method", ["gradeflow/combination@1", "gradeflow/multiple-values@1"])
@@ -106,24 +111,24 @@ def test_named_skips_are_available_to_later_conditions(method: str) -> None:
         "uses": method,
         "with": {
             "checks": [
-                {"id": "first", "uses": "gradeflow/full-marks@1", "if": SKIP},
+                {"id": "first", "uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
                 {"uses": "gradeflow/full-marks@1", "if": "{{ checks.first.skipped }}"},
             ]
         },
     }
     assert (
-        evaluate(
-            gated(check),
+        mark_q1(
+            after_never_correct(check),
             "x, y" if method == "gradeflow/multiple-values@1" else "x",
-            values=method == "gradeflow/multiple-values@1",
+            two_values=method == "gradeflow/multiple-values@1",
         ).proportion
         == 1
     )
 
 
-def test_any_order_values_reject_sibling_scope() -> None:
+def test_any_order_values_cant_read_earlier_checks() -> None:
     questions = QuestionSet({"Q1": ValuesQuestion(value_types=["text", "text"])})
-    data = {
+    marking = {
         "question": "Q1",
         "uses": "gradeflow/multiple-values@1",
         "with": {
@@ -134,12 +139,12 @@ def test_any_order_values_reject_sibling_scope() -> None:
             ],
         },
     }
-    scheme = MarkScheme.load([data])
+    scheme = MarkScheme.load([marking])
     assert any("first" in problem.message for problem in scheme.problems(questions))
 
 
 def test_wrapped_incompatible_check_rejected() -> None:
-    library = BUILTINS.with_files(
+    methods = BUILTINS.with_files(
         [
             (
                 "sample/wrapped",
@@ -155,26 +160,28 @@ checks:
         ]
     )
     questions = QuestionSet({"Q1": TextQuestion()})
-    data = {"question": "Q1", "uses": "sample/wrapped@1"}
-    problems = MarkScheme.load([data], methods=library).problems(questions)
+    marking = {"question": "Q1", "uses": "sample/wrapped@1"}
+    problems = MarkScheme.load([marking], methods=methods).problems(questions)
     message = "Number Range can't mark a text question."
-    assert [(p.check, p.field, p.message) for p in problems] == [("markings.0", (), message)]
+    assert [(problem.check, problem.field, problem.message) for problem in problems] == [
+        ("markings.0", (), message)
+    ]
 
 
-def test_optional_conditional_branch_and_supplied_check_locations() -> None:
+def test_problems_in_a_conditionals_branch_name_their_path() -> None:
     questions = QuestionSet({"Q1": TextQuestion(), "Q2": TextQuestion()})
-    data: dict[str, Any] = {
+    marking: dict[str, Any] = {
         "uses": "gradeflow/conditional@1",
         "with": {
             "condition": [{"question": "Q1", "uses": "gradeflow/full-marks@1"}],
             "then": [{"question": "Q2", "uses": "gradeflow/full-marks@1"}],
         },
     }
-    assert not MarkScheme.load([data]).problems(questions)
-    data["with"]["then"] = [
+    assert not MarkScheme.load([marking]).problems(questions)
+    marking["with"]["then"] = [
         {"question": "Q2", "uses": "gradeflow/number-range@1", "with": {"min_value": 1}}
     ]
-    [problem] = MarkScheme.load([data]).problems(questions)
+    [problem] = MarkScheme.load([marking]).problems(questions)
     assert problem.check == "markings.0.with.then.0"
 
 
@@ -182,7 +189,7 @@ def test_optional_conditional_branch_and_supplied_check_locations() -> None:
     "condition",
     ["{{ checks.later.correct }}", "{{ checks['later'].correct }}", "not an expression"],
 )
-def test_unavailable_or_invalid_root_conditions_report_validation_and_runtime_errors(
+def test_a_top_level_condition_it_cant_read_is_a_problem_and_leaves_answers_unmarked(
     condition: str,
 ) -> None:
     questions = QuestionSet({"Q1": TextQuestion()})
@@ -193,10 +200,10 @@ def test_unavailable_or_invalid_root_conditions_report_validation_and_runtime_er
     result = next(
         mark(questions, scheme, [Submission(student_id="s", answers={"Q1": ""})])
     ).results["Q1"]
-    assert not result.marked
+    assert not result.is_marked
 
 
-def test_unmarked_indexed_prerequisite_is_an_error_not_a_skip() -> None:
+def test_a_condition_on_an_unmarked_check_leaves_the_answer_unmarked() -> None:
     from gradeflow_core.questions.number import NumberQuestion
 
     questions = QuestionSet({"Q1": NumberQuestion(), "Q2": TextQuestion()})
@@ -207,7 +214,7 @@ def test_unmarked_indexed_prerequisite_is_an_error_not_a_skip() -> None:
                 "with": {
                     "checks": [
                         {
-                            "id": "gate",
+                            "id": "q1",
                             "question": "Q1",
                             "read_only": True,
                             "uses": "gradeflow/full-marks@1",
@@ -215,7 +222,7 @@ def test_unmarked_indexed_prerequisite_is_an_error_not_a_skip() -> None:
                         {
                             "question": "Q2",
                             "uses": "gradeflow/full-marks@1",
-                            "if": "{{ checks['gate'].correct }}",
+                            "if": "{{ checks['q1'].correct }}",
                         },
                     ]
                 },
@@ -228,7 +235,7 @@ def test_unmarked_indexed_prerequisite_is_an_error_not_a_skip() -> None:
             questions, scheme, [Submission(student_id="s", answers={"Q1": "unreadable", "Q2": "x"})]
         )
     ).results["Q2"]
-    assert not result.marked
+    assert not result.is_marked
     assert "read" in result.feedback
 
 
@@ -255,8 +262,8 @@ checks:
         )
 
 
-def test_generated_loops_and_nested_compositions_keep_input_and_value_scope() -> None:
-    library = BUILTINS.with_files(
+def test_repeated_and_nested_method_file_checks_read_their_own_inputs_and_value() -> None:
+    methods = BUILTINS.with_files(
         [
             (
                 "sample/range",
@@ -290,8 +297,8 @@ inputs:
 checks:
   - for_each: "{{ inputs.words }}"
     uses: gradeflow/key-point@1
-    if: "{{ index == 1 and each == 'x' }}"
-    with: {point: "{{ each }}"}
+    if: "{{ index == 1 and item == 'x' }}"
+    with: {point: "{{ item }}"}
 """,
             ),
         ]
@@ -310,12 +317,12 @@ checks:
                 },
             }
         ],
-        methods=library,
+        methods=methods,
     )
     assert not scheme.problems(questions)
     result = next(
         mark(questions, scheme, [Submission(student_id="s", answers={"Q1": "x, 2"})])
     ).results["Q1"]
     assert result.proportion == 1
-    invalid = MarkScheme.load([{"question": "Q1", "uses": "sample/nested@1"}], methods=library)
+    invalid = MarkScheme.load([{"question": "Q1", "uses": "sample/nested@1"}], methods=methods)
     assert invalid.problems(QuestionSet({"Q1": TextQuestion()}))

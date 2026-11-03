@@ -5,7 +5,7 @@ from natsort import natsorted
 from pydantic import Field, RootModel, field_validator
 
 from ..common.documents import dump_yaml, load_yaml
-from ..common.problems import as_invalid
+from ..common.problems import invalid_errors
 from . import AnyQuestion
 from .base import Question
 from .inference import infer_question
@@ -16,15 +16,15 @@ type Answers = Mapping[QuestionId, Answer | Unreadable]
 """A student's answers as the questions read them."""
 
 
-def read_answer(answers: Answers, question: QuestionId, value: int | None) -> Answer | Unreadable:
+def read_answer(answers: Answers, question: QuestionId, number: int | None) -> Answer | Unreadable:
     """A student's answer to ``question``, or the value of it a check reads; None when blank."""
-    return value_of(answers.get(question), value)
+    return value_of(answers.get(question), number)
 
 
-def value_of[A: Answer | Unreadable](answer: A, value: int | None) -> A | Value:
-    """``answer``, or its value ``value``, from 1, when it has values; None when it has fewer."""
-    if value is not None and isinstance(answer, list):
-        return answer[value - 1] if value <= len(answer) else None
+def value_of[A: Answer | Unreadable](answer: A, number: int | None) -> A | Value:
+    """``answer``, or its value ``number``, from 1, when it has values; None when it has fewer."""
+    if number is not None and isinstance(answer, list):
+        return answer[number - 1] if number <= len(answer) else None
     return answer
 
 
@@ -44,7 +44,7 @@ class QuestionSet(RootModel[dict[QuestionId, AnyQuestion]], Mapping[QuestionId, 
     def load(cls, data: object) -> QuestionSet:
         """Questions by ID as YAML or JSON holds them. Raises ``InvalidError`` if one isn't a
         question."""
-        with as_invalid(data):
+        with invalid_errors(data):
             return cls.model_validate(data)
 
     @classmethod
@@ -92,7 +92,13 @@ class QuestionSet(RootModel[dict[QuestionId, AnyQuestion]], Mapping[QuestionId, 
             if (question := self.get(key)) is not None:
                 questions[key] = question.accepting(answers)
                 continue
-            new = infer_question(answers)
-            highest = max((s.marks[key] for s in sheets if key in s.marks), default=0)
-            questions[key] = new.model_copy(update={"max_marks": highest}) if highest > 0 else new
+            inferred = infer_question(answers)
+            highest_marks = max(
+                (sheet.marks[key] for sheet in sheets if key in sheet.marks), default=0
+            )
+            questions[key] = (
+                inferred.model_copy(update={"max_marks": highest_marks})
+                if highest_marks > 0
+                else inferred
+            )
         return type(self)(questions)

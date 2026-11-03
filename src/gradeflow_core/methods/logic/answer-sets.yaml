@@ -2,7 +2,7 @@ version: 1
 label: Answer Sets
 summary: Marks for the best of several sets of answers.
 level: advanced
-group: true
+marks_question_group: true
 guide: |-
   **Use it when:** More than one consistent set of answers deserves marks: the expected answers, an early mistake carried through later parts, or a second valid reading or method.
 

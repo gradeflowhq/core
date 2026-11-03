@@ -34,7 +34,7 @@ def test_namespaces_and_names_have_their_own_limits() -> None:
     assert method_name("a" * 60, "x" * 100)
 
 
-def test_the_core_keeps_its_namespace() -> None:
+def test_the_gradeflow_namespace_is_reserved() -> None:
     with pytest.raises(MethodFileError, match="GradeFlow's own"):
         method_name("gradeflow", "key-points")
 
@@ -48,9 +48,9 @@ def test_the_core_keeps_its_namespace() -> None:
     ],
 )
 def test_loaded_methods_are_named_as_saved_methods_are(name: str, message: str) -> None:
-    text = "version: 1\nlabel: Term\nsummary: s\nquestion_types: [text]\nchecks: []\n"
+    method_file = "version: 1\nlabel: Term\nsummary: s\nquestion_types: [text]\nchecks: []\n"
     with pytest.raises(MethodFileError, match=message):
-        BUILTINS.with_files([(name, text)])
+        BUILTINS.with_files([(name, method_file)])
 
 
 def test_a_reference_splits_into_its_parts() -> None:

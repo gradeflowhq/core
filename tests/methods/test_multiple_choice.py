@@ -16,7 +16,7 @@ CHOICE = ChoiceQuestion(options=frozenset({"a", "b", "c", "d"}), allow_multiple=
         ("all", [1, 0, 1, 0]),
         ("none", [0, 0, 0, 1]),
         ("any", [1, 1, 1, 0]),
-        ("each", [1, 0.5, 0.5, 0]),
+        ("share_each", [1, 0.5, 0.5, 0]),
     ],
 )
 def test_each_way_of_comparing(compare: str, expected: list[float]) -> None:
@@ -27,15 +27,15 @@ def test_each_way_of_comparing(compare: str, expected: list[float]) -> None:
     assert proportions(mark_all(check, ["a, b", "a", "a, b, c", "c, d"], CHOICE)) == expected
 
 
-def test_wrong_options_take_marks_off_when_each_one_counts_never_below_zero() -> None:
+def test_wrong_options_are_a_penalty_with_a_share_for_each_never_below_zero() -> None:
     check = {
         "uses": "gradeflow/multiple-choice@1",
-        "with": {"correct": ["a", "b"], "compare": "each"},
+        "with": {"correct": ["a", "b"], "compare": "share_each"},
     }
     assert proportions(mark_all(check, ["a, c", "c, d"], CHOICE)) == [0, 0]
 
 
-def test_feedback_names_the_right_options() -> None:
+def test_feedback_names_the_correct_options() -> None:
     def feedback(correct: list[str], compare: str, answer: str) -> str:
         check = {
             "uses": "gradeflow/multiple-choice@1",
@@ -45,7 +45,7 @@ def test_feedback_names_the_right_options() -> None:
 
     assert feedback(["a", "b"], "exactly", "a, b") == "Correct."
     assert feedback(["a", "b"], "exactly", "c") == "Expected “a” and “b”."
-    assert feedback(["a", "b"], "each", "a") == "Expected “a” and “b”."
+    assert feedback(["a", "b"], "share_each", "a") == "Expected “a” and “b”."
     assert feedback(["a", "b"], "any", "c") == "Expected “a” or “b”."
     assert feedback(["c", "d"], "none", "d") == "Expected none of “c” and “d”."
 
@@ -53,12 +53,12 @@ def test_feedback_names_the_right_options() -> None:
 def test_it_describes_itself_and_refuses_options_the_question_lacks() -> None:
     check = {
         "uses": "gradeflow/multiple-choice@1",
-        "with": {"correct": ["a", "z"], "compare": "each"},
+        "with": {"correct": ["a", "z"], "compare": "share_each"},
     }
-    assert describe(check) == "Chooses `a` and `z`, each counting."
+    assert describe(check) == "Chooses `a` and `z`, a share for each."
     assert describe({**check, "with": {"correct": ["b"]}}) == "Chooses exactly `b`."
     assert describe({**check, "with": {"correct": ["a", "b"], "compare": "all"}}) == (
-        "Chooses `a` and `b`, extras allowed."
+        "Chooses `a` and `b`, other options allowed."
     )
     assert describe({**check, "with": {"correct": ["a", "b"], "compare": "none"}}) == (
         "Chooses none of `a` and `b`."
@@ -70,16 +70,16 @@ def test_it_describes_itself_and_refuses_options_the_question_lacks() -> None:
 
 
 @pytest.mark.parametrize(
-    ("compare", "opening"),
+    ("compare", "first_line"),
     [
         ("exactly", "Chooses exactly these:"),
-        ("all", "Chooses all of these, extras allowed:"),
+        ("all", "Chooses all of these, other options allowed:"),
         ("none", "Chooses none of these:"),
         ("any", "Chooses any of these:"),
-        ("each", "Chooses these, each counting:"),
+        ("share_each", "Chooses these, a share for each:"),
     ],
 )
-def test_long_options_are_listed_one_per_line(compare: str, opening: str) -> None:
+def test_long_options_are_listed_one_per_line(compare: str, first_line: str) -> None:
     options = [
         "The mitochondria release energy from glucose",
         "The ribosomes make proteins from amino acids",
@@ -88,22 +88,22 @@ def test_long_options_are_listed_one_per_line(compare: str, opening: str) -> Non
         "uses": "gradeflow/multiple-choice@1",
         "with": {"correct": options, "compare": compare},
     }
-    assert describe(check) == f"{opening}\n- `{options[0]}`\n- `{options[1]}`"
+    assert describe(check) == f"{first_line}\n- `{options[0]}`\n- `{options[1]}`"
 
 
-def test_the_right_options_are_read_as_the_question_reads_its_own() -> None:
+def test_the_correct_options_are_read_as_the_question_reads_its_own() -> None:
     check = {"uses": "gradeflow/multiple-choice@1", "with": {"correct": [" B", "C"]}}
     assert proportions(mark_all(check, ["b, c", "B, C", "b"], CHOICE)) == [1, 1, 0]
     assert problems_of(check, CHOICE) == []
-    exact = ChoiceQuestion.model_validate(
+    case_sensitive = ChoiceQuestion.model_validate(
         {"options": ["A", "b"], "reading": {"ignore_case": False}}
     )
-    assert problems_of({**check, "with": {"correct": ["a"]}}, exact) == [
+    assert problems_of({**check, "with": {"correct": ["a"]}}, case_sensitive) == [
         ("", ("correct", 0), "a isn't one of the options.")
     ]
 
 
 def test_its_settings_schema_offers_the_questions_options() -> None:
-    choice = next(method for method in BUILTINS if method.ref == "gradeflow/multiple-choice@1")
-    schema = choice.settings_schema(Position(QuestionSet({"Q1": CHOICE}), "Q1"))
+    multiple_choice = BUILTINS.find("gradeflow/multiple-choice@1")
+    schema = multiple_choice.settings_schema(Position(QuestionSet({"Q1": CHOICE}), "Q1"))
     assert schema["properties"]["correct"]["items"]["enum"] == ["a", "b", "c", "d"]

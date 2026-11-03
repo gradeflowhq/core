@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from decimal import Decimal
 from typing import Literal
 
-from .latex import latex_text
+from .latex import typed_latex
 
 _BACKTICK_RUN = re.compile(r"`+")
 _CODE_SPAN = re.compile(r"(?<!\\)(`+)(.+?)(?<!`)\1(?!`)", re.DOTALL)
@@ -20,7 +20,7 @@ _ESCAPE_OR_FORMULA = re.compile(
 
 
 _FRACTIONS = {0.5: "½", 0.25: "¼", 0.75: "¾"}
-_LONG = 80
+_MAX_INLINE_LIST_LENGTH = 80
 """How long items may run, joined in a sentence, before a description lists them."""
 
 
@@ -36,12 +36,12 @@ def format_fraction(value: float) -> str:
     return _FRACTIONS.get(value) or format_number(value)
 
 
-def format_rounded(value: float) -> str:
+def format_marks(value: float) -> str:
     """``value`` to two decimal places, as marks are written: 0.33 not 0.3333…"""
     return format_number(round(value, 2))
 
 
-def sentence(text: str) -> str:
+def as_sentence(text: str) -> str:
     """``text`` ending with a full stop, unless its last word or quoted value already ends one."""
     return text if text.rstrip('`”" ').endswith((".", "?", "!")) else f"{text}."
 
@@ -51,35 +51,35 @@ def plural(noun: str, count: int) -> str:
     return noun if count == 1 else f"{noun}s"
 
 
-def capitalised(text: str) -> str:
+def capitalized(text: str) -> str:
     """``text`` starting with a capital letter, the rest as it is."""
     return text[:1].upper() + text[1:]
 
 
-def plain_text(markdown: str) -> str:
+def unescaped_markdown(markdown: str) -> str:
     """``markdown`` with its escapes undone and its LaTeX formulas typed out: ``$\\frac{1}{2}$`` as
     ``1/2``."""
     return _ESCAPE_OR_FORMULA.sub(
-        lambda match: match[1] or latex_text(match[2] or match[3]), markdown
+        lambda match: match[1] or typed_latex(match[2] or match[3]), markdown
     )
 
 
 def plain_markdown(markdown: str) -> str:
     """``markdown`` as plain text, as feedback quotes a description: code quoted as written, and
     the text around it with bold, escapes and formulas undone."""
-    pieces, end = [], 0
+    parts, last_end = [], 0
     for match in _CODE_SPAN.finditer(markdown):
-        pieces += [_unformatted(markdown[end : match.start()]), quoted(_code_text(match[2]))]
-        end = match.end()
-    return "".join([*pieces, _unformatted(markdown[end:])])
+        parts += [_unformatted(markdown[last_end : match.start()]), quoted(_code_text(match[2]))]
+        last_end = match.end()
+    return "".join([*parts, _unformatted(markdown[last_end:])])
 
 
 def _unformatted(markdown: str) -> str:
-    return plain_text(markdown).replace("**", "")
+    return unescaped_markdown(markdown).replace("**", "")
 
 
 def _code_text(text: str) -> str:
-    """A code span's text, without the space each side that ``markdown_code`` pads it with."""
+    """A code span's text, without the space each side that ``code_span`` pads it with."""
     return text[1:-1] if text.startswith(" ") and text.endswith(" ") and text.strip() else text
 
 
@@ -108,7 +108,7 @@ def quoted_join(values: Iterable[object], *, conjunction: Literal["and", "or"]) 
     return _join([quoted(value) for value in values], conjunction)
 
 
-def markdown_code(value: object) -> str:
+def code_span(value: object) -> str:
     text = as_text(value)
     fence = "`" * (max(map(len, _BACKTICK_RUN.findall(text)), default=0) + 1)
     if text.startswith(("`", " ")) or text.endswith(("`", " ")):
@@ -116,25 +116,26 @@ def markdown_code(value: object) -> str:
     return f"{fence}{text}{fence}"
 
 
-def fenced(code: str, language: str = "python") -> str:
+def code_block(code: str, language: str = "python") -> str:
     """``code`` as a Markdown code block, fenced longer than any run of backticks in it."""
     fence = "`" * max([3, *(len(run) + 1 for run in _BACKTICK_RUN.findall(code))])
     return f"{fence}{language}\n{code.rstrip()}\n{fence}"
 
 
-def markdown_join(values: Iterable[object], *, conjunction: Literal["and", "or"]) -> str:
-    return _join([markdown_code(value) for value in values], conjunction)
+def code_join(values: Iterable[object], *, conjunction: Literal["and", "or"]) -> str:
+    return _join([code_span(value) for value in values], conjunction)
 
 
-def markdown_text(value: object) -> str:
+def escaped_markdown(value: object) -> str:
     """``value`` escaped so Markdown shows it as written."""
     return _PUNCTUATION.sub(lambda match: f"\\{match[0]}", as_text(value))
 
 
-def runs_long(items: Iterable[object]) -> bool:
-    """Whether ``items`` read better listed: two or more, longer than ``_LONG`` joined."""
+def reads_better_listed(items: Iterable[object]) -> bool:
+    """Whether ``items`` read better listed: two or more, longer than
+    ``_MAX_INLINE_LIST_LENGTH`` joined."""
     texts = [as_text(item) for item in items]
-    return len(texts) > 1 and len(", ".join(texts)) > _LONG
+    return len(texts) > 1 and len(", ".join(texts)) > _MAX_INLINE_LIST_LENGTH
 
 
 def markdown_list(items: Iterable[str]) -> str:
@@ -143,4 +144,4 @@ def markdown_list(items: Iterable[str]) -> str:
 
 
 def markdown_code_list(values: Iterable[object]) -> str:
-    return markdown_list(markdown_code(value) for value in values)
+    return markdown_list(code_span(value) for value in values)

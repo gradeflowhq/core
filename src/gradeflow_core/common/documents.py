@@ -12,20 +12,20 @@ from ruamel.yaml.error import YAMLError
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from .exceptions import InvalidError
-from .paths import Loc
+from .paths import Location
 from .problems import Problem
 
-_DUPLICATE = re.compile(r'found duplicate (?:merge )?key "(.*?)"(?: with value "|$)', re.DOTALL)
+_DUPLICATE_KEY = re.compile(r'found duplicate (?:merge )?key "(.*?)"(?: with value "|$)', re.DOTALL)
 
 
-class DocumentError(InvalidError):
+class YamlError(InvalidError):
     """Text that isn't YAML: one problem, saying where."""
 
     def __init__(self, message: str) -> None:
         super().__init__([Problem(message)])
 
 
-def _yaml() -> YAML:
+def _new_yaml() -> YAML:
     yaml = YAML(typ="rt")
     yaml.default_flow_style = False
     yaml.indent(mapping=2, sequence=4, offset=2)
@@ -33,36 +33,36 @@ def _yaml() -> YAML:
     return yaml
 
 
-def load_document(text: str) -> Any:
-    """``text`` as YAML, keeping where each value is. Raises ``DocumentError`` if it isn't YAML."""
+def load_yaml_with_lines(text: str) -> Any:
+    """``text`` as YAML, keeping where each value is. Raises ``YamlError`` if it isn't YAML."""
     try:
-        return _yaml().load(text)
+        return _new_yaml().load(text)
     except YAMLError as error:
-        mark = getattr(error, "problem_mark", None)
-        where = f"Line {mark.line + 1}: " if mark is not None else ""
-        raise DocumentError(f"{where}{_problem(error)}.") from None
+        position = getattr(error, "problem_mark", None)
+        where = f"Line {position.line + 1}: " if position is not None else ""
+        raise YamlError(f"{where}{_yaml_problem(error)}.") from None
 
 
-def _problem(error: YAMLError) -> str:
+def _yaml_problem(error: YAMLError) -> str:
     """What ruamel found wrong, naming a key written twice rather than both its values."""
     problem = getattr(error, "problem", None) or str(error)
-    if isinstance(error, DuplicateKeyError) and (found := _DUPLICATE.match(problem)):
-        return f'"{found[1]}" is written twice'
+    if isinstance(error, DuplicateKeyError) and (match := _DUPLICATE_KEY.match(problem)):
+        return f'"{match[1]}" is written twice'
     return problem
 
 
-def plain(node: Any) -> Any:
-    """``node`` as plain dicts and lists. Raises ``DocumentError`` for a ``{{ … }}`` left
+def as_plain_data(node: Any) -> Any:
+    """``node`` as plain dicts and lists. Raises ``YamlError`` for a ``{{ … }}`` left
     unquoted, which YAML reads as a mapping."""
     if isinstance(node, Mapping):
         for key in node:
             if isinstance(key, Mapping):
                 line = node.lc.key(key)[0] + 1 if hasattr(node, "lc") else None
                 where = f"Line {line}: " if line else ""
-                raise DocumentError(f'{where}Quote {{{{ … }}}}, as in "{{{{ inputs.name }}}}".')
-        return {str(key): plain(value) for key, value in node.items()}
+                raise YamlError(f'{where}Quote {{{{ … }}}}, as in "{{{{ inputs.name }}}}".')
+        return {str(key): as_plain_data(value) for key, value in node.items()}
     if isinstance(node, list):
-        return [plain(item) for item in node]
+        return [as_plain_data(item) for item in node]
     if isinstance(node, str):
         return str(node)
     return node
@@ -70,13 +70,13 @@ def plain(node: Any) -> Any:
 
 def load_yaml(text: str) -> Any:
     """``text`` as YAML, as plain dicts and lists. Raises ``InvalidError`` if it isn't YAML."""
-    return plain(load_document(text))
+    return as_plain_data(load_yaml_with_lines(text))
 
 
 def dump_yaml(data: Any) -> str:
-    out = StringIO()
-    _yaml().dump(_as_blocks(deepcopy(data)), out)
-    return out.getvalue()
+    buffer = StringIO()
+    _new_yaml().dump(_as_blocks(deepcopy(data)), buffer)
+    return buffer.getvalue()
 
 
 def _as_blocks(node: Any) -> Any:
@@ -93,7 +93,7 @@ def _as_blocks(node: Any) -> Any:
     return node
 
 
-def _line_of(document: Any, path: Loc) -> int | None:
+def _line_of(document: Any, path: Location) -> int | None:
     """The line, from 1, of the deepest value along ``path`` that ``document`` has."""
     node, line = document, None
     for part in path:
@@ -106,7 +106,7 @@ def _line_of(document: Any, path: Loc) -> int | None:
     return line
 
 
-def on_line(document: Any, path: Loc, message: str) -> str:
+def with_line(document: Any, path: Location, message: str) -> str:
     """``message`` after the line of ``path`` in ``document``, if it has one."""
     line = _line_of(document, path)
     return f"Line {line}: {message}" if line is not None else message

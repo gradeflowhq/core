@@ -11,23 +11,25 @@ def test_choice_reads_options_ignoring_capitals_unless_set_otherwise() -> None:
     assert question.read("A, B, C") == frozenset({"a", "b", "c"})
 
 
-def test_choice_normalize_and_custom_delimiter() -> None:
-    q = ChoiceQuestion(options=frozenset({"a", "b", "c"}), reading=ListReading(separator="|"))
-    parsed = q.read("Yes|NO|  Maybe ")
-    assert parsed == frozenset({"yes", "no", "maybe"})
+def test_choice_reads_with_a_custom_separator() -> None:
+    question = ChoiceQuestion(
+        options=frozenset({"a", "b", "c"}), reading=ListReading(separator="|")
+    )
+    options = question.read("Yes|NO|  Maybe ")
+    assert options == frozenset({"yes", "no", "maybe"})
 
 
 def test_choice_rejects_empty_option() -> None:
-    with pytest.raises(ValidationError, match="Options can't be blank") as exc_info:
+    with pytest.raises(ValidationError, match="Options can't be blank") as caught:
         ChoiceQuestion(options=frozenset({"A", ""}))
-    assert exc_info.value.errors()[0]["loc"] == ("options",)
+    assert caught.value.errors()[0]["loc"] == ("options",)
 
 
 @pytest.mark.parametrize("options", [["A", "a"], ["a", " a "], ["a", "a"]])
 def test_choice_rejects_options_read_alike(options: list[str]) -> None:
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ValidationError) as caught:
         ChoiceQuestion.model_validate({"options": options})
-    [error] = exc_info.value.errors()
+    [error] = caught.value.errors()
     assert error["loc"] == ("options",)
     assert error["msg"] == "Value error, Options must be different: “a” appears twice."
 
@@ -45,8 +47,8 @@ def test_choice_requires_at_least_one_option(kwargs: dict[str, object]) -> None:
 
 def test_a_choice_answer_is_written_by_choosing_options() -> None:
     question = ChoiceQuestion(options=frozenset({"b", "a", "c"}))
-    part = question.answer_schema()["properties"]["option"]
-    assert part["enum"] == ["a", "b", "c"]
+    option_schema = question.answer_schema()["properties"]["option"]
+    assert option_schema["enum"] == ["a", "b", "c"]
     assert question.answer_values("B") == {"option": "b"}
     assert question.answer_values("z") == {"option": None}
     assert question.answer_from({"option": "b"}) == "b"
@@ -55,8 +57,12 @@ def test_a_choice_answer_is_written_by_choosing_options() -> None:
 
 def test_a_choice_of_several_options_takes_them_in_order() -> None:
     question = ChoiceQuestion(options=frozenset({"a", "b", "c"}), allow_multiple=True)
-    part = question.answer_schema()["properties"]["options"]
-    assert (part["type"], part["uniqueItems"], part["items"]["enum"]) == (
+    option_schema = question.answer_schema()["properties"]["options"]
+    assert (
+        option_schema["type"],
+        option_schema["uniqueItems"],
+        option_schema["items"]["enum"],
+    ) == (
         "array",
         True,
         ["a", "b", "c"],

@@ -6,13 +6,21 @@ from pydantic import Field
 
 from ...common.hints import hint
 from ...common.problems import Problem
-from ...common.text import format_number, markdown_list, plain_markdown, sentence
+from ...common.text import as_sentence, format_number, markdown_list, plain_markdown
 from ...questions.question_set import QuestionSet
 from ...questions.types import ALL_TYPES, QuestionId
 from ..check import Check, Context, Marking
 from ..example import examples_beside
 from ..method import Method
-from ..outcome import CORRECT, FULL_MARKS, EarlierResult, Effect, Outcome, clamped, effect_of
+from ..outcome import (
+    CORRECT,
+    FULL_MARKS_PROPORTION,
+    EarlierResult,
+    Effect,
+    Outcome,
+    clamped,
+    effect_of,
+)
 from ..position import Position
 from ..settings import Settings
 
@@ -24,7 +32,7 @@ COMBINE_LABELS = {
     "total": "Total",
     "proportional": "Proportional",
 }
-CheckItem = Annotated[Marking, Field(title="Check", json_schema_extra=hint(kind="check"))]
+NestedCheck = Annotated[Marking, Field(title="Check", json_schema_extra=hint(kind="check"))]
 
 
 class CombinationSettings(Settings):
@@ -33,303 +41,339 @@ class CombinationSettings(Settings):
         title="How to combine",
         json_schema_extra=hint(labels=COMBINE_LABELS),
     )
-    checks: list[CheckItem] = Field(
+    checks: list[NestedCheck] = Field(
         default_factory=list, title="Checks", description="The checks to combine."
     )
 
 
-HEADINGS = {
+DESCRIPTION_HEADINGS = {
     "all": "All of these",
     "any": "Any one of these",
     "none": "None of these",
-    "total": "Marks added up",
+    "total": "Total of these",
     "proportional": "Each one counts",
 }
 """How a combination's description opens: what the answer does, so it reads after "Not allowed:"."""
 
-type Counted = list[tuple[Check, dict[QuestionId, Outcome]]]
+type CheckOutcomes = list[tuple[Check, dict[QuestionId, Outcome]]]
 
 
-def marked_in_order(
+def outcomes_in_order(
     checks: Sequence[Check],
     context: Context,
     question: QuestionId | None,
     values: Sequence[int | None],
-) -> Counted:
+) -> CheckOutcomes:
     """Each check's outcomes, the check reading ``question`` at its value of ``values``; a check's
     condition sees the results of the earlier ones."""
     earlier: dict[str, EarlierResult] = {}
-    counted: Counted = []
+    check_outcomes: CheckOutcomes = []
     for check, value in zip(checks, values, strict=True):
-        seeing = replace(context, earlier={**context.earlier, **earlier})
-        outcomes = check.mark(seeing, question, value)
+        context_with_earlier = replace(
+            context, earlier_results={**context.earlier_results, **earlier}
+        )
+        outcomes = check.mark(context_with_earlier, question, value)
         if check.id:
-            earlier[check.id] = _result_of(outcomes)
-        counted.append((check, outcomes))
-    return counted
+            earlier[check.id] = _earlier_result(outcomes)
+        check_outcomes.append((check, outcomes))
+    return check_outcomes
 
 
-def marked_by(checks: Sequence[Check], question: QuestionId | None) -> set[QuestionId]:
+def questions_marked_by(checks: Sequence[Check], question: QuestionId | None) -> set[QuestionId]:
     """The questions ``checks`` give marks to, reading ``question`` unless they name another."""
     return {
         key for check in checks if not check.read_only for key in check.questions_marked(question)
     }
 
 
-def read_by(checks: Sequence[Check], question: QuestionId | None) -> set[QuestionId]:
+def questions_read_by(checks: Sequence[Check], question: QuestionId | None) -> set[QuestionId]:
     """The questions whose answers ``checks`` read, reading ``question`` unless they name
     another."""
     return {key for check in checks for key in check.questions_read(question)}
 
 
 def combine(
-    settings: CombinationSettings, counted: Counted, questions: QuestionSet
+    settings: CombinationSettings, check_outcomes: CheckOutcomes, questions: QuestionSet
 ) -> dict[QuestionId, Outcome]:
-    """One outcome for each question the counted checks mark, combined as ``settings`` says. A
-    question whose checks were all skipped is skipped."""
-    counting = [(check, outcomes) for check, outcomes in counted if not check.read_only]
-    active = [
-        (check, kept)
-        for check, outcomes in counting
-        if (kept := {key: outcome for key, outcome in outcomes.items() if not outcome.skipped})
+    """One outcome for each question the checks mark, combined as ``settings`` says. A question
+    whose checks were all skipped is skipped."""
+    scoring_checks = [
+        (check, outcomes) for check, outcomes in check_outcomes if not check.read_only
     ]
-    if not active:
-        keys = dict.fromkeys(key for _, outcomes in counting for key in outcomes)
+    unskipped = [
+        (check, unskipped_outcomes)
+        for check, outcomes in scoring_checks
+        if (
+            unskipped_outcomes := {
+                key: outcome for key, outcome in outcomes.items() if not outcome.skipped
+            }
+        )
+    ]
+    if not unskipped:
+        keys = dict.fromkeys(key for _, outcomes in scoring_checks for key in outcomes)
         return {key: Outcome(0.0, skipped=True) for key in keys}
-    best, combined = (
-        _best(active, questions)
+    best_check, combined = (
+        _best_check(unskipped, questions)
         if settings.combine == "any"
-        else (None, _combined(settings, active, questions))
+        else (None, _combined_by_question(settings, unskipped, questions))
     )
     return {
         key: replace(
             outcome,
             children=_children(
-                settings.combine, counted, key, best, outcome, _max_marks(questions, key)
+                settings.combine,
+                check_outcomes,
+                key,
+                best_check,
+                outcome,
+                _max_marks(questions, key),
             ),
         )
         for key, outcome in combined.items()
     }
 
 
-def _combined(
-    settings: CombinationSettings, active: Counted, questions: QuestionSet
+def _combined_by_question(
+    settings: CombinationSettings, unskipped: CheckOutcomes, questions: QuestionSet
 ) -> dict[QuestionId, Outcome]:
-    keys = dict.fromkeys(key for _, outcomes in active for key in outcomes)
+    keys = dict.fromkeys(key for _, outcomes in unskipped for key in outcomes)
     combined: dict[QuestionId, Outcome] = {}
     for key in keys:
-        items = [(check, outcomes[key]) for check, outcomes in active if key in outcomes]
-        parts = tuple(outcome for _, outcome in items)
-        weighted = [(check.weight, outcome) for check, outcome in items]
-        proportion = _proportion(settings.combine, weighted, _max_marks(questions, key))
+        checks_with_parts = [
+            (check, outcomes[key]) for check, outcomes in unskipped if key in outcomes
+        ]
+        parts = tuple(outcome for _, outcome in checks_with_parts)
+        weighted_parts = [(check.weight, outcome) for check, outcome in checks_with_parts]
+        proportion = _proportion(settings.combine, weighted_parts, _max_marks(questions, key))
         feedback = (
-            _not_allowed(items)
+            _not_allowed_feedback(checks_with_parts)
             if settings.combine == "none"
-            else _feedback(_explaining(settings.combine, items, proportion >= FULL_MARKS))
+            else _joined_feedback(
+                _explaining_parts(
+                    settings.combine, checks_with_parts, proportion >= FULL_MARKS_PROPORTION
+                )
+            )
         )
         combined[key] = Outcome(
-            proportion, feedback, marked=all(p.marked for p in parts), parts=parts
+            proportion, feedback, marked=all(part.marked for part in parts), parts=parts
         )
     return combined
 
 
 def _children(
     combine: Combine,
-    counted: Counted,
+    check_outcomes: CheckOutcomes,
     key: QuestionId,
-    best: Check | None,
+    best_check: Check | None,
     combined: Outcome,
     max_marks: float,
 ) -> tuple[Outcome, ...]:
     """The checks that ran: read-only ones with what they decided, the others counted."""
-    ran = [
+    ran_parts = [
         (check, part)
-        for check, outcomes in counted
-        if (part := _part_at(check, outcomes, key)) is not None and not part.skipped
+        for check, outcomes in check_outcomes
+        if (part := _outcome_for_question(check, outcomes, key)) is not None and not part.skipped
     ]
-    counting = [(check, part) for check, part in ran if not check.read_only]
-    scores = iter(
-        counted_parts(
+    scoring_parts = [(check, part) for check, part in ran_parts if not check.read_only]
+    scoring_parts_with_effects = iter(
+        parts_with_effects(
             combine,
-            [(check.weight, part) for check, part in counting],
-            next((index for index, (check, _) in enumerate(counting) if check is best), None),
+            [(check.weight, part) for check, part in scoring_parts],
+            next(
+                (index for index, (check, _) in enumerate(scoring_parts) if check is best_check),
+                None,
+            ),
             combined.proportion > 0,
             max_marks,
         )
     )
-    return tuple(_decided(part) if check.read_only else next(scores) for check, part in ran)
+    return tuple(
+        _with_condition_effect(part) if check.read_only else next(scoring_parts_with_effects)
+        for check, part in ran_parts
+    )
 
 
 def proportion_and_parts(
-    combine: Combine, weighted: Sequence[tuple[float, Outcome]], max_marks: float
+    combine: Combine, weighted_parts: Sequence[tuple[float, Outcome]], max_marks: float
 ) -> tuple[float, tuple[Outcome, ...]]:
     """The proportion ``(weight, outcome)`` parts give together, and the parts, counted."""
-    proportion = _proportion(combine, weighted, max_marks)
+    proportion = _proportion(combine, weighted_parts, max_marks)
     best = (
         max(
-            range(len(weighted)),
-            key=lambda index: weighted[index][0] * weighted[index][1].proportion,
+            range(len(weighted_parts)),
+            key=lambda index: weighted_parts[index][0] * weighted_parts[index][1].proportion,
         )
         if combine == "any"
         else None
     )
-    return proportion, counted_parts(combine, weighted, best, proportion > 0, max_marks)
+    return proportion, parts_with_effects(combine, weighted_parts, best, proportion > 0, max_marks)
 
 
 def _proportion(
-    combine: Combine, weighted: Sequence[tuple[float, Outcome]], max_marks: float
+    combine: Combine, weighted_parts: Sequence[tuple[float, Outcome]], max_marks: float
 ) -> float:
     """The proportion ``(weight, outcome)`` parts of one answer give together."""
-    proportions = [(weight, part.proportion) for weight, part in weighted]
-    weights = [weight for weight, _ in weighted]
-    return clamped(combined_proportion(combine, proportions, weights, max_marks))
+    weighted_proportions = [(weight, part.proportion) for weight, part in weighted_parts]
+    weights = [weight for weight, _ in weighted_parts]
+    return clamped(combined_proportion(combine, weighted_proportions, weights, max_marks))
 
 
-def counted_parts(
+def parts_with_effects(
     combine: Combine,
-    weighted: Sequence[tuple[float, Outcome]],
+    weighted_parts: Sequence[tuple[float, Outcome]],
     best: int | None,
-    earning: bool,
+    gives_marks: bool,
     max_marks: float,
 ) -> tuple[Outcome, ...]:
     """Combined ``(weight, outcome)`` parts, each with what it did to the marks and, under "Total"
     and "Proportional", the part of the combined proportion it gave. Under "Any" only the
     ``best`` counts, unless none gives marks."""
-    shares = sum(weight for weight, _ in weighted if weight > 0) or 1
+    positive_weight_total = sum(weight for weight, _ in weighted_parts if weight > 0) or 1
 
-    def score(index: int, weight: float, part: Outcome) -> Outcome:
-        if best is not None and index != best and earning:
+    def with_effect(index: int, weight: float, part: Outcome) -> Outcome:
+        if best is not None and index != best and gives_marks:
             return replace(part, effect="uncounted")
         match combine:
             case "total":
                 contribution: float | None = weight * part.proportion / (max_marks or 1)
             case "proportional":
-                contribution = weight * part.proportion / shares
+                contribution = weight * part.proportion / positive_weight_total
             case _:
                 contribution = None
         return replace(part, effect=_effect(combine, weight, part), contribution=contribution)
 
-    return tuple(score(index, weight, part) for index, (weight, part) in enumerate(weighted))
+    return tuple(
+        with_effect(index, weight, part) for index, (weight, part) in enumerate(weighted_parts)
+    )
 
 
-def _decided(part: Outcome) -> Outcome:
+def _with_condition_effect(part: Outcome) -> Outcome:
     if not part.marked:
         return replace(part, effect="unmarked")
-    return replace(part, effect="yes" if part.correct else "no")
+    return replace(part, effect="met" if part.correct else "not_met")
 
 
-def _part_at(check: Check, outcomes: dict[QuestionId, Outcome], key: QuestionId) -> Outcome | None:
+def _outcome_for_question(
+    check: Check, outcomes: dict[QuestionId, Outcome], key: QuestionId
+) -> Outcome | None:
     """A check's outcome for ``key``; a read-only check's for the one other question it reads,
     titled with that question."""
     if key in outcomes:
         return outcomes[key]
     if not check.read_only or len(outcomes) != 1:
         return None
-    [(other, outcome)] = outcomes.items()
-    return replace(outcome, labels=(*outcome.labels, other))
+    [(other_question, outcome)] = outcomes.items()
+    return replace(outcome, labels=(*outcome.labels, other_question))
 
 
 def _effect(combine: Combine, weight: float, part: Outcome) -> Effect:
     """What ``part`` did to the marks. Under "None", or with a negative weight, a check that finds
-    what it looks for loses them."""
-    adding = combine in ("total", "proportional")
-    if not part.marked or not (combine == "none" or (adding and weight <= 0)):
+    what it looks for is a penalty."""
+    is_additive = combine in ("total", "proportional")
+    if not part.marked or not (combine == "none" or (is_additive and weight <= 0)):
         return effect_of(part)
-    return "lost" if part.proportion > 0 and weight != 0 else "uncounted"
+    return "penalty" if part.proportion > 0 and weight != 0 else "uncounted"
 
 
-def _explaining(
-    combine: Combine, items: list[tuple[Check, Outcome]], correct: bool
+def _explaining_parts(
+    combine: Combine, checks_with_parts: list[tuple[Check, Outcome]], correct: bool
 ) -> tuple[Outcome, ...]:
     """The parts that explain the combined proportion: what counted for it, and, unless the whole
     is correct, what counted against it. Only "Total" and "Proportional" keep what counted for an
-    incorrect whole, as each part earned its share. A penalty says only that it took marks off,
-    unless its feedback is its own."""
-    explaining = []
-    for check, part in items:
+    incorrect whole, as each part earned its share. A penalty says only that it applies, unless
+    its feedback is its own."""
+    explaining_parts = []
+    for check, part in checks_with_parts:
         if not part.marked:  # says why the whole is left for a person
-            explaining.append(part)
+            explaining_parts.append(part)
             continue
-        adding = combine in ("total", "proportional")
-        weight = check.weight if adding else 1
+        is_additive = combine in ("total", "proportional")
+        weight = check.weight if is_additive else 1
         match combine:
             case "all":
-                gave, cost = part.correct, not part.correct
+                gives_marks, is_penalty = part.correct, not part.correct
             case _:
-                gave = weight * part.proportion > 0
-                cost = weight * part.proportion < 0 or (weight > 0 and not part.correct)
-        if (gave and (correct or adding)) or (cost and not correct):
-            penalty = weight < 0 and not check.feedback
-            taken_off = replace(part, feedback=_taken_off(check), name=None)
-            explaining.append(taken_off if penalty else part)
-    return tuple(explaining)
+                gives_marks = weight * part.proportion > 0
+                is_penalty = weight * part.proportion < 0 or (weight > 0 and not part.correct)
+        if (gives_marks and (correct or is_additive)) or (is_penalty and not correct):
+            if weight < 0 and not check.feedback:
+                part = replace(part, feedback=_penalty_feedback(check), name=None)
+            explaining_parts.append(part)
+    return tuple(explaining_parts)
 
 
-def _not_allowed(items: list[tuple[Check, Outcome]]) -> str:
+def _not_allowed_feedback(checks_with_parts: list[tuple[Check, Outcome]]) -> str:
     """Under "None may be correct": why parts are left for a person, and "Not allowed." with what
     each check that found the answer checks, unless its feedback is its own; else "Correct."."""
-    found = [
-        part.feedback if check.feedback else sentence(plain_markdown(check.describe()))
-        for check, part in items
+    not_allowed_reasons = [
+        part.feedback if check.feedback else as_sentence(plain_markdown(check.describe()))
+        for check, part in checks_with_parts
         if part.marked and part.proportion > 0
     ]
-    unmarked = _feedback(tuple(part for _, part in items if not part.marked))
-    said = f"Not allowed. {' '.join(found)}" if found else ""
-    return "\n".join(line for line in (unmarked, said) if line) or CORRECT
+    unmarked_feedback = _joined_feedback(
+        tuple(part for _, part in checks_with_parts if not part.marked)
+    )
+    not_allowed_line = (
+        f"Not allowed. {' '.join(not_allowed_reasons)}" if not_allowed_reasons else ""
+    )
+    return "\n".join(line for line in (unmarked_feedback, not_allowed_line) if line) or CORRECT
 
 
 def combined_proportion(
     combine: Combine,
-    weighted: Sequence[tuple[float, float]],
+    weighted_proportions: Sequence[tuple[float, float]],
     weights: Sequence[float],
     max_marks: float,
 ) -> float:
     """The proportion of ``(weight, proportion)`` parts of one answer combined, before clamping.
     A total is marks of a question of ``max_marks``; a proportional share is out of the positive
     ``weights`` of every check counted."""
-    proportions = [proportion for _, proportion in weighted]
-    earned = sum(weight * proportion for weight, proportion in weighted)
+    proportions = [proportion for _, proportion in weighted_proportions]
+    earned = sum(weight * proportion for weight, proportion in weighted_proportions)
     match combine:
         case "all":
             return min(proportions)
         case "none":
             return 1 - max(proportions)
         case "any":
-            return max(weight * proportion for weight, proportion in weighted)
+            return max(weight * proportion for weight, proportion in weighted_proportions)
         case "total":
             return earned / (max_marks or 1)
         case "proportional":
             return earned / (sum(weight for weight in weights if weight > 0) or 1)
 
 
-def _best(counted: Counted, questions: QuestionSet) -> tuple[Check, dict[QuestionId, Outcome]]:
+def _best_check(
+    check_outcomes: CheckOutcomes, questions: QuestionSet
+) -> tuple[Check, dict[QuestionId, Outcome]]:
     """The check giving the most marks over the questions it marks, the first on a tie, and its
     outcomes. Questions only other checks mark get no marks."""
 
     def total(item: tuple[Check, dict[QuestionId, Outcome]]) -> float:
         check, outcomes = item
         return sum(
-            check.weight * o.proportion * _max_marks(questions, key) for key, o in outcomes.items()
+            check.weight * outcome.proportion * _max_marks(questions, key)
+            for key, outcome in outcomes.items()
         )
 
-    best_check, best = max(counted, key=total)
+    best_check, best_outcomes = max(check_outcomes, key=total)
 
-    def spoken(outcome: Outcome) -> str:
+    def best_feedback(outcome: Outcome) -> str:
         # A correct check worth part of the marks, such as "Sign error", says what earned them
         # better than its method's own "Correct.", unless its author wrote its feedback. Otherwise
         # the best check speaks for the answer, without its name.
         if outcome.proportion == 1 and 0 < best_check.weight < 1 and not best_check.feedback:
-            return f"{outcome.name or 'Partly right'} ({best_check.weight:.0%} of the marks)."
+            return f"{outcome.name or 'Partly correct'} ({best_check.weight:.0%} of the marks)."
         return outcome.feedback
 
     return best_check, {
         key: Outcome(
             clamped(best_check.weight * outcome.proportion),
-            spoken(outcome),
+            best_feedback(outcome),
             marked=outcome.marked,
-            parts=tuple(outcomes[key] for _, outcomes in counted if key in outcomes),
+            parts=tuple(outcomes[key] for _, outcomes in check_outcomes if key in outcomes),
         )
-        for key, outcome in best.items()
+        for key, outcome in best_outcomes.items()
     }
 
 
@@ -338,14 +382,16 @@ def _max_marks(questions: QuestionSet, key: QuestionId) -> float:
     return question.max_marks if question else 1.0
 
 
-def _feedback(parts: tuple[Outcome, ...]) -> str:
+def _joined_feedback(parts: tuple[Outcome, ...]) -> str:
     """The parts' feedback, each line once. A bare "Correct." adds nothing to other lines."""
-    lines = list(dict.fromkeys(_named(part.name, part.feedback) for part in parts if part.feedback))
-    said = [line for line in lines if line != CORRECT]
-    return "\n".join(said or lines)
+    lines = list(
+        dict.fromkeys(_with_check_name(part.name, part.feedback) for part in parts if part.feedback)
+    )
+    lines_besides_correct = [line for line in lines if line != CORRECT]
+    return "\n".join(lines_besides_correct or lines)
 
 
-def _named(name: str | None, feedback: str) -> str:
+def _with_check_name(name: str | None, feedback: str) -> str:
     """Feedback after the name of the check that gave it, unless it only says the name again, as
     a check called "Correct" saying "Correct." does."""
     if not name or feedback.rstrip(".").casefold() == name.rstrip(".").casefold():
@@ -366,24 +412,25 @@ class Combination(Method[CombinationSettings]):
         "correct** counts the check that gives the most marks, **Total** adds up the correct "
         "checks by their weights, as marks of the question, and **Proportional** gives each its "
         "share of the marks by its weight. A weight below 1, such as `0.5`, makes a check worth "
-        "part of the marks, and a negative weight takes marks off.\n\n"
-        "**Good to know:** With **Any one must be correct**, list the right answer first, then "
-        "partly right answers with lower weights.\n\n"
+        "part of the marks, and a negative weight is a penalty.\n\n"
+        "**Good to know:** With **Any one must be correct**, list the correct answer first, then "
+        "partly correct answers with lower weights.\n\n"
         "**Related:** To forbid something, add a Not Allowed check. To mark several questions "
         "together, make a question group."
     )
     level = "advanced"
     question_types = ALL_TYPES
-    group = True
+    marks_question_group = True
     settings = CombinationSettings
     examples = examples_beside(__file__)
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
         checks = markdown_list(
-            inner.headed(weighting(inner.weight, settings.combine)) for inner in settings.checks
+            inner_check.described_with_heading(weight_notes(inner_check.weight, settings.combine))
+            for inner_check in settings.checks
         )
-        return f"{heading(settings)}\n{checks}"
+        return f"{description_heading(settings)}\n{checks}"
 
     def mark(
         self,
@@ -393,55 +440,60 @@ class Combination(Method[CombinationSettings]):
         value: int | None,
     ) -> dict[QuestionId, Outcome]:
         settings = self._settings_of(check)
-        marked = marked_in_order(settings.checks, context, question, [value] * len(settings.checks))
-        counted: Counted = [
-            (inner, {key: replace(o, name=inner.name) for key, o in outcomes.items()})
-            for inner, outcomes in marked
+        checks = settings.checks
+        check_outcomes: CheckOutcomes = [
+            (
+                inner_check,
+                {key: replace(outcome, name=inner_check.name) for key, outcome in outcomes.items()},
+            )
+            for inner_check, outcomes in outcomes_in_order(
+                checks, context, question, [value] * len(checks)
+            )
         ]
-        combined = combine(settings, counted, context.questions)
-        if len(settings.checks) > 1:
+        combined = combine(settings, check_outcomes, context.questions)
+        if len(checks) > 1:
             return combined
-        return {key: _as_only_check(outcome) for key, outcome in combined.items()}
+        return {key: _collapsed_to_only_child(outcome) for key, outcome in combined.items()}
 
-    def ordered(self, settings: Mapping[str, Any]) -> bool:
+    def reads_earlier_results(self, settings: Mapping[str, Any]) -> bool:
         return True
 
     def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return marked_by(self._settings_of(check).checks, question)
+        return questions_marked_by(self._settings_of(check).checks, question)
 
     def questions_read(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return read_by(self._settings_of(check).checks, question)
+        return questions_read_by(self._settings_of(check).checks, question)
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         # Only a written list needs a check: a method file may fill one from an optional input.
         if not self._settings_of(check).checks and not check.scope:
-            yield Problem("Add at least one check.", field=("checks",), incomplete=True)
+            yield Problem("Add at least one check.", field=("checks",), is_incomplete=True)
 
 
-def _as_only_check(outcome: Outcome) -> Outcome:
+def _collapsed_to_only_child(outcome: Outcome) -> Outcome:
     """A combination of one check, replaced by its only child."""
     if len(outcome.children) != 1:
         return outcome
-    [only] = outcome.children
+    [only_child] = outcome.children
     return replace(
         outcome,
-        title=only.title,
-        labels=only.labels,
-        details=only.details,
-        children=only.children,
+        title=only_child.title,
+        labels=only_child.labels,
+        details=only_child.details,
+        children=only_child.children,
     )
 
 
-def heading(settings: CombinationSettings, *notes: str) -> str:
+def description_heading(settings: CombinationSettings, *notes: str) -> str:
     """How a description of combined checks opens: ``Each one counts, in any order:``."""
-    return f"{', '.join([HEADINGS[settings.combine], *notes])}:"
+    return f"{', '.join([DESCRIPTION_HEADINGS[settings.combine], *notes])}:"
 
 
-def _taken_off(check: Check) -> str:
-    return f"Marks taken off: {check.name}." if check.name else "Marks taken off."
+def _penalty_feedback(check: Check) -> str:
+    return f"Penalty: {check.name}." if check.name else "Penalty."
 
 
-def weighting(weight: float, combine: Combine) -> tuple[str, ...]:
+def weight_notes(weight: float, combine: Combine) -> tuple[str, ...]:
     """What a weight, when it isn't 1, makes a check worth: under ``any`` the share of the marks
     it can give, and under ``total`` and ``proportional`` the weight itself."""
     if weight == 1 or combine in ("all", "none"):
@@ -451,13 +503,14 @@ def weighting(weight: float, combine: Combine) -> tuple[str, ...]:
     return (f"weight {format_number(weight)}",)
 
 
-def _result_of(outcomes: dict[QuestionId, Outcome]) -> EarlierResult:
+def _earlier_result(outcomes: dict[QuestionId, Outcome]) -> EarlierResult:
     """A check's result over every question it marks."""
-    values = list(outcomes.values())
     return {
-        "correct": bool(values) and all(outcome.correct for outcome in values),
-        "proportion": min((outcome.proportion for outcome in values), default=0.0),
-        "feedback": "\n".join(outcome.feedback for outcome in values if outcome.feedback),
-        "marked": all(outcome.marked for outcome in values),
-        "skipped": bool(values) and all(outcome.skipped for outcome in values),
+        "correct": bool(outcomes) and all(outcome.correct for outcome in outcomes.values()),
+        "proportion": min((outcome.proportion for outcome in outcomes.values()), default=0.0),
+        "feedback": "\n".join(
+            outcome.feedback for outcome in outcomes.values() if outcome.feedback
+        ),
+        "marked": all(outcome.marked for outcome in outcomes.values()),
+        "skipped": bool(outcomes) and all(outcome.skipped for outcome in outcomes.values()),
     }

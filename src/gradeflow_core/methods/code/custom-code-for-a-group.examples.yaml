@@ -4,8 +4,8 @@ examples:
       Python code decides the marks for `Q1` and `Q2`:
 
       ```python
-      def result(right, expected):
-          return {"correct": right, "feedback": "Correct." if right else expected}
+      def result(correct, feedback_if_wrong):
+          return {"correct": correct, "feedback": "Correct." if correct else feedback_if_wrong}
 
       primary = {"red", "yellow", "blue"}
       first, second = answers["Q1"], answers["Q2"]
@@ -20,8 +20,8 @@ examples:
     with:
       questions: [Q1, Q2]
       code: |
-        def result(right, expected):
-            return {"correct": right, "feedback": "Correct." if right else expected}
+        def result(correct, feedback_if_wrong):
+            return {"correct": correct, "feedback": "Correct." if correct else feedback_if_wrong}
 
         primary = {"red", "yellow", "blue"}
         first, second = answers["Q1"], answers["Q2"]
@@ -53,14 +53,14 @@ examples:
       Python code decides the marks for `Q1` and `Q2`:
 
       ```python
-      def result(right, expected):
-          return {"correct": right, "feedback": "Correct." if right else expected}
+      def result(correct, feedback_if_wrong):
+          return {"correct": correct, "feedback": "Correct." if correct else feedback_if_wrong}
 
       words = {5: "five", 6: "six", 7: "seven"}
-      sides, written = answers["Q1"], answers["Q2"]
+      sides, in_words = answers["Q1"], answers["Q2"]
       results = {
           "Q1": result(sides == 6, "Expected 6."),
-          "Q2": result(words.get(sides) == written, "Expected your answer to Q1 in words."),
+          "Q2": result(words.get(sides) == in_words, "Expected your answer to Q1 in words."),
       }
       ```
     questions:
@@ -69,14 +69,14 @@ examples:
     with:
       questions: [Q1, Q2]
       code: |
-        def result(right, expected):
-            return {"correct": right, "feedback": "Correct." if right else expected}
+        def result(correct, feedback_if_wrong):
+            return {"correct": correct, "feedback": "Correct." if correct else feedback_if_wrong}
 
         words = {5: "five", 6: "six", 7: "seven"}
-        sides, written = answers["Q1"], answers["Q2"]
+        sides, in_words = answers["Q1"], answers["Q2"]
         results = {
             "Q1": result(sides == 6, "Expected 6."),
-            "Q2": result(words.get(sides) == written, "Expected your answer to Q1 in words."),
+            "Q2": result(words.get(sides) == in_words, "Expected your answer to Q1 in words."),
         }
     rows:
       - answers:

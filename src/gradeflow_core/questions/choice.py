@@ -4,7 +4,7 @@ from typing import Annotated, Any, ClassVar, Literal, Self
 from natsort import natsorted
 from pydantic import Field, PlainSerializer, ValidationInfo, field_validator
 
-from ..common.schemas import JsonDict, tag
+from ..common.schemas import JsonDict, type_field
 from ..common.text import quoted
 from .base import Question
 from .reading import ListReading, is_blank, read_list, reading_field
@@ -22,9 +22,9 @@ def choice_reading() -> ListReading:
 class ChoiceQuestion(Question):
     label: ClassVar[str] = "Choice"
     summary: ClassVar[str] = "One or more options from a list, such as B, or A and C."
-    starting: ClassVar[dict[str, Any]] = {"options": ["a", "b"]}
+    new_question_data: ClassVar[dict[str, Any]] = {"options": ["a", "b"]}
 
-    type: Literal["choice"] = tag("choice")
+    type: Literal["choice"] = type_field("choice")
     reading: ListReading = reading_field(choice_reading)
     options: Options = Field(
         ..., min_length=1, title="Options", description="The options students can choose from."
@@ -44,14 +44,14 @@ class ChoiceQuestion(Question):
         ):
             return options
         reading = info.data.get("reading") or choice_reading()
-        read: list[str] = []
-        for option in map(reading.option, options):
+        read_options: list[str] = []
+        for option in map(reading.normalized, options):
             if not option:
                 raise ValueError("Options can't be blank.")
-            if option in read:
+            if option in read_options:
                 raise ValueError(f"Options must be different: {quoted(option)} appears twice.")
-            read.append(option)
-        return frozenset(read)
+            read_options.append(option)
+        return frozenset(read_options)
 
     def python_type(self) -> str:
         return "set[str]"
@@ -61,33 +61,40 @@ class ChoiceQuestion(Question):
         if values is None:
             return None
         return frozenset(
-            value if is_blank(value, self.reading) else self.reading.option(value)
+            value if is_blank(value, self.reading) else self.reading.normalized(value)
             for value in values
         )
 
     def answer_schema(self) -> JsonDict:
         options = {"type": "string", "enum": natsorted(self.options)}
         if self.allow_multiple:
-            value = {"type": "array", "title": "Options", "items": options, "uniqueItems": True}
+            property_schema = {
+                "type": "array",
+                "title": "Options",
+                "items": options,
+                "uniqueItems": True,
+            }
         else:
-            value = {"title": "Option", **options}
-        return {"type": "object", "properties": {self._key: value}}
+            property_schema = {"title": "Option", **options}
+        return {"type": "object", "properties": {self._answer_property: property_schema}}
 
     def answer_values(self, answer: str) -> dict[str, Any]:
-        chosen = natsorted((self.read(answer) or frozenset()) & self.options)
+        chosen_options = natsorted((self.read(answer) or frozenset()) & self.options)
         if self.allow_multiple:
-            return {self._key: chosen}
-        return {self._key: chosen[0] if chosen else None}
+            return {self._answer_property: chosen_options}
+        return {self._answer_property: chosen_options[0] if chosen_options else None}
 
     def answer_from(self, values: Mapping[str, Any]) -> str:
-        chosen = values.get(self._key) or []
-        options = [chosen] if isinstance(chosen, str) else chosen
+        chosen_options = values.get(self._answer_property) or []
+        options = [chosen_options] if isinstance(chosen_options, str) else chosen_options
         return self.reading.separator.join(natsorted(options))
 
     @property
-    def _key(self) -> str:
+    def _answer_property(self) -> str:
         return "options" if self.allow_multiple else "option"
 
     def accepting(self, answers: Sequence[str]) -> Self:
-        seen = {option for answer in answers for option in self.read(answer) or () if option}
-        return self.model_copy(update={"options": self.options | seen})
+        answered_options = {
+            option for answer in answers for option in self.read(answer) or () if option
+        }
+        return self.model_copy(update={"options": self.options | answered_options})

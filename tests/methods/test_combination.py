@@ -5,7 +5,7 @@ from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
 from .helpers import (
-    accepted,
+    accepted_answer,
     describe,
     key_point,
     mark,
@@ -40,57 +40,65 @@ def test_weights_count_under_any_and_each_one_counts() -> None:
         "with": {
             "combine": "any",
             "checks": [
-                accepted("9.81", name="Correct"),
-                accepted("-9.81", name="Sign error", weight=0.5),
+                accepted_answer("9.81", name="Correct"),
+                accepted_answer("-9.81", name="Sign error", weight=0.5),
             ],
         },
     }
-    right, sign, wrong = mark_all(alternatives, ["9.81", "-9.81", "10"], NumberQuestion())
-    assert (right.proportion, sign.proportion, wrong.proportion) == (1, 0.5, 0)
-    assert sign.feedback == "Sign error (50% of the marks).", "its name says why"
-    assert right.feedback == "Correct.", "not Correct: Correct."
+    correct, sign_error, wrong = mark_all(alternatives, ["9.81", "-9.81", "10"], NumberQuestion())
+    assert (correct.proportion, sign_error.proportion, wrong.proportion) == (1, 0.5, 0)
+    assert sign_error.feedback == "Sign error (50% of the marks).", "its name says why"
+    assert correct.feedback == "Correct.", "not Correct: Correct."
     assert wrong.feedback == "Expected 9.81.", "no check that gave nothing speaks by name"
     unnamed = {
         "uses": "gradeflow/combination@1",
-        "with": {"combine": "any", "checks": [accepted("9.81"), accepted("-9.81", weight=0.5)]},
+        "with": {
+            "combine": "any",
+            "checks": [accepted_answer("9.81"), accepted_answer("-9.81", weight=0.5)],
+        },
     }
-    assert mark(unnamed, "-9.81", NumberQuestion()).feedback == "Partly right (50% of the marks)."
-    explained = accepted(
+    assert mark(unnamed, "-9.81", NumberQuestion()).feedback == "Partly correct (50% of the marks)."
+    with_own_feedback = accepted_answer(
         "-9.81", name="Sign error", weight=0.5, feedback={"correct": "Check g's direction."}
     )
-    written = {"uses": "gradeflow/combination@1", "with": {"combine": "any", "checks": [explained]}}
-    [sign] = mark_all(written, ["-9.81"], NumberQuestion())
-    assert sign.feedback == "Check g's direction.", "as its author wrote it"
-    deducting = {
+    combination = {
+        "uses": "gradeflow/combination@1",
+        "with": {"combine": "any", "checks": [with_own_feedback]},
+    }
+    [sign_error] = mark_all(combination, ["-9.81"], NumberQuestion())
+    assert sign_error.feedback == "Check g's direction.", "as its author wrote it"
+    with_penalty = {
         "uses": "gradeflow/combination@1",
         "with": {
             "combine": "proportional",
             "checks": [key_point("a", weight=2), key_point("x", weight=-1)],
         },
     }
-    assert proportions(mark_all(deducting, ["a", "a x", "x"])) == [1, 0.5, 0]
+    assert proportions(mark_all(with_penalty, ["a", "a x", "x"])) == [1, 0.5, 0]
 
 
 def test_a_total_gives_its_weights_as_marks_up_to_the_questions() -> None:
-    marks = {
+    total = {
         "uses": "gradeflow/combination@1",
         "with": {
             "combine": "total",
-            "checks": [key_point(c, weight=2) for c in "abc"] + [key_point("x", weight=-1)],
+            "checks": [key_point(point, weight=2) for point in "abc"] + [key_point("x", weight=-1)],
         },
     }
-    four = TextQuestion(max_marks=4)
-    assert proportions(mark_all(marks, ["a", "a b", "a b c", "a b c x", "x"], four)) == [
+    four_mark_question = TextQuestion(max_marks=4)
+    assert proportions(
+        mark_all(total, ["a", "a b", "a b c", "a b c x", "x"], four_mark_question)
+    ) == [
         0.5,
         1,
         1,
         1,
         0,
     ]
-    assert describe(marks).startswith("Marks added up:\n- ")
+    assert describe(total).startswith("Total of these:\n- ")
 
 
-def test_each_check_speaks_after_its_name_but_any_one_only_the_one_that_counted() -> None:
+def test_each_check_gives_feedback_after_its_name_but_any_one_only_the_one_that_counted() -> None:
     every = {
         "uses": "gradeflow/combination@1",
         "with": {"checks": [key_point("a", name="A"), key_point("b")]},
@@ -103,18 +111,21 @@ def test_each_check_speaks_after_its_name_but_any_one_only_the_one_that_counted(
     assert mark(either, "b").feedback == "Has “b”."
 
 
-def test_a_penalty_speaks_only_when_it_takes_marks_off() -> None:
+def test_a_penalty_gives_feedback_only_when_it_applies() -> None:
     titration = {
         "uses": "gradeflow/combination@1",
         "with": {
             "combine": "proportional",
-            "checks": [accepted("25.10"), accepted("25.40", name="Rough titre", weight=-1)],
+            "checks": [
+                accepted_answer("25.10"),
+                accepted_answer("25.40", name="Rough titre", weight=-1),
+            ],
         },
     }
     clean, rough = mark_all(titration, ["25.10", "25.40"], NumberQuestion())
     assert clean.feedback == "Correct."
-    assert rough.feedback == "Expected 25.10.\nMarks taken off: Rough titre."
-    brief = {
+    assert rough.feedback == "Expected 25.10.\nPenalty: Rough titre."
+    with_length_penalty = {
         "uses": "gradeflow/combination@1",
         "with": {
             "combine": "proportional",
@@ -128,21 +139,21 @@ def test_a_penalty_speaks_only_when_it_takes_marks_off() -> None:
             ],
         },
     }
-    short, long = mark_all(brief, ["a", "a b"])
-    assert (short.feedback, long.feedback) == ("Has “a”.", "Has “a”.\nMarks taken off.")
+    within_length, over_length = mark_all(with_length_penalty, ["a", "a b"])
+    assert (within_length.feedback, over_length.feedback) == ("Has “a”.", "Has “a”.\nPenalty.")
 
 
 def test_once_full_marks_are_reached_what_gave_nothing_stays_silent() -> None:
-    three_of_four = {
+    three_points_two_marks = {
         "uses": "gradeflow/combination@1",
-        "with": {"combine": "total", "checks": [key_point(c) for c in "abc"]},
+        "with": {"combine": "total", "checks": [key_point(point) for point in "abc"]},
     }
-    full, partial = mark_all(three_of_four, ["a c", "b"], TextQuestion(max_marks=2))
+    full, partial = mark_all(three_points_two_marks, ["a c", "b"], TextQuestion(max_marks=2))
     assert full.feedback == "Has “a”.\nHas “c”."
     assert partial.feedback == "Missing “a”.\nHas “b”.\nMissing “c”."
 
 
-def test_a_fail_is_explained_by_the_parts_that_caused_it() -> None:
+def test_all_must_be_correct_names_the_checks_that_werent() -> None:
     check = {
         "uses": "gradeflow/combination@1",
         "with": {"combine": "all", "checks": [key_point("a"), key_point("b")]},
@@ -160,15 +171,18 @@ def test_none_may_be_correct_says_what_the_answer_did_that_is_not_allowed() -> N
         "Not allowed. Includes “a”.",
         "Not allowed. Includes “a”. Includes “b”.",
     ]
-    own = key_point("b", feedback={"correct": "Leave b out."})
-    written = {"uses": "gradeflow/combination@1", "with": {"combine": "none", "checks": [own]}}
-    assert mark(written, "b").feedback == "Not allowed. Leave b out."
+    with_own_feedback = key_point("b", feedback={"correct": "Leave b out."})
+    combination = {
+        "uses": "gradeflow/combination@1",
+        "with": {"combine": "none", "checks": [with_own_feedback]},
+    }
+    assert mark(combination, "b").feedback == "Not allowed. Leave b out."
 
 
 def test_none_may_be_correct_ends_each_description_as_a_sentence() -> None:
     check = {
         "uses": "gradeflow/combination@1",
-        "with": {"combine": "none", "checks": [accepted("a")]},
+        "with": {"combine": "none", "checks": [accepted_answer("a")]},
     }
     assert mark(check, "a", TextQuestion()).feedback == "Not allowed. Matches “a”."
 
@@ -178,18 +192,18 @@ def test_read_only_checks_decide_without_marks_and_conditions_read_earlier_resul
         "uses": "gradeflow/combination@1",
         "with": {
             "checks": [
-                accepted("t-test", id="test", question="Q5", read_only=True),
-                accepted("2.31", question="Q6", **{"if": "{{ checks.test.correct }}"}),
-                accepted("5.99", question="Q6", **{"if": "{{ not checks.test.correct }}"}),
+                accepted_answer("t-test", id="test", question="Q5", read_only=True),
+                accepted_answer("2.31", question="Q6", **{"if": "{{ checks.test.correct }}"}),
+                accepted_answer("5.99", question="Q6", **{"if": "{{ not checks.test.correct }}"}),
             ]
         },
     }
     questions: dict[str, Question] = {"Q5": TextQuestion(), "Q6": NumberQuestion()}
-    chose_t = mark_group(marking, {"Q5": "t-test", "Q6": "2.31"}, questions)
-    chose_chi = mark_group(marking, {"Q5": "chi", "Q6": "2.31"}, questions)
-    assert list(chose_t) == ["Q6"]
-    assert (chose_t["Q6"].proportion, chose_chi["Q6"].proportion) == (1, 0)
-    assert chose_chi["Q6"].feedback == "Expected 5.99."
+    chose_t_test = mark_group(marking, {"Q5": "t-test", "Q6": "2.31"}, questions)
+    chose_chi_squared = mark_group(marking, {"Q5": "chi", "Q6": "2.31"}, questions)
+    assert list(chose_t_test) == ["Q6"]
+    assert (chose_t_test["Q6"].proportion, chose_chi_squared["Q6"].proportion) == (1, 0)
+    assert chose_chi_squared["Q6"].feedback == "Expected 5.99."
 
 
 def test_any_one_across_questions_picks_one_check_by_its_total_marks() -> None:
@@ -202,7 +216,10 @@ def test_any_one_across_questions_picks_one_check_by_its_total_marks() -> None:
                     "name": "Expected",
                     "uses": "gradeflow/combination@1",
                     "with": {
-                        "checks": [accepted("6", question="Q1"), accepted("24", question="Q2")]
+                        "checks": [
+                            accepted_answer("6", question="Q1"),
+                            accepted_answer("24", question="Q2"),
+                        ]
                     },
                 },
                 {
@@ -210,7 +227,10 @@ def test_any_one_across_questions_picks_one_check_by_its_total_marks() -> None:
                     "weight": 0.5,
                     "uses": "gradeflow/combination@1",
                     "with": {
-                        "checks": [accepted("9", question="Q1"), accepted("36", question="Q2")]
+                        "checks": [
+                            accepted_answer("9", question="Q1"),
+                            accepted_answer("36", question="Q2"),
+                        ]
                     },
                 },
             ],
@@ -237,7 +257,7 @@ def test_it_lists_its_checks_with_their_names_and_weights() -> None:
     assert describe(check) == (
         "Any one of these:\n- **A:** Includes `a`.\n- **50% of the marks:** Includes `b`."
     )
-    counting = {
+    proportional = {
         "uses": "gradeflow/combination@1",
         "with": {
             "combine": "proportional",
@@ -248,7 +268,7 @@ def test_it_lists_its_checks_with_their_names_and_weights() -> None:
             ],
         },
     }
-    assert describe(counting) == (
+    assert describe(proportional) == (
         "Each one counts:\n"
         "- Includes `a`.\n"
         "- **Weight 2:** Includes `b`.\n"
@@ -276,7 +296,7 @@ def test_a_combination_needs_a_check() -> None:
     ]
 
 
-def test_a_part_left_unmarked_says_why_even_when_it_would_take_marks_off() -> None:
+def test_a_part_left_unmarked_says_why_even_when_it_would_be_a_penalty() -> None:
     failing = {
         "uses": "gradeflow/custom-code@1",
         "with": {"code": "raise ValueError('bad')"},
@@ -287,7 +307,7 @@ def test_a_part_left_unmarked_says_why_even_when_it_would_take_marks_off() -> No
         "with": {"combine": "proportional", "checks": [key_point("a"), failing]},
     }
     result = mark(check, "a")
-    assert not result.marked
+    assert not result.is_marked
     assert "Your code failed: ValueError: bad." in result.feedback
 
 
@@ -298,6 +318,6 @@ def test_a_part_left_unmarked_says_why_when_none_may_be_correct() -> None:
         "with": {"combine": "none", "checks": [key_point("a"), failing]},
     }
     result = mark(check, "c")
-    assert not result.marked
+    assert not result.is_marked
     assert "Your code failed: ValueError: bad." in result.feedback
     assert "Correct." not in result.feedback

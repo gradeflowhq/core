@@ -4,8 +4,8 @@ from gradeflow_core.editing import HINT_KEY
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.inference import infer_question
 
-FLAT = "def first_positive(xs):\nfor x in xs:\nif x > 0:\nreturn x\nreturn None"
-LAID_OUT = (
+UNINDENTED_CODE = "def first_positive(xs):\nfor x in xs:\nif x > 0:\nreturn x\nreturn None"
+INDENTED_CODE = (
     "def first_positive(xs):\n"
     "    for x in xs:\n"
     "        if x > 0:\n"
@@ -14,7 +14,7 @@ LAID_OUT = (
 )
 
 
-def test_code_reads_as_typed_without_its_edges_or_shared_indentation() -> None:
+def test_code_reads_as_typed_without_surrounding_blank_lines_or_shared_indentation() -> None:
     assert CodeQuestion().read("\r\n    x = 1  \r\n    if x:\r\n        y = X\n\n") == (
         "x = 1\nif x:\n    y = X"
     )
@@ -26,7 +26,7 @@ def test_blank_code_reads_as_blank(answer: str) -> None:
 
 
 def test_code_is_written_as_typed() -> None:
-    assert CodeQuestion().normalize(FLAT) == FLAT
+    assert CodeQuestion().normalize(UNINDENTED_CODE) == UNINDENTED_CODE
 
 
 def test_code_says_its_answers_are_code() -> None:
@@ -41,7 +41,9 @@ def test_custom_code_is_told_how_answers_reach_it() -> None:
 
 
 def test_answers_that_are_programs_make_a_code_question() -> None:
-    assert isinstance(infer_question([FLAT, LAID_OUT, "def f():\nreturn 1", ""]), CodeQuestion)
+    assert isinstance(
+        infer_question([UNINDENTED_CODE, INDENTED_CODE, "def f():\nreturn 1", ""]), CodeQuestion
+    )
 
 
 @pytest.mark.parametrize(

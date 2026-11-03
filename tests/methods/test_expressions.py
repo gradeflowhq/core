@@ -3,11 +3,11 @@ import re
 
 import pytest
 
-from gradeflow_core.methods.answers.expressions import MAX_LENGTH, read
+from gradeflow_core.methods.answers.expressions import MAX_LENGTH, parse
 
 
-def value(text: str, **values: float) -> float:
-    return read(text).value(values)
+def evaluate(text: str, **variables: float) -> float:
+    return parse(text).value(variables)
 
 
 @pytest.mark.parametrize(
@@ -41,7 +41,7 @@ def value(text: str, **values: float) -> float:
     ],
 )
 def test_reads_arithmetic_as_people_write_it(text: str, expected: float) -> None:
-    assert value(text) == pytest.approx(expected)
+    assert evaluate(text) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize(
@@ -60,43 +60,43 @@ def test_reads_arithmetic_as_people_write_it(text: str, expected: float) -> None
     ],
 )
 def test_letters_and_brackets_next_to_each_other_multiply(text: str, expected: float) -> None:
-    assert value(text, x=3, y=2) == pytest.approx(expected)
+    assert evaluate(text, x=3, y=2) == pytest.approx(expected)
 
 
 def test_values_are_floats() -> None:
-    assert type(value("2 * 3")) is float
-    assert type(value("abs(-2)")) is float
+    assert type(evaluate("2 * 3")) is float
+    assert type(evaluate("abs(-2)")) is float
 
 
-def test_names_are_the_variables_it_uses() -> None:
-    assert read("2x + 2").names == {"x"}
-    assert read("sin(t) + e + pi + xy").names == {"t", "x", "y"}
-    assert read("4").names == set()
+def test_variables_are_the_names_it_uses() -> None:
+    assert parse("2x + 2").variables == {"x"}
+    assert parse("sin(t) + e + pi + xy").variables == {"t", "x", "y"}
+    assert parse("4").variables == set()
 
 
-def test_whole_names_keep_longer_names_and_brackets_name_anything() -> None:
-    expression = read("12 * side + Q1 + 2[1a] + [e] + e", whole_names=True)
-    assert expression.names == {"side", "Q1", "1a", "e"}
+def test_names_as_written_keep_longer_names_and_brackets_name_anything() -> None:
+    expression = parse("12 * side + Q1 + 2[1a] + [e] + e", names_as_written=True)
+    assert expression.variables == {"side", "Q1", "1a", "e"}
     assert expression.value({"side": 2, "Q1": 3, "1a": 4, "e": 1}) == pytest.approx(36 + math.e)
 
 
 @pytest.mark.parametrize("text", ["x2 + 1", "rate_2"])
-def test_names_with_digits_are_unknown_unless_whole(text: str) -> None:
-    name = re.search(r"x2|rate_2", text)
-    assert name is not None
-    with pytest.raises(ValueError, match=re.escape(f"Unknown name “{name[0]}”.")):
-        read(text)
-    assert read(text, whole_names=True).names == {name[0]}
+def test_names_with_digits_are_unknown_unless_as_written(text: str) -> None:
+    match = re.search(r"x2|rate_2", text)
+    assert match is not None
+    with pytest.raises(ValueError, match=re.escape(f"Unknown name “{match[0]}”.")):
+        parse(text)
+    assert parse(text, names_as_written=True).variables == {match[0]}
 
 
-def test_brackets_are_for_whole_names_only() -> None:
+def test_brackets_are_for_names_as_written_only() -> None:
     with pytest.raises(ValueError, match="Couldn't read"):
-        read("[x] + 1")
+        parse("[x] + 1")
 
 
 def test_says_which_text_it_couldnt_read() -> None:
     with pytest.raises(ValueError, match=re.escape("Couldn't read “2x +” as an expression.")):
-        read("2x +")
+        parse("2x +")
 
 
 @pytest.mark.parametrize(
@@ -125,15 +125,15 @@ def test_says_which_text_it_couldnt_read() -> None:
 )
 def test_refuses_anything_else(text: str) -> None:
     with pytest.raises(ValueError, match=r"Couldn't read|Unknown name"):
-        read(text)
+        parse(text)
 
 
 def test_refuses_long_input_and_reads_deep_nesting_within_it() -> None:
     with pytest.raises(ValueError, match=f"longer than {MAX_LENGTH}"):
-        read("x+" * MAX_LENGTH + "x")
+        parse("x+" * MAX_LENGTH + "x")
     depth = (MAX_LENGTH - 1) // 2
-    assert value("(" * depth + "1" + ")" * depth) == 1
-    assert value("-" * (MAX_LENGTH - 1) + "1") == -1
+    assert evaluate("(" * depth + "1" + ")" * depth) == 1
+    assert evaluate("-" * (MAX_LENGTH - 1) + "1") == -1
 
 
 @pytest.mark.parametrize(
@@ -154,4 +154,4 @@ def test_refuses_long_input_and_reads_deep_nesting_within_it() -> None:
 )
 def test_values_it_cant_work_out_raise_value_errors(text: str, message: str) -> None:
     with pytest.raises(ValueError, match=re.escape(message)):
-        value(text, x=3)
+        evaluate(text, x=3)

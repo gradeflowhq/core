@@ -2,8 +2,8 @@ import re
 
 from pydantic import Field, field_validator
 
-from ...common.hints import ADVANCED
-from ...common.text import markdown_code, sentence
+from ...common.hints import ADVANCED_HINT
+from ...common.text import as_sentence, code_span
 from ...questions.base import Question
 from ...questions.types import Answer
 from ..check import Check
@@ -21,24 +21,24 @@ class PatternSettings(Settings):
     )
     ignore_case: bool = Field(
         default=False,
-        title="Ignore capitals",
-        json_schema_extra=ADVANCED,
+        title="Ignore case",
+        json_schema_extra=ADVANCED_HINT,
     )
     multi_line: bool = Field(
         default=False,
         title="Match each line",
         description="^ and $ match at each line, not only the whole answer.",
-        json_schema_extra=ADVANCED,
+        json_schema_extra=ADVANCED_HINT,
     )
     dotall: bool = Field(
         default=False,
         title="Dot matches line breaks",
-        json_schema_extra=ADVANCED,
+        json_schema_extra=ADVANCED_HINT,
     )
 
     @field_validator("pattern")
     @classmethod
-    def _compiles(cls, pattern: str) -> str:
+    def _check_compiles(cls, pattern: str) -> str:
         try:
             re.compile(pattern)
         except re.error as error:
@@ -52,7 +52,7 @@ class Pattern(AnswerMethod[PatternSettings]):
     label = "Pattern"
     summary = "Full marks if the answer matches a regular expression."
     guide = (
-        "**Use it when:** Right answers follow a pattern that a list can't cover, such as any "
+        "**Use it when:** Correct answers follow a pattern that a list can't cover, such as any "
         "date written as DD/MM/YYYY.\n\n"
         "**How it marks:** The answer gets full marks if the pattern is found anywhere in it. "
         "Patterns use [Python's regular expression syntax]"
@@ -70,17 +70,17 @@ class Pattern(AnswerMethod[PatternSettings]):
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
-        options = [
+        flag_notes = [
             text
             for enabled, text in (
-                (settings.ignore_case, "ignoring capitals"),
+                (settings.ignore_case, "ignoring case"),
                 (settings.multi_line, "matching each line"),
                 (settings.dotall, "with a dot matching line breaks"),
             )
             if enabled
         ]
-        return sentence(
-            ", ".join([f"Matches the pattern {markdown_code(settings.pattern)}", *options])
+        return as_sentence(
+            ", ".join([f"Matches the pattern {code_span(settings.pattern)}", *flag_notes])
         )
 
     def _mark_answer(
@@ -91,7 +91,7 @@ class Pattern(AnswerMethod[PatternSettings]):
             | (re.MULTILINE if settings.multi_line else re.NOFLAG)
             | (re.DOTALL if settings.dotall else re.NOFLAG)
         )
-        matched = re.search(settings.pattern, str(answer), flags) is not None
+        is_match = re.search(settings.pattern, str(answer), flags) is not None
         return Outcome(
-            float(matched), "Right format." if matched else "Not in the expected format."
+            float(is_match), "Correct format." if is_match else "Not in the expected format."
         )

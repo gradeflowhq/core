@@ -3,7 +3,6 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -14,12 +13,12 @@ from gradeflow_core import (
     Method,
     Methods,
     QuestionSet,
-    evaluate_examples,
+    mark_examples,
 )
-from gradeflow_core.editing import ExpectedResult, RowResult, evaluate_rows
-from tests.fake_models import ENDPOINT, FakeModels, Oracle, examples_oracle
+from gradeflow_core.editing import ExpectedResult, RowResult, mark_rows
+from tests.fake_models import ENDPOINT, InstallFakeModels, example_verdicts
 
-BASIC = {
+BASIC_METHOD_NAMES = {
     "gradeflow/accepted-answers",
     "gradeflow/key-points",
     "gradeflow/answer-criteria",
@@ -31,26 +30,26 @@ BASIC = {
     "gradeflow/length",
     "gradeflow/full-marks",
 }
-GUIDE = re.compile(
+GUIDE_PATTERN = re.compile(
     r"^\*\*Use it when:\*\* [A-Z].+"
     r"\n\n\*\*How it marks:\*\* [A-Z*].+"
     r"(\n\n\*\*Good to know:\*\* [A-Z*].+)?"
     r"(\n\n\*\*Related:\*\* [A-Z*].+)?$"
 )
-OPENINGS = ("Full marks ", "Marks ", "Several checks ", "Your Python code ")
-PUBLIC = [method for method in BUILTINS if method.level != "internal"]
+SUMMARY_OPENINGS = ("Full marks ", "Marks ", "Several checks ", "Your Python code ")
+PUBLIC_METHODS = [method for method in BUILTINS if method.level != "internal"]
 BY_NAME = {method.name: method for method in BUILTINS}
 
 
-@pytest.mark.parametrize("method", PUBLIC, ids=lambda method: method.name)
+@pytest.mark.parametrize("method", PUBLIC_METHODS, ids=lambda method: method.name)
 def test_every_method_explains_itself_plainly(method: Method[Any]) -> None:
     assert method.summary.endswith(".")
     assert ". " not in method.summary
     assert len(method.summary.split()) <= 10, method.summary
-    assert method.summary.startswith(OPENINGS), method.summary
-    assert GUIDE.match(method.guide), method.guide
-    assert method.level == ("basic" if method.name in BASIC else "advanced")
-    assert bool(method.question_types) or method.group
+    assert method.summary.startswith(SUMMARY_OPENINGS), method.summary
+    assert GUIDE_PATTERN.match(method.guide), method.guide
+    assert method.level == ("basic" if method.name in BASIC_METHOD_NAMES else "advanced")
+    assert bool(method.question_types) or method.marks_question_group
     assert len(method.examples) >= 2
 
 
@@ -71,7 +70,7 @@ def test_example_feedback_is_never_empty() -> None:
     )
 
 
-MARKS = {
+EXAMPLE_ROW_MARKS = {
     "gradeflow/accepted-answers": [[1, 1, 0, 0], [1, 1, 0, 0], [1, 0, 0]],
     "gradeflow/key-points": [[3, 2, 1], [1, 1, 0], [2, 1, 0]],
     "gradeflow/answer-criteria": [[3, 0, 2], [2, 1, 0], [2, 1, 0]],
@@ -95,7 +94,7 @@ MARKS = {
 }
 
 
-@pytest.mark.parametrize(("name", "marks"), MARKS.items())
+@pytest.mark.parametrize(("name", "marks"), EXAMPLE_ROW_MARKS.items())
 def test_methods_declare_expected_results(name: str, marks: list[list[float]]) -> None:
     method = BY_NAME[name]
     assert [
@@ -116,37 +115,37 @@ def test_methods_declare_expected_results(name: str, marks: list[list[float]]) -
 
 
 def test_every_public_method_has_its_marks_pinned() -> None:
-    assert {method.name for method in PUBLIC} == set(MARKS)
+    assert {method.name for method in PUBLIC_METHODS} == set(EXAMPLE_ROW_MARKS)
 
 
 def test_examples_across_questions_declare_each_questions_result() -> None:
-    follow_through = BY_NAME["gradeflow/answer-sets"].examples[0].rows[1]
-    assert follow_through.answers == {"Q1": "10", "Q2": "6.25"}
+    follow_through_row = BY_NAME["gradeflow/answer-sets"].examples[0].rows[1]
+    assert follow_through_row.answers == {"Q1": "10", "Q2": "6.25"}
     half = ExpectedResult(marks=0.5, feedback="Perimeter as 6 + 4 (50% of the marks).")
-    assert follow_through.expected == {"Q1": half, "Q2": half}
+    assert follow_through_row.expected == {"Q1": half, "Q2": half}
 
 
 def test_a_row_matches_only_when_it_declares_every_question_marked() -> None:
     method = BY_NAME["gradeflow/answer-sets"]
     example = method.examples[0]
     row = example.rows[0]
-    partial = row.model_copy(update={"expected": {"Q1": row.expected["Q1"]}})
-    whole, part = evaluate_rows(
+    row_without_q2 = row.model_copy(update={"expected": {"Q1": row.expected["Q1"]}})
+    full_row, partial_row = mark_rows(
         method.ref,
         questions=QuestionSet(example.questions),
         question=None,
         inputs=example.with_,
-        rows=[row, partial],
+        rows=[row, row_without_q2],
     )
-    assert (whole.matches, part.matches) == (True, False)
+    assert (full_row.matches_expected, partial_row.matches_expected) == (True, False)
 
 
 @pytest.mark.parametrize("seed", ["1", "2", "3"])
 def test_example_results_follow_question_order_across_hash_seeds(seed: str) -> None:
     code = (
-        "import json; from gradeflow_core import BUILTINS, evaluate_examples; "
-        "print(json.dumps([[r.feedback for r in row.results.values()] for row in "
-        "evaluate_examples('gradeflow/answer-sets@1')[0].rows]))"
+        "import json; from gradeflow_core import BUILTINS, mark_examples; "
+        "print(json.dumps([[result.feedback for result in row.results.values()] for row in "
+        "mark_examples('gradeflow/answer-sets@1')[0].rows]))"
     )
     output = subprocess.check_output(
         [sys.executable, "-c", code], env={**os.environ, "PYTHONHASHSEED": seed}, text=True
@@ -161,12 +160,12 @@ def test_example_results_follow_question_order_across_hash_seeds(seed: str) -> N
 
 def test_evaluation_refuses_unknown_methods() -> None:
     with pytest.raises(GradeFlowError, match=re.escape("There's no method gradeflow/nope@1.")):
-        evaluate_examples("gradeflow/nope@1")
+        mark_examples("gradeflow/nope@1")
     with pytest.raises(GradeFlowError, match=re.escape("There's no method gradeflow/key-point.")):
-        evaluate_examples("gradeflow/key-point")
+        mark_examples("gradeflow/key-point")
 
 
-DEFINITION = """label: Example
+EXAMPLE_METHOD_FILE = """label: Example
 version: 1
 summary: Executes code.
 question_types: [text]
@@ -187,8 +186,8 @@ examples:
 """
 
 
-def test_methods_hold_declared_content_without_grading(monkeypatch: pytest.MonkeyPatch) -> None:
-    methods = BUILTINS.with_files([("sample/example", DEFINITION)])
+def test_methods_hold_declared_content_without_marking(monkeypatch: pytest.MonkeyPatch) -> None:
+    methods = BUILTINS.with_files([("sample/example", EXAMPLE_METHOD_FILE)])
 
     def forbidden(*args: Any, **kwargs: Any) -> Any:
         pytest.fail("Reading method content must not evaluate examples.")
@@ -204,101 +203,114 @@ def test_methods_hold_declared_content_without_grading(monkeypatch: pytest.Monke
 
 
 def test_explicit_evaluation_leaves_declared_expectations_unchanged() -> None:
-    methods = BUILTINS.with_files([("sample/example", DEFINITION)])
+    methods = BUILTINS.with_files([("sample/example", EXAMPLE_METHOD_FILE)])
     declared = [example.model_dump() for example in methods[-1].examples]
-    [row] = evaluate_examples("sample/example@1", methods=methods)[0].rows
-    assert (row.total_marks, row.results["Q1"].feedback, row.matches) == (1, "Worked.", False)
+    [row] = mark_examples("sample/example@1", methods=methods)[0].rows
+    assert (row.total_marks, row.results["Q1"].feedback, row.matches_expected) == (
+        1,
+        "Worked.",
+        False,
+    )
     assert [example.model_dump() for example in methods[-1].examples] == declared
     assert len(methods) == len(BUILTINS) + 1
 
 
 def test_example_evaluation_keeps_rows_whose_code_failed() -> None:
     methods = BUILTINS.with_files(
-        [("sample/example", DEFINITION.replace("proportion = 1", "raise ValueError('Broken')"))]
+        [
+            (
+                "sample/example",
+                EXAMPLE_METHOD_FILE.replace("proportion = 1", "raise ValueError('Broken')"),
+            )
+        ]
     )
-    [row] = evaluate_examples("sample/example@1", methods=methods)[0].rows
+    [row] = mark_examples("sample/example@1", methods=methods)[0].rows
     result = row.results["Q1"]
-    assert (result.marked, row.matches, row.total_marks) == (False, False, 0)
+    assert (result.is_marked, row.matches_expected, row.total_marks) == (False, False, 0)
     assert "Broken" in result.feedback
 
 
 def test_example_rows_must_answer_the_questions() -> None:
     methods = BUILTINS.with_files(
-        [("sample/example", DEFINITION.replace("{Q1: sample}", "{Q2: sample}"))]
+        [("sample/example", EXAMPLE_METHOD_FILE.replace("{Q1: sample}", "{Q2: sample}"))]
     )
     with pytest.raises(GradeFlowError, match=re.escape("A sample: Row 1 has no answer to Q1.")):
-        evaluate_examples("sample/example@1", methods=methods)
+        mark_examples("sample/example@1", methods=methods)
 
 
 def test_example_evaluation_checks_question_contract_and_supports_one_question_groups() -> None:
-    invalid = DEFINITION.replace("type: text", "type: number")
-    methods = BUILTINS.with_files([("sample/example", invalid)])
+    number_question_file = EXAMPLE_METHOD_FILE.replace("type: text", "type: number")
+    methods = BUILTINS.with_files([("sample/example", number_question_file)])
     with pytest.raises(GradeFlowError, match=r"^A sample: "):
-        evaluate_examples("sample/example@1", methods=methods)
+        mark_examples("sample/example@1", methods=methods)
 
-    group = DEFINITION.replace("question_types: [text]", "group: true").replace(
+    group_file = EXAMPLE_METHOD_FILE.replace(
+        "question_types: [text]", "marks_question_group: true"
+    ).replace(
         "- uses: gradeflow/custom-code@1", "- question: Q1\n    uses: gradeflow/custom-code@1"
     )
-    methods = BUILTINS.with_files([("sample/example", group)])
-    assert evaluate_examples("sample/example@1", methods=methods)[0].rows[0].total_marks == 1
+    methods = BUILTINS.with_files([("sample/example", group_file)])
+    assert mark_examples("sample/example@1", methods=methods)[0].rows[0].total_marks == 1
 
 
 def test_actual_rows_are_independent_from_declared_rows() -> None:
     method = BY_NAME["gradeflow/pattern"]
     declared = [example.model_dump() for example in method.examples]
-    actual = evaluate_examples(method.ref)
+    actual = mark_examples(method.ref)
     actual[0].rows[0].results.clear()
     actual[0].rows[0].answers["Q1"] = "Changed"
     assert [example.model_dump() for example in method.examples] == declared
 
 
-MEANING = {"gradeflow/accepted-answers", "gradeflow/key-points"}
+MEANING_MODEL_METHODS = {"gradeflow/accepted-answers", "gradeflow/key-points"}
 """Methods whose examples run the meaning model."""
 
 
 @pytest.mark.parametrize(
     "method",
     [
-        pytest.param(method, marks=pytest.mark.ml if method.name in MEANING else (), id=method.ref)
+        pytest.param(
+            method,
+            marks=pytest.mark.ml if method.name in MEANING_MODEL_METHODS else (),
+            id=method.ref,
+        )
         for method in BUILTINS
     ],
 )
 def test_built_in_examples_declare_what_evaluating_them_gives(
-    method: Method[Any], fake_models: Callable[[Oracle], FakeModels]
+    method: Method[Any], fake_models: InstallFakeModels
 ) -> None:
-    fake_models(examples_oracle)
-    endpoint = ENDPOINT.model_copy(
-        update={"decision_model": "decider", "reasoning_model": "reasoner"}
-    )
-    actual = evaluate_examples(method.ref, model_endpoint=endpoint)
+    fake_models(example_verdicts)
+    endpoint = ENDPOINT.model_copy(update={"fast_model": "decider", "careful_model": "reasoner"})
+    actual = mark_examples(method.ref, model_endpoint=endpoint)
     assert [example.description for example in actual] == [
         example.description for example in method.examples
     ]
-    assert [[result(row) for row in example.rows] for example in actual] == [
+    assert [[as_expected(row) for row in example.rows] for example in actual] == [
         [row.expected for row in example.rows] for example in method.examples
     ]
-    assert all(row.matches for example in actual for row in example.rows)
+    assert all(row.matches_expected for example in actual for row in example.rows)
 
 
-def result(row: RowResult) -> dict[str, ExpectedResult]:
+def as_expected(row: RowResult) -> dict[str, ExpectedResult]:
     return row.as_example().expected
 
 
 def test_examples_use_supplied_nested_methods_without_fallback() -> None:
-    methods = BUILTINS.with_files([("sample/example", DEFINITION)])
+    methods = BUILTINS.with_files([("sample/example", EXAMPLE_METHOD_FILE)])
     only_example = Methods(method for method in methods if method.name == "sample/example")
     with pytest.raises(GradeFlowError, match=r"gradeflow/(custom-code|combination)@1"):
-        evaluate_examples("sample/example@1", methods=only_example)
+        mark_examples("sample/example@1", methods=only_example)
 
 
 def test_examples_without_expectations_can_be_read_and_explicitly_evaluated() -> None:
-    definition = DEFINITION.split("        expected:")[0]
-    methods = BUILTINS.with_files([("sample/example", definition)])
+    without_expectations = EXAMPLE_METHOD_FILE.split("        expected:")[0]
+    methods = BUILTINS.with_files([("sample/example", without_expectations)])
     declared = methods[-1].examples[0].rows[0]
     assert declared.answers == {"Q1": "sample"}
     assert declared.expected == {}
-    actual = evaluate_examples("sample/example@1", methods=methods)[0].rows[0]
-    assert (actual.total_marks, actual.results["Q1"].feedback, actual.matches) == (
+    actual = mark_examples("sample/example@1", methods=methods)[0].rows[0]
+    assert (actual.total_marks, actual.results["Q1"].feedback, actual.matches_expected) == (
         1,
         "Worked.",
         None,

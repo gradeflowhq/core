@@ -10,7 +10,7 @@ from gradeflow_core.common import model_service
 from tests.fake_models import ENDPOINT
 
 
-def reply(top: list[dict[str, object]]) -> ChatCompletion:
+def completion(top_logprobs: list[dict[str, object]]) -> ChatCompletion:
     return ChatCompletion.model_validate(
         {
             "id": "x",
@@ -23,7 +23,7 @@ def reply(top: list[dict[str, object]]) -> ChatCompletion:
                     "finish_reason": "stop",
                     "message": {"role": "assistant", "content": "Yes"},
                     "logprobs": {
-                        "content": [{"token": "Yes", "logprob": -0.1, "top_logprobs": top}]
+                        "content": [{"token": "Yes", "logprob": -0.1, "top_logprobs": top_logprobs}]
                     },
                 }
             ],
@@ -31,14 +31,16 @@ def reply(top: list[dict[str, object]]) -> ChatCompletion:
     )
 
 
-def test_p_yes_weighs_yes_against_no() -> None:
-    top = [{"token": " Yes", "logprob": -0.2231}, {"token": "No", "logprob": -1.6094}]
-    [p] = model_service.yes_probabilities(reply(top))
-    assert round(p, 2) == 0.8
+def test_yes_probability_weighs_yes_against_no() -> None:
+    top_logprobs = [{"token": " Yes", "logprob": -0.2231}, {"token": "No", "logprob": -1.6094}]
+    [probability] = model_service.yes_probabilities(completion(top_logprobs))
+    assert round(probability, 2) == 0.8
 
 
-def test_p_yes_without_yes_or_no_among_the_alternatives_is_the_word_written() -> None:
-    assert model_service.yes_probabilities(reply([{"token": "Maybe", "logprob": -0.1}])) == [1.0]
+def test_yes_probability_without_yes_or_no_among_the_alternatives_is_the_word_written() -> None:
+    assert model_service.yes_probabilities(completion([{"token": "Maybe", "logprob": -0.1}])) == [
+        1.0
+    ]
 
 
 @pytest.mark.parametrize("operation", ["ask", "list_models"])
@@ -66,19 +68,19 @@ def test_service_failures_use_domain_errors(
         http_client=httpx2.Client(transport=httpx2.MockTransport(respond)),
     ) as client:
 
-        def installed(endpoint: ModelEndpoint) -> openai.OpenAI:
+        def fake_client(endpoint: ModelEndpoint) -> openai.OpenAI:
             return client
 
-        monkeypatch.setattr(model_service, "_client", installed)
-        request = (
+        monkeypatch.setattr(model_service, "_client", fake_client)
+        call = (
             partial(
                 model_service.ask, ENDPOINT, "model", "system", "prompt", effort=None, max_tokens=4
             )
             if operation == "ask"
             else partial(model_service.list_models, ENDPOINT)
         )
-        with pytest.raises(GradeFlowError) as error:
-            request()
+        with pytest.raises(GradeFlowError) as caught:
+            call()
     if operation == "list_models" and status == 404:
         message = "No models were found at this address. Check it: it often ends in /v1."
-    assert str(error.value) == message
+    assert str(caught.value) == message

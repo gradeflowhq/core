@@ -6,7 +6,7 @@ from gradeflow_core.questions.number import NumberQuestion
 @pytest.mark.parametrize(
     ("text", "number"), [("10", 10), ("3.14", 3.14), ("3/4", 0.75), ("1e3", 1000.0), ("-7", -7)]
 )
-def test_numeric_parses_numbers(text: str, number: float) -> None:
+def test_number_question_reads_numbers(text: str, number: float) -> None:
     assert NumberQuestion().read(text) == number
 
 
@@ -18,12 +18,12 @@ def test_the_minus_sign_reads_as_a_minus(text: str, number: float) -> None:
     assert NumberQuestion().read(text) == pytest.approx(number)
 
 
-def test_numeric_raises_on_invalid() -> None:
+def test_number_question_raises_on_invalid() -> None:
     with pytest.raises(ValueError, match="Couldn't read"):
         NumberQuestion().read("not-a-number")
 
 
-def test_numeric_blank_marker_returns_none() -> None:
+def test_number_question_blank_marker_returns_none() -> None:
     assert NumberQuestion().read("N/A") is None
     assert NumberQuestion().read("") is None
 

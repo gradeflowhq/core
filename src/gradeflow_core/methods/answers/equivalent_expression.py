@@ -7,12 +7,12 @@ from pydantic import Field
 from ...common.hints import hint
 from ...common.problems import Problem
 from ...common.text import (
+    as_sentence,
+    code_join,
     markdown_code_list,
-    markdown_join,
     plain_join,
     quoted_join,
-    runs_long,
-    sentence,
+    reads_better_listed,
 )
 from ...questions.base import Question
 from ...questions.types import Answer
@@ -22,25 +22,25 @@ from ..matching import read_or_none
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
-from ..settings import Settings, Text
+from ..settings import NonBlankText, Settings
 from . import expressions
 from .expressions import Expression
 
-POINTS = 8
-ENOUGH_POINTS = POINTS // 2
+SAMPLE_POINT_COUNT = 8
+MIN_WORKABLE_POINTS = SAMPLE_POINT_COUNT // 2
 """An accepted expression must be workable at this many points to compare answers with."""
 
 
-class ExpressionSettings(Settings):
-    answers: list[Text] = Field(
+class EquivalentExpressionSettings(Settings):
+    answers: list[NonBlankText] = Field(
         min_length=1,
         title="Accepted expressions",
         examples=["2x + 2"],
-        json_schema_extra=hint(accepts_answers=True),
+        json_schema_extra=hint(lists_answers=True),
     )
 
 
-class EquivalentExpression(AnswerMethod[ExpressionSettings]):
+class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
     name = "gradeflow/equivalent-expression"
     version = 1
     label = "Equivalent Expression"
@@ -58,36 +58,37 @@ class EquivalentExpression(AnswerMethod[ExpressionSettings]):
         "Combination."
     )
     question_types = frozenset({"text"})
-    settings = ExpressionSettings
+    settings = EquivalentExpressionSettings
     examples = examples_beside(__file__)
 
     def describe(self, check: Check) -> str:
         answers = self._settings_of(check).answers
-        if runs_long(answers):
+        if reads_better_listed(answers):
             return f"Equals any of these:\n{markdown_code_list(answers)}"
-        return f"Equals {markdown_join(answers, conjunction='or')}."
+        return f"Equals {code_join(answers, conjunction='or')}."
 
     def _mark_answer(
-        self, settings: ExpressionSettings, answer: Answer, question: Question
+        self, settings: EquivalentExpressionSettings, answer: Answer, question: Question
     ) -> Outcome:
         # Accepted expressions are read as answers are, so capitals match when they're ignored.
         accepted = [
-            read
+            expression
             for text in settings.answers
-            if (read := read_or_none(expressions.read, str(question.read(text) or text)))
+            if (expression := read_or_none(expressions.parse, str(question.read(text) or text)))
             is not None
         ]
-        names = frozenset().union(*(expression.names for expression in accepted))
-        expected = sentence(
+        variables = frozenset().union(*(expression.variables for expression in accepted))
+        expected = as_sentence(
             f"Expected an expression equal to {quoted_join(settings.answers, conjunction='or')}"
         )
-        given = read_or_none(expressions.read, str(answer))
-        if given is None:
+        answer_expression = read_or_none(expressions.parse, str(answer))
+        if answer_expression is None:
             return Outcome(0.0, f"Couldn't read it as an expression. {expected}")
-        if extra := given.names - names:
-            return Outcome(0.0, f"Uses {plain_join(sorted(extra), conjunction='and')}. {expected}")
-        points = _points(names)
-        if any(_equal(given, expression, points) for expression in accepted):
+        if unknown_variables := answer_expression.variables - variables:
+            variable_names = plain_join(sorted(unknown_variables), conjunction="and")
+            return Outcome(0.0, f"Uses {variable_names}. {expected}")
+        points = _sample_points(variables)
+        if any(_is_equivalent(answer_expression, expression, points) for expression in accepted):
             return Outcome(1.0, CORRECT)
         return Outcome(0.0, expected)
 
@@ -96,26 +97,33 @@ class EquivalentExpression(AnswerMethod[ExpressionSettings]):
         accepted: dict[int, Expression] = {}
         for index, text in enumerate(texts):
             try:
-                accepted[index] = expressions.read(text)
+                accepted[index] = expressions.parse(text)
             except ValueError as error:
                 yield Problem(str(error), field=("answers", index))
-        points = _points(frozenset().union(*(read.names for read in accepted.values())))
+        points = _sample_points(
+            frozenset().union(*(expression.variables for expression in accepted.values()))
+        )
         for index, expression in accepted.items():
-            if len(_values(expression, points)) < ENOUGH_POINTS:
+            if len(_values_at_points(expression, points)) < MIN_WORKABLE_POINTS:
                 yield Problem(
                     "Can't be worked out for most values of its variables.",
                     field=("answers", index),
                 )
 
 
-def _points(names: frozenset[str]) -> list[dict[str, float]]:
+def _sample_points(variables: frozenset[str]) -> list[dict[str, float]]:
     """Values to compare expressions at: the same ones each time, and away from integers and zero,
     where unequal expressions tend to agree."""
-    sample = random.Random(0)
-    return [{name: sample.uniform(0.5, 2.5) for name in sorted(names)} for _ in range(POINTS)]
+    generator = random.Random(0)
+    return [
+        {variable: generator.uniform(0.5, 2.5) for variable in sorted(variables)}
+        for _ in range(SAMPLE_POINT_COUNT)
+    ]
 
 
-def _values(expression: Expression, points: Sequence[Mapping[str, float]]) -> dict[int, float]:
+def _values_at_points(
+    expression: Expression, points: Sequence[Mapping[str, float]]
+) -> dict[int, float]:
     """``expression``'s value at each of ``points`` it can be worked out at, by index."""
     values: dict[int, float] = {}
     for index, point in enumerate(points):
@@ -126,11 +134,13 @@ def _values(expression: Expression, points: Sequence[Mapping[str, float]]) -> di
     return values
 
 
-def _equal(given: Expression, accepted: Expression, points: Sequence[Mapping[str, float]]) -> bool:
-    expected = _values(accepted, points)
-    if len(expected) < ENOUGH_POINTS:
+def _is_equivalent(
+    answer_expression: Expression, accepted: Expression, points: Sequence[Mapping[str, float]]
+) -> bool:
+    expected = _values_at_points(accepted, points)
+    if len(expected) < MIN_WORKABLE_POINTS:
         return False
-    actual = _values(given, points)
+    actual = _values_at_points(answer_expression, points)
     return all(
         index in actual and math.isclose(actual[index], value, rel_tol=1e-6, abs_tol=1e-9)
         for index, value in expected.items()

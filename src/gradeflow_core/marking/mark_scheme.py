@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from ..common.documents import dump_yaml, load_yaml
 from ..common.exceptions import InvalidError
 from ..common.paths import join
-from ..common.problems import Problem, as_invalid
+from ..common.problems import Problem, invalid_errors
 from ..methods.catalogue import BUILTINS
-from ..methods.check import METHODS, Marking
+from ..methods.check import METHODS_CONTEXT_KEY, Marking
 from ..methods.collection import Methods
 from ..methods.problems import located_problems
 from ..methods.templates import TemplateError
@@ -25,8 +25,8 @@ class MarkScheme(BaseModel):
         """The markings ``data`` lists as a mark scheme whose checks may use ``methods``. Raises
         ``InvalidError`` if one isn't a check."""
         scheme = {"markings": data}
-        with as_invalid(scheme):
-            return cls.model_validate(scheme, context={METHODS: methods.by_ref})
+        with invalid_errors(scheme):
+            return cls.model_validate(scheme, context={METHODS_CONTEXT_KEY: methods.by_ref})
 
     @classmethod
     def from_yaml(cls, text: str, *, methods: Methods = BUILTINS) -> MarkScheme:
@@ -47,20 +47,20 @@ class MarkScheme(BaseModel):
         return any(marking.needs_model_endpoint() for marking in self.markings)
 
     def problems(self, questions: QuestionSet) -> list[Problem]:
-        found = [
+        problems = [
             problem
             for number, marking in enumerate(self.markings)
             for problem in located_problems(marking, questions, ("markings", number))
         ]
-        first: dict[QuestionId, int] = {}
+        first_marking_of: dict[QuestionId, int] = {}
         for number, marking in enumerate(self.markings):
             try:
-                outputs = marking.questions_marked()
+                questions_marked = marking.questions_marked()
             except InvalidError, TemplateError:
                 continue  # Its generated body already has a validation problem above.
-            found += [
+            problems += [
                 Problem(f"{key} is marked twice.", join("markings", number))
-                for key in sorted(outputs)
-                if first.setdefault(key, number) != number
+                for key in sorted(questions_marked)
+                if first_marking_of.setdefault(key, number) != number
             ]
-        return found
+        return problems

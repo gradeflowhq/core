@@ -4,10 +4,11 @@ from typing import Any
 
 from pydantic_core import ErrorDetails
 
-from .text import as_text, sentence
+from .text import as_sentence, as_text
 
 _MAX_REASON_LENGTH = 500
-_MESSAGES = {
+IDENTIFIER_RULE = "Use letters, digits and underscores, not starting with a digit."
+_ERROR_MESSAGES = {
     "missing": "Required.",
     "too_short": "Add at least {min_length}.",
     "too_long": "Keep at most {max_length}.",
@@ -32,12 +33,12 @@ _MESSAGES = {
     "model_type": "Must be an object.",
     "model_attributes_type": "Must be an object.",
     "union_tag_not_found": "Choose a type.",
-    "extra_forbidden": "Not allowed here.",
-    "string_pattern_mismatch": "Use letters, digits and underscores, not starting with a digit.",
+    "extra_forbidden": "Unknown setting.",
+    "string_pattern_mismatch": IDENTIFIER_RULE,
 }
 
 
-def format_reason(reason: str) -> str:
+def shortened_reason(reason: str) -> str:
     compact = " ".join(reason.split())
     if not compact:
         return "Unknown error."
@@ -54,11 +55,11 @@ def error_message(error: ErrorDetails) -> str:
         tag = context.get("tag")
         return "Choose a type." if tag in {None, "", "None"} else f"There's no type {tag}."
     if kind in {"value_error", "assertion_error"}:
-        return sentence(format_reason(str(context.get("error") or error["msg"])))
+        return as_sentence(shortened_reason(str(context.get("error") or error["msg"])))
     if kind == "too_short" and context.get("min_length") == 1:
         return "Add at least one."
     if kind == "string_too_short" and context.get("min_length") == 1:
-        return _MESSAGES["missing"]
-    if template := _MESSAGES.get(kind):
+        return _ERROR_MESSAGES["missing"]
+    if template := _ERROR_MESSAGES.get(kind):
         return template.format(**{key: as_text(value) for key, value in context.items()})
-    return sentence(format_reason(error["msg"]))
+    return as_sentence(shortened_reason(error["msg"]))

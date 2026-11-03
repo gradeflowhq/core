@@ -6,14 +6,14 @@ examples:
     with:
       min_length: 3
       max_length: 10
-      count: words
+      unit: words
     rows:
       - answers:
           Q1: A soldier remembers the friends he lost in the war
-        expected: {Q1: {marks: 1.0, feedback: Right length.}}
+        expected: {Q1: {marks: 1.0, feedback: Correct length.}}
       - answers:
           Q1: War is sad
-        expected: {Q1: {marks: 1.0, feedback: Right length.}}
+        expected: {Q1: {marks: 1.0, feedback: Correct length.}}
       - answers:
           Q1: It is about a soldier who comes home and remembers his friends from the war
         expected: {Q1: {marks: 0.0, feedback: 'Too long: 15 words. Expected at most 10.'}}
@@ -29,7 +29,7 @@ examples:
     rows:
       - answers:
           Q1: Because the reaction gives out heat
-        expected: {Q1: {marks: 1.0, feedback: Right length.}}
+        expected: {Q1: {marks: 1.0, feedback: Correct length.}}
       - answers:
           Q1: ''
         expected: {Q1: {marks: 0.0, feedback: No answer.}}

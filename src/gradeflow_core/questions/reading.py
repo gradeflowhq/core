@@ -11,7 +11,7 @@ from typing import Any
 from natsort import natsorted
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..common.hints import ADVANCED
+from ..common.hints import ADVANCED_HINT
 from ..common.text import as_text, quoted
 from .types import Answer
 
@@ -23,7 +23,7 @@ class Reading(BaseModel):
         default="N/A",
         title="Blank answer marker",
         description="An answer written exactly like this counts as blank.",
-        json_schema_extra=ADVANCED,
+        json_schema_extra=ADVANCED_HINT,
     )
 
 
@@ -32,28 +32,32 @@ class TextReading(Reading):
         default=True,
         title="Ignore spaces at the ends",
         description="Spaces before and after an answer are removed before marking.",
-        json_schema_extra=ADVANCED,
+        json_schema_extra=ADVANCED_HINT,
     )
     ignore_case: bool = Field(
         default=True,
-        title="Ignore capitals",
-        description="Answers are changed to small letters before marking.",
-        json_schema_extra=ADVANCED,
+        title="Ignore case",
+        description="Answers are lowercased before marking.",
+        json_schema_extra=ADVANCED_HINT,
     )
     ignore_punctuation: bool = Field(
         default=False,
         title="Ignore punctuation",
         description="Punctuation is removed before marking, so “(LL)” reads as “LL”.",
-        json_schema_extra=ADVANCED,
+        json_schema_extra=ADVANCED_HINT,
     )
 
-    def option(self, value: str) -> str:
+    def normalized(self, value: str) -> str:
         """``value``, such as a choice option, with its spaces, capitals and punctuation read as in
         answers."""
         value = value.strip() if self.trim_spaces else value
         value = value.lower() if self.ignore_case else value
         if self.ignore_punctuation:
-            value = "".join(c for c in value if not unicodedata.category(c).startswith("P"))
+            value = "".join(
+                character
+                for character in value
+                if not unicodedata.category(character).startswith("P")
+            )
         return value
 
 
@@ -63,7 +67,7 @@ class ListReading(TextReading):
         min_length=1,
         title="Separator",
         description="The character between values in an answer, such as a comma.",
-        json_schema_extra=ADVANCED,
+        json_schema_extra=ADVANCED_HINT,
     )
 
 
@@ -76,30 +80,30 @@ def reading_field(factory: Callable[[], Reading]) -> Any:
     )
 
 
-def is_blank(raw: str, reading: Reading) -> bool:
-    return raw in (reading.blank_marker, "")
+def is_blank(answer: str, reading: Reading) -> bool:
+    return answer in (reading.blank_marker, "")
 
 
-def read_text(raw: str, reading: TextReading) -> str | None:
+def read_text(answer: str, reading: TextReading) -> str | None:
     # Case is changed after the blank check, so a blank marker in capitals still counts.
     if reading.trim_spaces:
-        raw = raw.strip()
-    return None if is_blank(raw, reading) else reading.option(raw)
+        answer = answer.strip()
+    return None if is_blank(answer, reading) else reading.normalized(answer)
 
 
-def read_code(raw: str, reading: Reading) -> str | None:
+def read_code(answer: str, reading: Reading) -> str | None:
     """The code as typed, without indentation every line shares."""
-    code = textwrap.dedent("\n".join(line.rstrip() for line in raw.splitlines()).strip("\n"))
+    code = textwrap.dedent("\n".join(line.rstrip() for line in answer.splitlines()).strip("\n"))
     return None if is_blank(code, reading) else code
 
 
-def read_list(raw: str, reading: ListReading) -> list[str] | None:
-    """The separated values of ``raw``, or None if it is blank."""
+def read_list(answer: str, reading: ListReading) -> list[str] | None:
+    """The separated values of ``answer``, or None if it is blank."""
     if reading.trim_spaces:
-        raw = raw.strip()
-    if is_blank(raw, reading):
+        answer = answer.strip()
+    if is_blank(answer, reading):
         return None
-    values = raw.split(reading.separator)
+    values = answer.split(reading.separator)
     if reading.trim_spaces:
         values = [value.strip() for value in values]
     # Case is changed after each value's blank check, so a blank marker in capitals still counts.
@@ -108,20 +112,20 @@ def read_list(raw: str, reading: ListReading) -> list[str] | None:
     return values
 
 
-def read_number(raw: str, reading: Reading) -> int | float | None:
-    raw = raw.strip().translate(_MINUS)
-    if is_blank(raw, reading):
+def read_number(answer: str, reading: Reading) -> int | float | None:
+    answer = answer.strip().translate(_MINUS_SIGN)
+    if is_blank(answer, reading):
         return None
     try:
-        return number(raw)
+        return parse_number(answer)
     except ValueError:
-        written = _written_out(raw)
-        if written is None:
+        number_value = _number_with_unit(answer)
+        if number_value is None:
             raise
-        return written
+        return number_value
 
 
-def number(text: str) -> int | float:
+def parse_number(text: str) -> int | float:
     """A whole number, decimal, scientific notation or plain fraction such as ``3/4``."""
     text = text.strip()
     for parse in (int, float, lambda written: float(Fraction(written))):
@@ -135,9 +139,9 @@ def number(text: str) -> int | float:
     raise ValueError(f"Couldn't read {quoted(text)} as a number.")
 
 
-_MINUS = str.maketrans("\u2212", "-")
+_MINUS_SIGN = str.maketrans("\u2212", "-")
 """The minus sign, as word processors and exam software write it, read as a hyphen."""
-_SUPERSCRIPT = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
+_SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
 _SUPERSCRIPT_POWER = re.compile(r"10([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)")
 _WRITTEN_OUT = re.compile(
     r"(?P<number>[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)"
@@ -146,15 +150,17 @@ _WRITTEN_OUT = re.compile(
 )
 
 
-def _written_out(text: str) -> float | None:
+def _number_with_unit(text: str) -> float | None:
     """A number written with a unit, like `9.81 m/s^2`, or a power of ten, like `6.02 x 10^23`;
     none for anything else, such as `approx 9.8` or `9.81 or 10`."""
-    text = _SUPERSCRIPT_POWER.sub(lambda power: "10^" + power[1].translate(_SUPERSCRIPT), text)
-    found = _WRITTEN_OUT.fullmatch(text.translate(_SUPERSCRIPT))
-    if found is None or not (found["power"] or found["unit"]):
+    text = _SUPERSCRIPT_POWER.sub(
+        lambda power: "10^" + power[1].translate(_SUPERSCRIPT_DIGITS), text
+    )
+    match = _WRITTEN_OUT.fullmatch(text.translate(_SUPERSCRIPT_DIGITS))
+    if match is None or not (match["power"] or match["unit"]):
         return None
     try:
-        value = float(found["number"]) * 10 ** int(found["power"] or 0)
+        value = float(match["number"]) * 10 ** int(match["power"] or 0)
     except OverflowError:
         return None
     return value if math.isfinite(value) else None

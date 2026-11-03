@@ -3,14 +3,14 @@ from typing import Literal, Self
 from pydantic import Field, model_validator
 
 from ...common.hints import hint
-from ...common.text import markdown_code, plural
+from ...common.text import code_span, plural
 from ...questions.base import Question
 from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
 from ..method import AnswerMethod
 from ..outcome import Outcome
-from ..settings import Settings, limits_in_order
+from ..settings import Settings, check_limits_in_order
 
 
 class LengthSettings(Settings):
@@ -20,15 +20,17 @@ class LengthSettings(Settings):
     max_length: int | None = Field(
         default=None, ge=0, title="At most", description="Leave empty for no upper limit."
     )
-    count: Literal["words", "characters"] = Field(
+    unit: Literal["words", "characters"] = Field(
         default="characters",
         title="Count",
         json_schema_extra=hint(labels={"words": "Words", "characters": "Characters"}),
     )
 
     @model_validator(mode="after")
-    def _in_order(self) -> Self:
-        limits_in_order(self.min_length, self.max_length, "The highest count is below the lowest.")
+    def _check_limits_in_order(self) -> Self:
+        check_limits_in_order(
+            self.min_length, self.max_length, "The highest count is below the lowest."
+        )
         return self
 
 
@@ -50,25 +52,27 @@ class Length(AnswerMethod[LengthSettings]):
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
-        low, high = settings.min_length, settings.max_length
-        if low is not None and high is not None:
-            return f"Has {markdown_code(low)} to {markdown_code(high)} {settings.count}."
-        if low is not None:
-            return f"Has at least {markdown_code(low)} {_unit(settings, low)}."
-        if high is not None:
-            return f"Has at most {markdown_code(high)} {_unit(settings, high)}."
+        min_length, max_length = settings.min_length, settings.max_length
+        if min_length is not None and max_length is not None:
+            return f"Has {code_span(min_length)} to {code_span(max_length)} {settings.unit}."
+        if min_length is not None:
+            return f"Has at least {code_span(min_length)} {_unit_name(settings, min_length)}."
+        if max_length is not None:
+            return f"Has at most {code_span(max_length)} {_unit_name(settings, max_length)}."
         return "Any length."
 
     def _mark_answer(self, settings: LengthSettings, answer: Answer, question: Question) -> Outcome:
         text = str(answer)
-        count = len(text.split()) if settings.count == "words" else len(text)
-        said = f"{count} {_unit(settings, count)}"
+        count = len(text.split()) if settings.unit == "words" else len(text)
+        count_text = f"{count} {_unit_name(settings, count)}"
         if settings.min_length is not None and count < settings.min_length:
-            return Outcome(0.0, f"Too short: {said}. Expected at least {settings.min_length}.")
+            return Outcome(
+                0.0, f"Too short: {count_text}. Expected at least {settings.min_length}."
+            )
         if settings.max_length is not None and count > settings.max_length:
-            return Outcome(0.0, f"Too long: {said}. Expected at most {settings.max_length}.")
-        return Outcome(1.0, "Right length.")
+            return Outcome(0.0, f"Too long: {count_text}. Expected at most {settings.max_length}.")
+        return Outcome(1.0, "Correct length.")
 
 
-def _unit(settings: LengthSettings, count: int) -> str:
-    return plural(settings.count.removesuffix("s"), count)
+def _unit_name(settings: LengthSettings, count: int) -> str:
+    return plural(settings.unit.removesuffix("s"), count)

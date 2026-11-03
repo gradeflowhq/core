@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..common import schemas
 from ..common.hints import hint
-from ..common.problems import as_invalid
+from ..common.problems import invalid_errors
 from ..common.schemas import JsonDict
 from .reading import write_answer
 from .types import Answer, QuestionType
@@ -18,7 +18,7 @@ class Question(BaseModel, ABC):
     label: ClassVar[str]
     summary: ClassVar[str]
     """One sentence."""
-    starting: ClassVar[dict[str, Any]] = {}
+    new_question_data: ClassVar[dict[str, Any]] = {}
     """What a new question of this type is set up with, beyond its defaults."""
     if TYPE_CHECKING:
         type: QuestionType  # each type's own field, which would come first here
@@ -48,11 +48,11 @@ class Question(BaseModel, ABC):
     def load(cls, data: object) -> Self:
         """The question ``data`` holds as YAML or JSON holds it: of the type its ``type`` names,
         or of this type, which it needn't name. Raises ``InvalidError`` if it isn't one."""
-        from . import ANY_QUESTION  # the types are built on this class
+        from . import QUESTION_ADAPTER  # the types are built on this class
 
-        with as_invalid(data):
+        with invalid_errors(data):
             if cls is Question:
-                return cast(Self, ANY_QUESTION.validate_python(data))
+                return cast(Self, QUESTION_ADAPTER.validate_python(data))
             return cls.model_validate(data)
 
     def dump(self) -> dict[str, Any]:
@@ -70,8 +70,8 @@ class Question(BaseModel, ABC):
         """How many values an answer has: none, unless it has several."""
         return 0
 
-    def value_question(self, value: int) -> Question | None:
-        """A question reading answers as this one reads value ``value`` of each, from 1; None if
+    def value_question(self, number: int) -> Question | None:
+        """A question reading answers as this one reads value ``number`` of each, from 1; None if
         they have no such value."""
         return None
 

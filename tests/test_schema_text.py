@@ -14,12 +14,12 @@ from gradeflow_core.questions.values import ValuesQuestion
 
 METHODS = {method.name: method for method in BUILTINS}
 
-CONFIGS: list[type[BaseModel]] = [AnswersCsv, ResultsCsv, *QUESTION_TYPES.values()]
-CLASS_NAME = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
-ID_CASE = re.compile(r"\bId\b")
+FORM_MODELS: list[type[BaseModel]] = [AnswersCsv, ResultsCsv, *QUESTION_TYPES.values()]
+CAMEL_CASE_TITLE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
+CAPITALISED_ID_WORD = re.compile(r"\bId\b")
 
 
-class _ExplicitTitles(GenerateJsonSchema):
+class _SchemaWithoutDefaultTitles(GenerateJsonSchema):
     def field_title_should_be_set(self, schema: Any) -> bool:
         return False
 
@@ -45,27 +45,31 @@ def _titles(schema: object) -> Iterator[str]:
             yield from _titles(value)
 
 
-@pytest.mark.parametrize("config", CONFIGS, ids=lambda config: config.__name__)
-def test_config_fields_have_plain_titles_help_and_enum_labels(config: type[BaseModel]) -> None:
-    schema = config.model_json_schema(mode="validation", schema_generator=_ExplicitTitles)
-    for name, prop in _properties(schema):
-        if prop.get("readOnly") or "const" in prop:
+@pytest.mark.parametrize("model", FORM_MODELS, ids=lambda model: model.__name__)
+def test_form_fields_have_plain_titles_help_and_enum_labels(model: type[BaseModel]) -> None:
+    schema = model.model_json_schema(
+        mode="validation", schema_generator=_SchemaWithoutDefaultTitles
+    )
+    for name, property_schema in _properties(schema):
+        if property_schema.get("readOnly") or "const" in property_schema:
             continue
-        where = f"{config.__name__}.{name}"
+        field_path = f"{model.__name__}.{name}"
         # Pydantic leaves out a $ref field's title when it equals the model's title.
-        assert prop.get("title") or "$ref" in prop, where
-        assert prop.get("description", "").endswith("."), where
-        assert not ID_CASE.search(prop.get("title", "") + " " + prop["description"]), where
-        enum = prop.get("enum") or prop.get("items", {}).get("enum")
+        assert property_schema.get("title") or "$ref" in property_schema, field_path
+        assert property_schema.get("description", "").endswith("."), field_path
+        assert not CAPITALISED_ID_WORD.search(
+            property_schema.get("title", "") + " " + property_schema["description"]
+        ), field_path
+        enum = property_schema.get("enum") or property_schema.get("items", {}).get("enum")
         if enum:
-            labels = prop.get(HINT_KEY, {}).get("labels", {})
-            assert set(labels) == set(enum), where
+            labels = property_schema.get(HINT_KEY, {}).get("labels", {})
+            assert set(labels) == set(enum), field_path
 
 
 def _schemas() -> Iterator[dict[str, Any]]:
-    yield from (config.model_json_schema() for config in CONFIGS)
+    yield from (model.model_json_schema() for model in FORM_MODELS)
     yield Check.model_json_schema()
-    yield from (kind.json_schema() for kind in QUESTION_TYPES.values())
+    yield from (question_type.json_schema() for question_type in QUESTION_TYPES.values())
     question_set = QuestionSet(
         {
             "Q1": TextQuestion(),
@@ -76,20 +80,20 @@ def _schemas() -> Iterator[dict[str, Any]]:
     for question in (None, "Q1", "Q2", "Q3"):
         for in_list in (False, True):
             position = Position(question_set, question, in_list=in_list, in_group=question is None)
-            for info in compatible_methods(position):
-                yield info.settings_schema(position)
+            for method in compatible_methods(position):
+                yield method.settings_schema(position)
 
 
 def test_no_schema_title_is_a_class_name() -> None:
     for schema in _schemas():
         for title in _titles(schema):
-            assert not CLASS_NAME.match(title), title
-            assert not ID_CASE.search(title), title
+            assert not CAMEL_CASE_TITLE.match(title), title
+            assert not CAPITALISED_ID_WORD.search(title), title
 
 
-def test_config_titles_read_like_labels() -> None:
-    csv = ResultsCsv.model_json_schema()["properties"]
-    assert csv["student_id_column"]["title"] == "Student ID column"
+def test_form_titles_read_like_labels() -> None:
+    results_csv_properties = ResultsCsv.model_json_schema()["properties"]
+    assert results_csv_properties["student_id_column"]["title"] == "Student ID column"
     question_set = QuestionSet({"Q1": TextQuestion()})
     schema = METHODS["gradeflow/custom-code-for-a-group"].settings_schema(
         Position(question_set, in_group=True)

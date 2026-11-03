@@ -1,6 +1,6 @@
 import pytest
 
-from gradeflow_core.adapters.mathml import mathml_latex
+from gradeflow_core.adapters.mathml import mathml_to_latex
 
 
 @pytest.mark.parametrize(
@@ -41,4 +41,6 @@ from gradeflow_core.adapters.mathml import mathml_latex
     ],
 )
 def test_math_reads_as_latex(body: str, latex: str) -> None:
-    assert mathml_latex(f'<math xmlns="http://www.w3.org/1998/Math/MathML">{body}</math>') == latex
+    assert (
+        mathml_to_latex(f'<math xmlns="http://www.w3.org/1998/Math/MathML">{body}</math>') == latex
+    )

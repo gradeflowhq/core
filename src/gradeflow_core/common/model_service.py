@@ -13,10 +13,10 @@ if TYPE_CHECKING:
     import openai
     from openai.types.chat import ChatCompletion
 
-TIMEOUT = 600
-RETRIES = 5
+TIMEOUT_SECONDS = 600
+MAX_RETRIES = 5
 """Rate limits are the usual failure; the client waits as the service says before retrying."""
-_THINKING = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINKING_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 class ServiceError(GradeFlowError):
@@ -31,8 +31,8 @@ class ModelEndpoint(BaseModel):
 
     url: str
     token: SecretStr
-    decision_model: str | None = None
-    reasoning_model: str | None = None
+    fast_model: str | None = None
+    careful_model: str | None = None
     answers_per_request: int = Field(default=12, ge=1, le=40)
 
 
@@ -50,21 +50,21 @@ def _client(endpoint: ModelEndpoint) -> openai.OpenAI:
     return openai.OpenAI(
         base_url=endpoint.url,
         api_key=endpoint.token.get_secret_value(),
-        timeout=TIMEOUT,
-        max_retries=RETRIES,
+        timeout=TIMEOUT_SECONDS,
+        max_retries=MAX_RETRIES,
         http_client=openai.DefaultHttpxClient(follow_redirects=False),
     )
 
 
 Effort = Literal["none", "low", "medium", "high"]
-_NO_EFFORT: set[tuple[str, str]] = set()
+_REFUSES_EFFORT: set[tuple[str, str]] = set()
 """Endpoints' models that refuse a reasoning effort, asked without one after the first refusal."""
 
 
 def ask(
     endpoint: ModelEndpoint,
     model: str,
-    system: str,
+    system_prompt: str,
     prompt: str,
     *,
     effort: Effort | None,
@@ -75,11 +75,14 @@ def ask(
     client = _client(endpoint)
     import openai
 
-    effort = None if (endpoint.url, model) in _NO_EFFORT else effort
+    effort = None if (endpoint.url, model) in _REFUSES_EFFORT else effort
     try:
         return client.chat.completions.create(
             model=model,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
             temperature=0,
             max_tokens=max_tokens,
             logprobs=True if logprobs else openai.omit,
@@ -88,36 +91,44 @@ def ask(
         )
     except openai.BadRequestError as error:
         if effort is None or "reasoning_effort" not in str(error):
-            raise ServiceError(failure(error)) from None
-        _NO_EFFORT.add((endpoint.url, model))
+            raise ServiceError(failure_message(error)) from None
+        _REFUSES_EFFORT.add((endpoint.url, model))
         return ask(
-            endpoint, model, system, prompt, effort=None, logprobs=logprobs, max_tokens=max_tokens
+            endpoint,
+            model,
+            system_prompt,
+            prompt,
+            effort=None,
+            logprobs=logprobs,
+            max_tokens=max_tokens,
         )
     except openai.OpenAIError as error:
-        raise ServiceError(failure(error)) from None
+        raise ServiceError(failure_message(error)) from None
 
 
 def yes_probabilities(reply: ChatCompletion) -> list[float]:
     """P(yes) at each Yes or No the reply wrote, in order, from the logprobs of the tokens it
     could have written there."""
     logprobs = reply.choices[0].logprobs
-    found = []
+    probabilities = []
     for token in (logprobs.content or []) if logprobs else []:
         if token.token.strip().lower() not in ("yes", "no"):
             continue
-        mass = {"yes": 0.0, "no": 0.0}
-        for option in token.top_logprobs:
-            word = option.token.strip().lower()
-            if word in mass:
-                mass[word] += math.exp(option.logprob)
-        total = mass["yes"] + mass["no"]
-        found.append(mass["yes"] / total if total else float(token.token.strip().lower() == "yes"))
-    return found
+        probability = {"yes": 0.0, "no": 0.0}
+        for alternative in token.top_logprobs:
+            word = alternative.token.strip().lower()
+            if word in probability:
+                probability[word] += math.exp(alternative.logprob)
+        total = probability["yes"] + probability["no"]
+        probabilities.append(
+            probability["yes"] / total if total else float(token.token.strip().lower() == "yes")
+        )
+    return probabilities
 
 
-def text(reply: ChatCompletion) -> str:
+def reply_text(reply: ChatCompletion) -> str:
     """What the reply says, without reasoning a model wrote inline."""
-    return _THINKING.sub("", reply.choices[0].message.content or "").strip()
+    return _THINKING_BLOCK.sub("", reply.choices[0].message.content or "").strip()
 
 
 def list_models(endpoint: ModelEndpoint) -> list[str]:
@@ -126,19 +137,19 @@ def list_models(endpoint: ModelEndpoint) -> list[str]:
     import openai
 
     try:
-        listed = list(client.models.list())
+        models = list(client.models.list())
     except openai.NotFoundError:
         raise ServiceError(
             "No models were found at this address. Check it: it often ends in /v1."
         ) from None
     except openai.OpenAIError as error:
-        raise ServiceError(failure(error)) from None
-    if any(model.created for model in listed):
-        listed.sort(key=lambda model: model.created, reverse=True)
-    return [model.id for model in listed]
+        raise ServiceError(failure_message(error)) from None
+    if any(model.created for model in models):
+        models.sort(key=lambda model: model.created, reverse=True)
+    return [model.id for model in models]
 
 
-def failure(error: openai.OpenAIError) -> str:
+def failure_message(error: openai.OpenAIError) -> str:
     """Why a request failed, as a sentence a lecturer can act on."""
     import openai
 

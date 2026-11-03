@@ -23,10 +23,10 @@ from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.types import Answer
 
 
-def definition(reference: str) -> str:
+def method_file(uses: str) -> str:
     return (
         "label: Wrapper\nversion: 1\nsummary: A wrapper.\nquestion_types: [text]\n"
-        f"checks:\n  - uses: {reference}\n"
+        f"checks:\n  - uses: {uses}\n"
     )
 
 
@@ -46,8 +46,8 @@ def test_a_check_uses_the_built_in_methods_unless_given_others() -> None:
 def test_loading_preserves_input_order_and_does_not_modify_supplied_collections() -> None:
     original = list(BUILTINS)
     files = [
-        ("sample/outer", definition("sample/inner@1")),
-        ("sample/inner", definition("gradeflow/full-marks@1")),
+        ("sample/outer", method_file("sample/inner@1")),
+        ("sample/inner", method_file("gradeflow/full-marks@1")),
     ]
     methods = BUILTINS.with_files(files)
     assert list(BUILTINS) == original
@@ -60,15 +60,15 @@ def test_loading_preserves_input_order_and_does_not_modify_supplied_collections(
     }
 
 
-def versioned(version: int, reference: str) -> str:
-    return definition(reference).replace("version: 1", f"version: {version}")
+def method_file_version(version: int, uses: str) -> str:
+    return method_file(uses).replace("version: 1", f"version: {version}")
 
 
 def test_versions_of_a_method_are_distinct_and_latest_keeps_the_highest() -> None:
     files = [
-        ("sample/wrapper", versioned(2, "gradeflow/full-marks@1")),
-        ("sample/other", definition("gradeflow/full-marks@1")),
-        ("sample/wrapper", versioned(1, "gradeflow/not-allowed@1")),
+        ("sample/wrapper", method_file_version(2, "gradeflow/full-marks@1")),
+        ("sample/other", method_file("gradeflow/full-marks@1")),
+        ("sample/wrapper", method_file_version(1, "gradeflow/not-allowed@1")),
     ]
     methods = BUILTINS.with_files(files)
     loaded = Methods(methods[len(BUILTINS) :])
@@ -89,38 +89,38 @@ def test_versions_of_a_method_are_distinct_and_latest_keeps_the_highest() -> Non
 def test_duplicate_references_are_rejected() -> None:
     with pytest.raises(MethodFileError, match=f"Duplicate method {BUILTINS[0].ref}."):
         Methods([*BUILTINS, BUILTINS[0]])
-    files = [("sample/same", definition("gradeflow/full-marks@1"))] * 2
+    files = [("sample/same", method_file("gradeflow/full-marks@1"))] * 2
     with pytest.raises(MethodFileError, match=re.escape("Duplicate method sample/same@1.")):
         BUILTINS.with_files(files)
 
 
 def test_missing_dependencies_and_cycles_are_reported() -> None:
     with pytest.raises(MethodFileError, match="sample/outer@1: There's no method missing@1"):
-        BUILTINS.with_files([("sample/outer", definition("missing@1"))])
+        BUILTINS.with_files([("sample/outer", method_file("missing@1"))])
     with pytest.raises(MethodFileError, match="sample/outer@1: There's no method sample/inner"):
         BUILTINS.with_files(
             [
-                ("sample/outer", definition("sample/inner")),
-                ("sample/inner", definition("gradeflow/full-marks@1")),
+                ("sample/outer", method_file("sample/inner")),
+                ("sample/inner", method_file("gradeflow/full-marks@1")),
             ]
         )
     with pytest.raises(MethodFileError, match="can't use itself"):
         BUILTINS.with_files(
             [
-                ("sample/outer", definition("sample/inner@1")),
-                ("sample/inner", definition("sample/outer@1")),
+                ("sample/outer", method_file("sample/inner@1")),
+                ("sample/inner", method_file("sample/outer@1")),
             ]
         )
     with pytest.raises(MethodFileError, match="no method missing@1"):
         BUILTINS.dependencies("missing@1")
 
 
-class NoMarks(FullMarks):
+class ZeroFullMarks(FullMarks):
     def _mark_answer(self, settings: Settings, answer: Answer, question: Question) -> Outcome:
         return Outcome(0, "Replacement.")
 
 
-def result(methods: Methods, marking: object) -> float:
+def proportion_with(methods: Methods, marking: object) -> float:
     questions = QuestionSet({"Q1": TextQuestion()})
     scheme = MarkScheme.load([marking], methods=methods)
     [submission] = mark(questions, scheme, [Submission(student_id="s", answers={"Q1": "x"})])
@@ -130,59 +130,63 @@ def result(methods: Methods, marking: object) -> float:
 def test_composed_checks_use_the_current_collection_through_every_dependency() -> None:
     loaded = BUILTINS.with_files(
         [
-            ("sample/outer", definition("sample/inner@1")),
-            ("sample/inner", definition("gradeflow/full-marks@1")),
+            ("sample/outer", method_file("sample/inner@1")),
+            ("sample/inner", method_file("gradeflow/full-marks@1")),
         ]
     )
-    supplied = Methods(
-        NoMarks() if method.name == "gradeflow/full-marks" else method for method in loaded
+    with_replaced_full_marks = Methods(
+        ZeroFullMarks() if method.name == "gradeflow/full-marks" else method for method in loaded
     )
-    data = {"question": "Q1", "uses": "sample/outer@1"}
-    assert result(loaded, data) == 1
-    assert result(supplied, data) == 0
+    marking = {"question": "Q1", "uses": "sample/outer@1"}
+    assert proportion_with(loaded, marking) == 1
+    assert proportion_with(with_replaced_full_marks, marking) == 0
     # Existing checks are also rebound when included in a new operation.
-    check = Check.load(data, methods=loaded)
-    assert result(supplied, check) == 0
-    incomplete = Methods(method for method in loaded if method.name != "gradeflow/full-marks")
-    assert MarkScheme.load([data], methods=incomplete).problems(QuestionSet({"Q1": TextQuestion()}))
+    check = Check.load(marking, methods=loaded)
+    assert proportion_with(with_replaced_full_marks, check) == 0
+    without_full_marks = Methods(
+        method for method in loaded if method.name != "gradeflow/full-marks"
+    )
+    assert MarkScheme.load([marking], methods=without_full_marks).problems(
+        QuestionSet({"Q1": TextQuestion()})
+    )
     with pytest.raises(MethodFileError, match="no method gradeflow/full-marks@1"):
-        incomplete.dependencies("sample/outer@1")
+        without_full_marks.dependencies("sample/outer@1")
     with pytest.raises(InvalidError, match="no method gradeflow/full-marks@1"):
         Check.load({"uses": "gradeflow/full-marks@1"}, methods=Methods())
 
 
 def test_reference_rewriting_only_changes_named_references_and_copies_content() -> None:
-    content = {"uses": "a", "with": {"text": "a", "checks": [{"uses": "b"}]}}
-    changed = rewrite_references(content, {"a": "opaque@@", "b": "c"})
-    assert methods_used(changed) == {"opaque@@", "c"}
-    assert changed["with"]["text"] == "a"
-    assert methods_used(content) == {"a", "b"}
+    check = {"uses": "a", "with": {"text": "a", "checks": [{"uses": "b"}]}}
+    rewritten = rewrite_references(check, {"a": "opaque@@", "b": "c"})
+    assert methods_used(rewritten) == {"opaque@@", "c"}
+    assert rewritten["with"]["text"] == "a"
+    assert methods_used(check) == {"a", "b"}
 
 
 def test_dependencies_include_default_checks_and_their_transitive_dependencies() -> None:
-    wrapper = """label: Default checks
+    wrapper_file = """label: Default checks
 version: 1
 summary: Uses the supplied checks.
 question_types: [text]
 inputs:
   rules:
     default:
-      - uses: sample/leaf@1
+      - uses: sample/inner@1
 checks: "{{ inputs.rules }}"
 """
     methods = BUILTINS.with_files(
-        [("sample/wrapper", wrapper), ("sample/leaf", definition("gradeflow/full-marks@1"))]
+        [("sample/wrapper", wrapper_file), ("sample/inner", method_file("gradeflow/full-marks@1"))]
     )
     assert methods.dependencies("sample/wrapper@1") == {
-        "sample/leaf@1",
+        "sample/inner@1",
         "gradeflow/combination@1",
         "gradeflow/full-marks@1",
     }
-    assert result(methods, {"question": "Q1", "uses": "sample/wrapper@1"}) == 1
+    assert proportion_with(methods, {"question": "Q1", "uses": "sample/wrapper@1"}) == 1
 
 
 def test_a_method_needs_a_model_endpoint_when_a_default_check_does() -> None:
-    wrapper = """label: Default checks
+    wrapper_file = """label: Default checks
 version: 1
 summary: Uses the supplied checks.
 question_types: [text]
@@ -193,14 +197,14 @@ inputs:
         with: {criterion: Names a cell.}
 checks: "{{ inputs.rules }}"
 """
-    methods = BUILTINS.with_files([("sample/wrapper", wrapper)])
+    methods = BUILTINS.with_files([("sample/wrapper", wrapper_file)])
     assert methods.by_ref["sample/wrapper@1"].needs_model_endpoint
 
 
 def test_a_finite_nested_example_does_not_create_a_composition_cycle() -> None:
-    from gradeflow_core import evaluate_examples
+    from gradeflow_core import mark_examples
 
-    wrapper = """label: Wrapper
+    wrapper_file = """label: Wrapper
 version: 1
 summary: A check with a default.
 question_types: [text]
@@ -223,10 +227,10 @@ examples:
         expected:
           Q1: {marks: 1, feedback: Full marks.}
 """
-    methods = BUILTINS.with_files([("sample/wrapper", wrapper)])
+    methods = BUILTINS.with_files([("sample/wrapper", wrapper_file)])
     assert methods.dependencies("sample/wrapper@1") == {
         "gradeflow/combination@1",
         "gradeflow/full-marks@1",
     }
-    [row] = evaluate_examples("sample/wrapper@1", methods=methods)[0].rows
-    assert (row.total_marks, row.matches) == (1, True)
+    [row] = mark_examples("sample/wrapper@1", methods=methods)[0].rows
+    assert (row.total_marks, row.matches_expected) == (1, True)

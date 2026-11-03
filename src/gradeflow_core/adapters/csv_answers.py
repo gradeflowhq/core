@@ -5,11 +5,11 @@ from io import StringIO
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..common.exceptions import GradeFlowError
-from ..common.problems import as_invalid
+from ..common.problems import invalid_errors
 from ..common.text import plain_join, plural, quoted_join
 from ..questions.submissions import StudentId, Submission
 from ..questions.types import QuestionId
-from .errors import adapter_errors
+from .errors import file_read_errors
 
 
 class AnswersCsv(BaseModel):
@@ -32,10 +32,10 @@ class AnswersCsv(BaseModel):
     @classmethod
     def load(cls, data: object) -> AnswersCsv:
         """``data`` as options. Raises ``InvalidError`` if they aren't valid."""
-        with as_invalid(data):
+        with invalid_errors(data):
             return cls.model_validate(data)
 
-    @adapter_errors()
+    @file_read_errors()
     def read(self, text: str) -> list[Submission]:
         """Each row's submission, as the CSV ``text`` holds it: its answers, and any marks already
         given. Raises ``GradeFlowError`` for a file it can't read."""
@@ -52,16 +52,16 @@ class AnswersCsv(BaseModel):
                 f"The file has no {quoted_join(missing, conjunction='and')} {noun}."
             )
 
-        students: list[Submission] = []
+        submissions: list[Submission] = []
         rows_by_id: dict[StudentId, list[int]] = {}
         for row_number, row in enumerate(reader, start=2):
             # DictReader fills missing cells with None, typically after an unquoted newline.
             missing_cells = [column for column, value in row.items() if value is None]
             if missing_cells:
                 noun = plural("cell", len(missing_cells))
-                named = quoted_join(missing_cells, conjunction="and")
+                missing_names = quoted_join(missing_cells, conjunction="and")
                 raise GradeFlowError(
-                    f"Row {row_number} has no {named} {noun}. "
+                    f"Row {row_number} has no {missing_names} {noun}. "
                     "A line break in a cell without quotes can cause this."
                 )
             student_id = row[self.student_id_column]
@@ -70,21 +70,23 @@ class AnswersCsv(BaseModel):
                     f"Row {row_number} has no student ID in the “{self.student_id_column}” column."
                 )
             rows_by_id.setdefault(student_id, []).append(row_number)
-            students.append(
+            submissions.append(
                 Submission(
                     student_id=student_id,
                     answers={column: row[column] for column in self.answer_columns},
-                    marks=_marks(row, self.marks_columns),
+                    marks=_given_marks(row, self.marks_columns),
                 )
             )
         duplicates = [rows for rows in rows_by_id.values() if len(rows) > 1]
         if duplicates:
-            groups = "; ".join(f"rows {plain_join(rows, conjunction='and')}" for rows in duplicates)
-            raise GradeFlowError(f"Some students are in more than one row: {groups}.")
-        return students
+            duplicate_rows = "; ".join(
+                f"rows {plain_join(rows, conjunction='and')}" for rows in duplicates
+            )
+            raise GradeFlowError(f"Some students are in more than one row: {duplicate_rows}.")
+        return submissions
 
 
-def _marks(row: dict[str, str], columns: dict[QuestionId, str]) -> dict[QuestionId, float]:
+def _given_marks(row: dict[str, str], columns: dict[QuestionId, str]) -> dict[QuestionId, float]:
     """The marks in ``columns``; a cell that isn't a number, such as "-", has none."""
     marks: dict[QuestionId, float] = {}
     for key, column in columns.items():

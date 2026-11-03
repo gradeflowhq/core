@@ -9,7 +9,7 @@ from rapidfuzz.distance import Levenshtein
 
 from ..common.hints import hint
 from ..common.problems import Problem
-from ..ml import MISSING_MODEL, nli
+from ..ml import MISSING_MODEL_MESSAGE, nli
 from ..questions.base import Question
 from .outcome import ROUNDING_TOLERANCE
 
@@ -19,13 +19,17 @@ type Strictness = Literal["lenient", "normal", "strict"]
 MATCH_LABELS = {"exact": "Exactly", "spelling": "Similar spelling", "meaning": "Same meaning"}
 STRICTNESS_LABELS = {"lenient": "Lenient", "normal": "Normal", "strict": "Strict"}
 SPELLING_CUTOFFS: dict[Strictness, float] = {"lenient": 0.7, "normal": 0.8, "strict": 0.9}
-_HOW: dict[Match, str] = {"exact": "", "spelling": " in similar spelling", "meaning": " in meaning"}
+_MATCH_PHRASES: dict[Match, str] = {
+    "exact": "",
+    "spelling": " in similar spelling",
+    "meaning": " in meaning",
+}
 
 
-MATCH: Match = Field(
+MATCH_FIELD: Match = Field(
     default="exact",
     title="Match",
-    description="Similar spelling forgives small mistakes, and Same meaning accepts other words.",
+    description="Similar spelling accepts typos, and Same meaning accepts other words.",
     json_schema_extra=hint(labels=MATCH_LABELS),
 )
 
@@ -39,17 +43,17 @@ def strictness_field(applies_when: dict[str, JsonValue] | None = None) -> Any:
     )
 
 
-def how_matched(match: Match, strictness: Strictness) -> str:
+def match_note(match: Match, strictness: Strictness) -> str:
     """What a description says after the text matched: `` in similar spelling (strict)``."""
-    loose = f" ({strictness})" if match != "exact" and strictness != "normal" else ""
-    return f"{_HOW[match]}{loose}"
+    strictness_note = f" ({strictness})" if match != "exact" and strictness != "normal" else ""
+    return f"{_MATCH_PHRASES[match]}{strictness_note}"
 
 
-def most_alike(text: str, candidates: Sequence[str], cutoff: float) -> int | None:
+def closest_spelling(text: str, candidates: Sequence[str], cutoff: float) -> int | None:
     """The index of the candidate spelt most like ``text``, the first on a tie, if alike enough."""
     best = max(
         range(len(candidates)),
-        key=lambda at: Levenshtein.normalized_similarity(text, candidates[at]),
+        key=lambda index: Levenshtein.normalized_similarity(text, candidates[index]),
         default=None,
     )
     if best is None or Levenshtein.normalized_similarity(text, candidates[best]) < cutoff:
@@ -57,17 +61,17 @@ def most_alike(text: str, candidates: Sequence[str], cutoff: float) -> int | Non
     return best
 
 
-def context_of(question: Question) -> str:
+def model_context(question: Question) -> str:
     """What a language model reads of ``question`` before the texts it compares."""
     return (question.description or "").strip()
 
 
 def match_problems(match: Match) -> Iterator[Problem]:
     if match == "meaning" and not nli.available():
-        yield Problem(MISSING_MODEL, field=("match",))
+        yield Problem(MISSING_MODEL_MESSAGE, field=("match",))
 
 
-TOLERANCE = Field(
+TOLERANCE_FIELD = Field(
     default=0,
     ge=0,
     title="Tolerance",
@@ -80,12 +84,12 @@ def within(answer: float, expected: float, tolerance: float) -> bool:
     return abs(answer - expected) <= tolerance + ROUNDING_TOLERANCE
 
 
-def expecting(expected: str, tolerance: float) -> str:
+def expected_text(expected: str, tolerance: float) -> str:
     """``Expected about 12.57`` when there is a tolerance."""
     return f"Expected {'about ' if tolerance > 0 else ''}{expected}"
 
 
-def reading_problems(
+def unreadable_problems(
     texts: Sequence[str], read: Callable[[str], object], field: str
 ) -> Iterator[Problem]:
     """Why each of ``texts``, the items of setting ``field``, isn't read as an answer."""

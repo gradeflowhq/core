@@ -58,7 +58,7 @@ SYMBOLS = {
 
 _TOKEN = re.compile(r"(\\[A-Za-z]+) ?|(\\.|.)", re.DOTALL)
 """A command, without the space that ends its name, or a character."""
-_TEXT = frozenset(
+_TEXT_COMMANDS = frozenset(
     {
         "text",
         "textrm",
@@ -84,42 +84,44 @@ MATRICES = {
     "Vmatrix": ("\u2016", "\u2016"),
 }
 """The brackets around each kind of matrix."""
-_CHARACTERS = {
+_CHARACTER_COMMANDS = {
     "backslash": "\\",
     "textbackslash": "\\",
     "textasciicircum": "^",
     "textasciitilde": "~",
 }
-_SPACES = frozenset({" ", ",", ":", ";", "quad", "qquad"})
-_IGNORED = frozenset({"left", "right", "big", "Big", "bigg", "Bigg", "displaystyle", "limits", "!"})
-_TYPED = str.maketrans({"≤": "<=", "≥": ">=", "≠": "!=", "→": "->", "\u2212": "-"})
+_SPACE_COMMANDS = frozenset({" ", ",", ":", ";", "quad", "qquad"})
+_IGNORED_COMMANDS = frozenset(
+    {"left", "right", "big", "Big", "bigg", "Bigg", "displaystyle", "limits", "!"}
+)
+_ASCII_SYMBOLS = str.maketrans({"≤": "<=", "≥": ">=", "≠": "!=", "→": "->", "\u2212": "-"})
 
 
-def latex_text(latex: str) -> str:
+def typed_latex(latex: str) -> str:
     """``latex``, a formula, as people type it: ``\\frac{1}{2}`` as ``1/2``, ``\\le`` as ``<=``;
     as it is if it nests too deeply to read."""
     try:
-        return _Reader(latex).sequence("").strip().translate(_TYPED)
+        return _LatexReader(latex).read_until("").strip().translate(_ASCII_SYMBOLS)
     except RecursionError:
         return latex
 
 
-class _Reader:
+class _LatexReader:
     def __init__(self, latex: str) -> None:
         self.tokens: list[str] = [
             command or character for command, character in _TOKEN.findall(latex)
         ]
         self.position = 0
-        self.text = False
+        self.in_text = False
         """Whether spaces count, as they do in ``\\text{…}``."""
 
-    def sequence(self, closing: str) -> str:
+    def read_until(self, closing: str) -> str:
         parts: list[str] = []
         while self.position < len(self.tokens):
             token = self._next()
             if token == closing:
                 break
-            parts.append(self._item(token))
+            parts.append(self._read_item(token))
         return "".join(parts)
 
     def _next(self) -> str:
@@ -132,17 +134,17 @@ class _Reader:
     def _argument(self) -> str:
         while self._peek().isspace():
             self.position += 1
-        return self._item(self._next()) if self._peek() else ""
+        return self._read_item(self._next()) if self._peek() else ""
 
-    def _item(self, token: str) -> str:
+    def _read_item(self, token: str) -> str:
         if token == "{":
-            return self.sequence("}")
+            return self.read_until("}")
         if token in ("^", "_"):
-            return token + _grouped(self._argument())
+            return token + _bracketed(self._argument())
         if token == "&":
             return ", "
         if token.isspace():
-            return " " if self.text else ""
+            return " " if self.in_text else ""
         if not token.startswith("\\") or len(token) == 1:
             return token
         text = self._command(token[1:])
@@ -156,31 +158,35 @@ class _Reader:
 
     def _command(self, name: str) -> str:
         if name == "frac":
-            numerator = _grouped(self._argument())
-            return f"{numerator}/{_grouped(self._argument())}"
+            numerator = _bracketed(self._argument())
+            return f"{numerator}/{_bracketed(self._argument())}"
         if name == "sqrt":
             index = ""
             if self._peek() == "[":
                 self.position += 1
-                index = self.sequence("]")
+                index = self.read_until("]")
             body = self._argument()
             return f"root({body}, {index})" if index else f"sqrt({body})"
         if name in ("begin", "end"):
             opening, closing = MATRICES.get(self._argument(), ("", ""))
             return closing if name == "end" else opening
-        if name in _TEXT:
-            outer, self.text = self.text, True
+        if name in _TEXT_COMMANDS:
+            was_in_text, self.in_text = self.in_text, True
             text = self._argument()
-            self.text = outer
+            self.in_text = was_in_text
             return text
         if name == "\\":
             return "; "
-        if name in _SPACES:
+        if name in _SPACE_COMMANDS:
             return " "
-        return "" if name in _IGNORED else SYMBOLS.get(name) or _CHARACTERS.get(name, name)
+        return (
+            ""
+            if name in _IGNORED_COMMANDS
+            else SYMBOLS.get(name) or _CHARACTER_COMMANDS.get(name, name)
+        )
 
 
-def _grouped(text: str) -> str:
+def _bracketed(text: str) -> str:
     """``text`` in brackets unless it reads as one name or number."""
-    single = len(text) <= 1 or text.isalpha() or text.replace(".", "", 1).isdigit()
-    return text if single or (text.startswith("(") and text.endswith(")")) else f"({text})"
+    is_single_term = len(text) <= 1 or text.isalpha() or text.replace(".", "", 1).isdigit()
+    return text if is_single_term or (text.startswith("(") and text.endswith(")")) else f"({text})"

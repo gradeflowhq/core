@@ -62,98 +62,116 @@ def mark(
     marked once. Methods that work out something for many answers at once, such as asking a
     language model at ``model_endpoint``, do so for ``chunk_size`` sheets at a time, and say how
     far they got to ``on_progress``."""
-    blocked = [_blocked(marking, questions) for marking in scheme.markings]
-    reads = [_reads(marking) for marking in scheme.markings]
+    problem_results = [_problem_results(marking, questions) for marking in scheme.markings]
+    questions_read = [_questions_read(marking) for marking in scheme.markings]
     caches: list[dict[tuple[str | None, ...], dict[QuestionId, QuestionResult]]] = [
         {} for _ in scheme.markings
     ]
-    groups = _precomputing(scheme, blocked)
+    precomputing_checks = _precomputing_checks(scheme, problem_results)
     precomputed: dict[str, dict[QuestionId, dict[Any, Any]]] = {}
-    asked: set[tuple[str, QuestionId, str]] = set()
+    precomputed_answers: set[tuple[str, QuestionId, str]] = set()
     # Without methods that precompute, sheets are read one at a time, as each is marked.
-    for chunk in batched(sheets, chunk_size if groups else 1, strict=False):
-        read = [questions.read(raw) for raw in chunk]
-        for (method, question), checks in groups.items():
+    for chunk in batched(sheets, chunk_size if precomputing_checks else 1, strict=False):
+        read_sheets = [questions.read(sheet) for sheet in chunk]
+        for (method, question), checks in precomputing_checks.items():
             texts = {
-                raw.answers[question].strip(): None
-                for raw, answers in zip(chunk, read, strict=True)
+                sheet.answers[question].strip(): None
+                for sheet, answers in zip(chunk, read_sheets, strict=True)
                 if (answer := read_answer(answers, question, None)) is not None
                 and not isinstance(answer, Unreadable)
-                and (method.ref, question, raw.answers[question].strip()) not in asked
+                and (method.ref, question, sheet.answers[question].strip())
+                not in precomputed_answers
             }
             if not texts:
                 continue
-            asked.update((method.ref, question, text) for text in texts)
-            found = method.precompute(
+            precomputed_answers.update((method.ref, question, text) for text in texts)
+            precomputed_values = method.precompute(
                 checks,
                 list(texts),
                 questions[question],
                 model_endpoint,
                 on_progress or (lambda _: None),
             )
-            precomputed.setdefault(method.ref, {}).setdefault(question, {}).update(found)
-        for raw, answers in zip(chunk, read, strict=True):
+            precomputed.setdefault(method.ref, {}).setdefault(question, {}).update(
+                precomputed_values
+            )
+        for sheet, answers in zip(chunk, read_sheets, strict=True):
             results: dict[QuestionId, QuestionResult] = {}
-            for marking, unmarked, keys, cache in zip(
-                scheme.markings, blocked, reads, caches, strict=True
+            for marking, marking_problem_results, marking_questions_read, cache in zip(
+                scheme.markings, problem_results, questions_read, caches, strict=True
             ):
-                if unmarked is not None:
-                    marked = unmarked
-                elif keys is None:
+                if marking_problem_results is not None:
+                    marking_results = marking_problem_results
+                elif marking_questions_read is None:
                     context = Context(
-                        answers, questions, written=raw.answers, precomputed=precomputed
+                        answers, questions, written_answers=sheet.answers, precomputed=precomputed
                     )
-                    marked = _results(marking, context)
+                    marking_results = _marking_results(marking, context)
                 else:
-                    identity = tuple(raw.answers.get(key) for key in keys)
-                    if identity not in cache:
-                        seen = {key: answers[key] for key in keys if key in answers}
-                        written = {key: raw.answers[key] for key in keys if key in raw.answers}
-                        context = Context(seen, questions, written=written, precomputed=precomputed)
-                        cache[identity] = _results(marking, context)
-                    marked = cache[identity]
-                results = {key: result.model_copy() for key, result in marked.items()} | results
-            results = _given(raw, questions) | results
-            kind = MarkedSubmission if isinstance(raw, Submission) else MarkedSheet
-            yield kind(
-                **raw.model_dump(include=set(kind.model_fields)),
+                    cache_key = tuple(sheet.answers.get(key) for key in marking_questions_read)
+                    if cache_key not in cache:
+                        read_answers = {
+                            key: answers[key] for key in marking_questions_read if key in answers
+                        }
+                        written_answers = {
+                            key: sheet.answers[key]
+                            for key in marking_questions_read
+                            if key in sheet.answers
+                        }
+                        context = Context(
+                            read_answers,
+                            questions,
+                            written_answers=written_answers,
+                            precomputed=precomputed,
+                        )
+                        cache[cache_key] = _marking_results(marking, context)
+                    marking_results = cache[cache_key]
+                results = {
+                    key: result.model_copy() for key, result in marking_results.items()
+                } | results
+            results = _given_results(sheet, questions) | results
+            result_class = MarkedSubmission if isinstance(sheet, Submission) else MarkedSheet
+            yield result_class(
+                **sheet.model_dump(include=set(result_class.model_fields)),
                 results={key: results[key] for key in questions if key in results},
             )
 
 
-def _precomputing(
-    scheme: MarkScheme, blocked: list[dict[QuestionId, QuestionResult] | None]
+def _precomputing_checks(
+    scheme: MarkScheme, problem_results: list[dict[QuestionId, QuestionResult] | None]
 ) -> dict[tuple[Method[Any], QuestionId], list[Check]]:
     """The checks of methods that precompute, by method and the question they read, in the
     markings without problems."""
-    groups: dict[tuple[Method[Any], QuestionId], list[Check]] = {}
-    for marking, unmarked in zip(scheme.markings, blocked, strict=True):
-        if unmarked is not None:
+    precomputing_checks: dict[tuple[Method[Any], QuestionId], list[Check]] = {}
+    for marking, marking_problem_results in zip(scheme.markings, problem_results, strict=True):
+        if marking_problem_results is not None:
             continue
         for check, question in checks_in(marking, marking.question):
             if question is not None and type(check.method).precompute is not Method.precompute:
-                groups.setdefault((check.method, question), []).append(check)
-    return groups
+                precomputing_checks.setdefault((check.method, question), []).append(check)
+    return precomputing_checks
 
 
-def _blocked(marking: Check, questions: QuestionSet) -> dict[QuestionId, QuestionResult] | None:
+def _problem_results(
+    marking: Check, questions: QuestionSet
+) -> dict[QuestionId, QuestionResult] | None:
     """The unmarked results of a marking with problems, which say what they are; None if it has
     none."""
-    found = marking.problems(questions)
-    if not found:
+    problems = marking.problems(questions)
+    if not problems:
         return None
     try:
         keys = marking.questions_marked()
     except InvalidError, TemplateError:
         keys = {marking.question} if marking.question else set()
-    feedback = " ".join(map(str, found))
+    feedback = " ".join(map(str, problems))
     return {
-        key: _unmarked(questions[key], feedback, marking.method.label)
+        key: _unmarked_result(questions[key], feedback, marking.method.label)
         for key in keys & questions.keys()
     }
 
 
-def _reads(marking: Check) -> tuple[QuestionId, ...] | None:
+def _questions_read(marking: Check) -> tuple[QuestionId, ...] | None:
     """The questions whose answers a marking reads; None if it can't say."""
     try:
         return tuple(sorted(marking.questions_read()))
@@ -161,23 +179,29 @@ def _reads(marking: Check) -> tuple[QuestionId, ...] | None:
         return None
 
 
-def _results(marking: Check, context: Context) -> dict[QuestionId, QuestionResult]:
+def _marking_results(marking: Check, context: Context) -> dict[QuestionId, QuestionResult]:
     label = marking.method.label
     keys = marking.questions_marked() & context.questions.keys()
     try:
         outcomes = marking.mark(context)
     except GradeFlowError as error:  # such as code that failed on this answer
-        return {key: _unmarked(context.questions[key], _couldnt(str(error)), label) for key in keys}
+        return {
+            key: _unmarked_result(context.questions[key], _unmarked_feedback(str(error)), label)
+            for key in keys
+        }
     except Exception:  # a bug, which shouldn't stop the other answers being marked
         _log.exception("Marking with %s failed", marking.uses)
-        return {key: _unmarked(context.questions[key], _couldnt(), label) for key in keys}
+        return {
+            key: _unmarked_result(context.questions[key], _unmarked_feedback(), label)
+            for key in keys
+        }
     return {
         key: _result(outcomes.get(key) or Outcome(0.0), context.questions[key], label)
         for key in keys
     }
 
 
-def _couldnt(reason: str = "") -> str:
+def _unmarked_feedback(reason: str = "") -> str:
     return f"Couldn't mark this answer: {reason}" if reason else "Couldn't mark this answer."
 
 
@@ -186,24 +210,24 @@ def _result(outcome: Outcome, question: Question, label: str) -> QuestionResult:
         proportion=clamped(outcome.proportion),
         max_marks=question.max_marks,
         feedback=outcome.feedback,
-        method=outcome.method or label,
-        marked=outcome.marked,
-        models=outcome.all_models(),
+        method_label=outcome.method or label,
+        is_marked=outcome.marked,
+        model_names=outcome.all_models(),
         breakdown=breakdown_of(outcome, question.max_marks),
     )
 
 
-def _unmarked(question: Question, feedback: str, label: str) -> QuestionResult:
+def _unmarked_result(question: Question, feedback: str, label: str) -> QuestionResult:
     return _result(Outcome(0.0, feedback, marked=False), question, label)
 
 
-def _given(raw: AnswerSheet, questions: QuestionSet) -> dict[QuestionId, QuestionResult]:
+def _given_results(sheet: AnswerSheet, questions: QuestionSet) -> dict[QuestionId, QuestionResult]:
     """The marks the sheet was given, as results with no method, within each question's."""
     return {
         key: QuestionResult(
             proportion=clamped(marks / question.max_marks) if question.max_marks else 0.0,
             max_marks=question.max_marks,
         )
-        for key, marks in raw.marks.items()
+        for key, marks in sheet.marks.items()
         if (question := questions.get(key)) is not None
     }

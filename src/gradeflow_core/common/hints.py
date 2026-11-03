@@ -25,13 +25,13 @@ class Hint(BaseModel):
     applies_when: dict[str, JsonValue] | None = None
     """The field applies only when sibling fields of the same object have these values; a list
     means any of them."""
-    accepts_answers: bool = False
+    lists_answers: bool = False
     """The field lists accepted or model answers."""
-    item: str | None = None
+    item_label: str | None = None
     """What one entry of a list or map field is called, such as "parameter"."""
-    names: bool = False
+    is_name: bool = False
     """The field's value names the object holding it."""
-    inserts: dict[str, str] | None = None
+    template_parts: dict[str, str] | None = None
     """What a template may include, by label."""
 
     def schema_extra(self) -> JsonDict:
@@ -47,10 +47,10 @@ def hint(**values: Any) -> JsonDict:
 def hint_of(field: FieldInfo) -> Hint:
     """The hint in a field's ``json_schema_extra``; an empty one if it has none."""
     extra = field.json_schema_extra
-    found = extra.get(HINT_KEY) if isinstance(extra, Mapping) else None
-    return Hint.model_validate(found or {})
+    hint_values = extra.get(HINT_KEY) if isinstance(extra, Mapping) else None
+    return Hint.model_validate(hint_values or {})
 
 
-ADVANCED = hint(advanced=True)
-CODE: dict[str, Any] = {"kind": "code", "language": "python"}
-"""The hint values of Python code, for ``hint(**CODE)``."""
+ADVANCED_HINT = hint(advanced=True)
+PYTHON_CODE_HINT: dict[str, Any] = {"kind": "code", "language": "python"}
+"""The hint values of Python code, for ``hint(**PYTHON_CODE_HINT)``."""

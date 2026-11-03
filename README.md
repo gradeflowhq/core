@@ -57,7 +57,7 @@ print(ResultsCsv().write(questions, marked))
 
 `mark()` yields each sheet as it is marked. A `Submission` gives a `MarkedSubmission`, and any other
 `AnswerSheet` a `MarkedSheet`. Each holds a `QuestionResult` per question, and `report()` gives a
-printable `Report` per question.
+printable `ReportLine` per question.
 
 When a marking combines checks, a result's `breakdown` shows how each one marked the answer, such
 as what each code test's expression gave.
@@ -93,8 +93,8 @@ from gradeflow_core import (
 
 questions = QuestionSet.load({"Q1": {"type": "text", "max_marks": 2}})
 criteria = [
-    {"text": "Says ice is less dense than water", "marks": 1},
-    {"text": "Explains that water expands as it freezes", "marks": 1},
+    {"criterion": "Says ice is less dense than water", "marks": 1},
+    {"criterion": "Explains that water expands as it freezes", "marks": 1},
 ]
 scheme = MarkScheme.load(
     [{"question": "Q1", "uses": "gradeflow/answer-criteria@1", "with": {"criteria": criteria}}]
@@ -126,7 +126,7 @@ A `QuestionSet` maps question IDs to questions, in natural order (`Q2` before `Q
 | `code` | `CodeQuestion` | Code, as written |
 
 `updated_from(sheets)` adds questions for new answers, adds the options students chose, and drops
-questions nobody answered. Code Tests and Code Uses can fix small errors before marking, such as
+questions nobody answered. Code Tests and Code Uses can fix minor errors before marking, such as
 lost indentation, with `fixes`.
 
 Answers are always strings. A values question converts to and from its values:
@@ -221,24 +221,24 @@ checks:
   - for_each: "{{ inputs.points }}"
     uses: gradeflow/key-point@1
     with:
-      point: "{{ each }}"
+      point: "{{ item }}"
 ```
 
 An input takes the type of the setting it fills, and is required without a `default`. `for_each`
-repeats a check with `each` and `index`. With `combine: proportional`, weights share out the marks.
+repeats a check with `item` and `index`. With `combine: proportional`, weights share out the marks.
 With `combine: total`, each weight is a number of marks, capped at full marks. Templates are
 sandboxed Jinja, and `{{ … }}` on its own keeps its value's type.
 
 ## Examples
 
 Each method declares examples: questions, settings, and answers with the marks and feedback they
-should get. `evaluate_examples` marks them and says whether each row matches:
+should get. `mark_examples` marks them and says whether each row matches:
 
 ```python
-from gradeflow_core import evaluate_examples
+from gradeflow_core import mark_examples
 
-for example in evaluate_examples("gradeflow/key-points@1"):
-    print(example.description, [row.matches for row in example.rows])
+for example in mark_examples("gradeflow/key-points@1"):
+    print(example.description, [row.matches_expected for row in example.rows])
 ```
 
 ## Comparing answers
@@ -249,7 +249,7 @@ comparison can be stored and regrouped at any threshold without the models:
 ```python
 from gradeflow_core import AnswerComparison, compare_answers
 
-comparison = compare_answers(["water", "waters", "salt"], similar="spelling")
+comparison = compare_answers(["water", "waters", "salt"], similarity="spelling")
 stored = comparison.model_dump_json()
 assert AnswerComparison.model_validate_json(stored).groups(threshold=0.85) == [[0, 1], [2]]
 ```
@@ -271,7 +271,7 @@ The library raises `GradeFlowError`, with messages fit to show people. `InvalidE
 `gradeflow_core.editing` is for tools that edit markings and methods field by field.
 
 `MarkingDraft` edits a marking by check path. It gives each check's schema, values, fitting methods
-and problems, and can add, update, retype, move and remove checks:
+and problems, and can add, update, change the method of, move and remove checks:
 
 ```python
 from gradeflow_core import QuestionSet
@@ -289,8 +289,8 @@ print(draft.notes("with.checks.1"))
 print(draft.finalized().dump())
 ```
 
-`MethodDraft` writes a composed method from example questions. `expose` turns a setting into an
-input, and `bind` and `fix` connect or disconnect them:
+`MethodDraft` writes a composed method from example questions. `bind_new_input` turns a setting
+into an input, and `bind` and `unbind` connect or disconnect them:
 
 ```python
 from gradeflow_core import QuestionSet
@@ -305,7 +305,7 @@ draft = MethodDraft.new(
 )
 draft.checks.add("with.checks.0", "gradeflow/number-range@1")
 draft.checks.update("with.checks.0", {"min_value": 10, "max_value": 20})
-draft.expose("with.checks.0.with.min_value", label="Lowest")
+draft.bind_new_input("with.checks.0.with.min_value", label="Lowest")
 assert draft.problems == []
 print(draft.to_yaml())
 ```
@@ -323,16 +323,16 @@ number_range = BUILTINS.find("gradeflow/number-range@1")
 print(list(number_range.settings_schema(Position(questions, "Q1"))["properties"]))
 ```
 
-`evaluate_rows` marks example rows with given settings, and `as_example()` records the result as a
+`mark_rows` marks example rows with given settings, and `as_example()` records the result as a
 row:
 
 ```python
 from gradeflow_core import QuestionSet
-from gradeflow_core.editing import ExampleRow, evaluate_rows
+from gradeflow_core.editing import ExampleRow, mark_rows
 
 questions = QuestionSet.load({"Q1": {"type": "number"}})
 rows = [ExampleRow(answers={"Q1": "15"}), ExampleRow(answers={"Q1": "25"})]
-results = evaluate_rows(
+results = mark_rows(
     "gradeflow/number-range@1",
     questions=questions,
     question="Q1",
@@ -343,9 +343,9 @@ recorded = [result.as_example() for result in results]
 ```
 
 `mark_by_example` changes a marking so that given answers get full, part or no marks. The module
-also has helpers for question types (`new_question`, `infer_question_as`), refs (`method_ref`,
-`split_ref`, `rewrite_references`), models (`list_models`, `try_model`) and YAML (`load_yaml`,
-`dump_yaml`).
+also has functions for question types (`new_question`, `converted_question`), method references
+(`method_ref`, `split_ref`, `rewrite_references`), models (`list_models`, `try_model`) and YAML
+(`load_yaml`, `dump_yaml`).
 
 ## Running code
 
@@ -357,10 +357,10 @@ seconds (Code Tests allows up to 60), 512 MiB of memory, and 1 MiB each of outpu
 
 Built-in methods are in `src/gradeflow_core/methods/`, in `answers/`, `text/`, `code/` and `logic/`.
 
-- **Composed method:** a YAML file named after the method, and its name in `ORDER` in
+- **Composed method:** a YAML file named after the method, and its name in `CATALOGUE_ORDER` in
   `methods/catalogue.py`.
-- **Coded method:** a subclass of `AnswerMethod` or `Method`, an instance in `PYTHON`, its name in
-  `ORDER`, and its examples in `<method-name>.examples.yaml` beside it.
+- **Coded method:** a subclass of `AnswerMethod` or `Method`, an instance in `PYTHON_METHODS`, its name in
+  `CATALOGUE_ORDER`, and its examples in `<method-name>.examples.yaml` beside it.
 - **Question type:** a subclass of `Question` implementing `read` and `python_type`, added to
   `AnyQuestion` in `questions/__init__.py` and to `QuestionType`.
 

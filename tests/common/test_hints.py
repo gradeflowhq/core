@@ -13,12 +13,12 @@ def test_hints_leave_out_defaults() -> None:
 
 
 def test_hints_say_what_a_field_holds_beyond_its_schema() -> None:
-    hint = Hint(
-        kind="markdown", applies_when={"approximate": True}, accepts_answers=True
+    hint_schema = Hint(
+        kind="markdown", applies_when={"approximate": True}, lists_answers=True
     ).schema_extra()[HINT_KEY]
 
-    assert Hint.model_validate(hint, strict=True) == Hint(
-        kind="markdown", applies_when={"approximate": True}, accepts_answers=True
+    assert Hint.model_validate(hint_schema, strict=True) == Hint(
+        kind="markdown", applies_when={"approximate": True}, lists_answers=True
     )
 
 

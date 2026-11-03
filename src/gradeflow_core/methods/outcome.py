@@ -4,14 +4,16 @@ from typing import Any, Literal, TypedDict
 from ..questions.reading import write_answer
 from ..questions.types import Answer, QuestionId, Unreadable
 
-FULL_MARKS = 1 - 1e-9
+FULL_MARKS_PROPORTION = 1 - 1e-9
 """A proportion this close to 1 is full marks, so rounding in sums doesn't cost a correct answer."""
 ROUNDING_TOLERANCE = 1e-6
 """Numbers this close count as equal, so rounding in sums such as 9.81 + 0.05 doesn't matter."""
 
-type Effect = Literal["earned", "partial", "lost", "uncounted", "yes", "no", "unmarked"]
-"""What a check did to the marks. A read-only check says yes or no instead, and "unmarked" leaves
-the answer to a person."""
+type Effect = Literal[
+    "earned", "partial", "no_marks", "penalty", "uncounted", "met", "not_met", "unmarked"
+]
+"""What a check did to the marks. A read-only check says whether its condition is met instead, and
+"unmarked" leaves the answer to a person."""
 
 
 @dataclass(frozen=True)
@@ -56,14 +58,16 @@ class Outcome:
     def all_models(self) -> tuple[str, ...]:
         """The language models that decided it or any of its parts, each once."""
         return tuple(
-            dict.fromkeys((*self.models, *(m for p in self.parts for m in p.all_models())))
+            dict.fromkeys(
+                (*self.models, *(model for part in self.parts for model in part.all_models()))
+            )
         )
 
     @property
     def correct(self) -> bool:
-        return self.proportion >= FULL_MARKS
+        return self.proportion >= FULL_MARKS_PROPORTION
 
-    def view(self, question: str) -> dict[str, Any]:
+    def template_values(self, question: str) -> dict[str, Any]:
         """The outcome as templates see it."""
         return {
             "name": self.name or self.method,
@@ -80,14 +84,14 @@ def effect_of(outcome: Outcome) -> Effect:
     """What ``outcome`` does to the marks it counts towards."""
     if not outcome.marked:
         return "unmarked"
-    return "earned" if outcome.correct else "partial" if outcome.proportion > 0 else "lost"
+    return "earned" if outcome.correct else "partial" if outcome.proportion > 0 else "no_marks"
 
 
 CORRECT = "Correct."
 NO_ANSWER = "No answer."
 
 
-def unanswered(answer: Answer | Unreadable) -> Outcome | None:
+def unanswered_outcome(answer: Answer | Unreadable) -> Outcome | None:
     """The outcome of a blank or unreadable answer, which no method marks; None for any other."""
     if isinstance(answer, Unreadable):
         return Outcome(0.0, answer.reason, marked=False)
@@ -104,11 +108,11 @@ def feedback_scope(
 ) -> dict[str, Any]:
     """What a feedback template sees of how a check marked ``answer``."""
     return {
-        "answer": answer.raw if isinstance(answer, Unreadable) else write_answer(answer),
+        "answer": answer.answer if isinstance(answer, Unreadable) else write_answer(answer),
         "correct": outcome.correct,
         "proportion": outcome.proportion,
         "feedback": outcome.feedback,
-        "parts": [part.view(question) for part in outcome.parts],
+        "parts": [part.template_values(question) for part in outcome.parts],
     }
 
 

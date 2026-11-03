@@ -29,7 +29,7 @@ class Position:
         return question
 
     @property
-    def answer_type(self) -> QuestionType | None:
+    def question_type(self) -> QuestionType | None:
         """The type of what the check reads: a value's type when it reads one value."""
         question = self.question_model
         return question.type if question else None
@@ -41,18 +41,20 @@ class Position:
         if self.question is None or (question := self.questions.get(self.question)) is None:
             return ""
         try:
-            read = value_of(question.read(answer), self.value)
+            value = value_of(question.read(answer), self.value)
         except ValueError:
             return ""
-        return write_answer(read)
+        return write_answer(value)
 
-    def at(self, question: QuestionId | None, value: int | None) -> Position:
+    def for_check(self, question: QuestionId | None, value: int | None) -> Position:
         """The position of what a check naming ``question`` and ``value`` reads."""
         if question is not None and question != self.question:
             return Position(self.questions, question, value, self.in_list, self.in_group)
         return replace(self, value=value or self.value)
 
-    def inside(self, question: QuestionId | None, value: int | None, *, in_list: bool) -> Position:
+    def inner_position(
+        self, question: QuestionId | None, value: int | None, *, in_list: bool
+    ) -> Position:
         """The position of the checks in the settings of a check naming ``question`` and
         ``value``, before their method places them."""
-        return replace(self.at(question, value), in_list=in_list, value_fixed=False)
+        return replace(self.for_check(question, value), in_list=in_list, value_fixed=False)

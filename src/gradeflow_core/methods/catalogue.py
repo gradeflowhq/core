@@ -24,7 +24,7 @@ from .text.key_point import KeyPoint
 from .text.length import Length
 from .text.pattern import Pattern
 
-PYTHON: tuple[Method[Any], ...] = (
+PYTHON_METHODS: tuple[Method[Any], ...] = (
     AcceptedAnswers(),
     EquivalentExpression(),
     NumberRange(),
@@ -43,7 +43,7 @@ PYTHON: tuple[Method[Any], ...] = (
     CustomCodeForAGroup(),
     CodeTests(),
 )
-ORDER = (
+CATALOGUE_ORDER = (
     "gradeflow/accepted-answers",
     "gradeflow/key-points",
     "gradeflow/answer-criteria",
@@ -69,7 +69,7 @@ ORDER = (
 )
 """Every built-in method's name, in catalogue order: basic methods, then advanced ones, then those
 for question groups. A name no Python method has is composed from its YAML file."""
-FILES = tuple(
+METHOD_FILES = tuple(
     path
     for path in sorted(Path(__file__).parent.glob("*/*.yaml"))
     if not path.name.endswith(".examples.yaml")
@@ -77,9 +77,11 @@ FILES = tuple(
 
 
 def _builtins() -> Methods:
-    files = [(f"{BUILTIN_NAMESPACE}/{path.stem}", path.read_text()) for path in FILES]
-    methods = load_files(files, Methods(PYTHON))
-    return Methods(sorted(methods, key=lambda method: (ORDER.index(method.name), method.version)))
+    files = [(f"{BUILTIN_NAMESPACE}/{path.stem}", path.read_text()) for path in METHOD_FILES]
+    methods = load_files(files, Methods(PYTHON_METHODS))
+    return Methods(
+        sorted(methods, key=lambda method: (CATALOGUE_ORDER.index(method.name), method.version))
+    )
 
 
 BUILTINS = _builtins()

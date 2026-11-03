@@ -24,7 +24,7 @@ class FullMarks(AnswerMethod[FullMarksSettings]):
         "`1` character."
     )
     question_types = ALL_TYPES
-    marks_blank = True
+    marks_blank_answers = True
     settings = FullMarksSettings
     examples = examples_beside(__file__)
 

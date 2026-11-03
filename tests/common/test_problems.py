@@ -12,7 +12,7 @@ from gradeflow_core.common.error_formatting import error_message
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.reading import ListReading
 
-RAW_PYDANTIC = (
+PYDANTIC_WORDING = (
     "Input should be",
     "validation error for",
     "Unable to extract tag",
@@ -21,12 +21,14 @@ RAW_PYDANTIC = (
 )
 
 
-def errors(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]]:
+def problems_of(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]]:
     with pytest.raises(InvalidError) as caught:
         Check.load(check)
-    found = [(p.check, p.field, p.message) for p in caught.value.problems]
-    assert not any(fragment in message for *_, message in found for fragment in RAW_PYDANTIC)
-    return found
+    problems = [
+        (problem.check, problem.field, problem.message) for problem in caught.value.problems
+    ]
+    assert not any(fragment in message for *_, message in problems for fragment in PYDANTIC_WORDING)
+    return problems
 
 
 @pytest.mark.parametrize(
@@ -80,8 +82,8 @@ def errors(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]
             [("", ("min_length",), "Must be a whole number.")],
         ),
         (
-            {"uses": "gradeflow/length@1", "with": {"count": "lines"}},
-            [("", ("count",), "Choose 'words' or 'characters'.")],
+            {"uses": "gradeflow/length@1", "with": {"unit": "lines"}},
+            [("", ("unit",), "Choose 'words' or 'characters'.")],
         ),
         (
             {"uses": "gradeflow/multiple-choice@1", "with": {"correct": [1]}},
@@ -154,7 +156,7 @@ def errors(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]
 def test_checks_refuse_what_would_mark_wrongly_in_plain_words(
     check: dict[str, Any], expected: list[tuple[str, tuple[str | int, ...], str]]
 ) -> None:
-    assert errors(check) == expected
+    assert problems_of(check) == expected
 
 
 @pytest.mark.parametrize(

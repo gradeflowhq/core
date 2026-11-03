@@ -11,7 +11,7 @@ examples:
         - uses: gradeflow/key-points@1
           with: {points: [mitochondria]}
         - uses: gradeflow/length@1
-          with: {max_length: 10, count: words}
+          with: {max_length: 10, unit: words}
     rows:
       - answers:
           Q1: In the mitochondria
@@ -20,7 +20,7 @@ examples:
             marks: 1.0
             feedback: |-
               Has “mitochondria”.
-              Right length.
+              Correct length.
       - answers:
           Q1: In the mitochondria, where respiration releases energy from glucose all the time
         expected: {Q1: {marks: 0.0, feedback: 'Too long: 12 words. Expected at most 10.'}}

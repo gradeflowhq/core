@@ -5,10 +5,10 @@ from typing import Any
 
 from .schemas import JsonDict
 
-type Loc = tuple[str | int, ...]
+type Location = tuple[str | int, ...]
 
 
-def parts(path: str) -> list[str | int]:
+def path_parts(path: str) -> list[str | int]:
     return [int(part) if part.isdecimal() else part for part in path.split(".") if part]
 
 
@@ -18,25 +18,25 @@ def join(*segments: object) -> str:
 
 def get(node: Any, path: str) -> Any:
     """The value at ``path``; None if there's nothing there."""
-    for part in parts(path):
+    for part in path_parts(path):
         if isinstance(node, list):
-            found = isinstance(part, int) and part < len(node)
+            exists = isinstance(part, int) and part < len(node)
         else:
-            found = isinstance(node, Mapping) and part in node
-        if not found:
+            exists = isinstance(node, Mapping) and part in node
+        if not exists:
             return None
         node = node[part]
     return node
 
 
-def put(data: JsonDict, path: str, value: Any) -> None:
+def set_at(data: JsonDict, path: str, value: Any) -> None:
     """Sets the value at ``path``, making the objects on the way that aren't there; at the root,
     replaces the data's contents."""
     if not path:
         data.clear()
         data.update(value)
         return
-    *parent, last = parts(path)
+    *parent, last = path_parts(path)
     node: Any = data
     for part in parent:
         if isinstance(node, dict) and not isinstance(node.get(part), dict | list):

@@ -5,8 +5,8 @@ from io import StringIO
 from natsort import natsorted
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..common.problems import as_invalid
-from ..common.text import format_rounded
+from ..common.problems import invalid_errors
+from ..common.text import format_marks
 from ..marking.results import MarkedSubmission
 from ..questions.question_set import QuestionSet
 
@@ -31,7 +31,7 @@ class ResultsCsv(BaseModel):
     include_feedback: bool = Field(
         default=True, title="Include feedback", description="Add the feedback for each question."
     )
-    include_total: bool = Field(
+    include_totals: bool = Field(
         default=True,
         title="Include total marks",
         description="Add each student's total marks and the maximum marks.",
@@ -45,17 +45,17 @@ class ResultsCsv(BaseModel):
     @classmethod
     def load(cls, data: object) -> ResultsCsv:
         """``data`` as options. Raises ``InvalidError`` if they aren't valid."""
-        with as_invalid(data):
+        with invalid_errors(data):
             return cls.model_validate(data)
 
     def write(self, questions: QuestionSet, marked: Iterable[MarkedSubmission]) -> str:
         """The marked submissions as CSV text, a row for each student in natural ID order."""
-        out = StringIO()
-        writer = csv.writer(out)
+        buffer = StringIO()
+        writer = csv.writer(buffer)
         writer.writerow(self._header(questions))
-        for student in natsorted(marked, key=lambda student: student.student_id):
-            writer.writerow(self._cells(student, questions))
-        return out.getvalue()
+        for submission in natsorted(marked, key=lambda submission: submission.student_id):
+            writer.writerow(self._row(submission, questions))
+        return buffer.getvalue()
 
     def _header(self, questions: QuestionSet) -> list[str]:
         header = [self.student_id_column]
@@ -63,25 +63,25 @@ class ResultsCsv(BaseModel):
             header += [key] if self.include_answers else []
             header += [f"{key} marks"] if self.include_marks else []
             header += [f"{key} feedback"] if self.include_feedback else []
-        header += ["total marks", "maximum marks"] if self.include_total else []
-        header += ["report"] if self.include_report else []
+        header += ["total marks", "maximum marks"] if self.include_totals else []
+        header += ["marking report"] if self.include_report else []
         return header
 
-    def _cells(self, student: MarkedSubmission, questions: QuestionSet) -> list[str]:
-        cells = [student.student_id]
+    def _row(self, submission: MarkedSubmission, questions: QuestionSet) -> list[str]:
+        cells = [submission.student_id]
         for key in questions:
-            result = student.results.get(key)
-            cells += [student.answers.get(key, "")] if self.include_answers else []
+            result = submission.results.get(key)
+            cells += [submission.answers.get(key, "")] if self.include_answers else []
             if self.include_marks:
-                cells.append(format_rounded(result.marks) if result else "")
+                cells.append(format_marks(result.marks) if result else "")
             cells += [result.feedback if result else ""] if self.include_feedback else []
-        if self.include_total:
+        if self.include_totals:
             # Out of the whole assessment's marks, not only those of the questions it has results
             # for.
             cells += [
-                format_rounded(student.total_marks),
-                format_rounded(sum(q.max_marks for q in questions.values())),
+                format_marks(submission.total_marks),
+                format_marks(sum(question.max_marks for question in questions.values())),
             ]
         if self.include_report:
-            cells.append("\n".join(map(str, student.report())))
+            cells.append("\n".join(map(str, submission.report())))
         return cells

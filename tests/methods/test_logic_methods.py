@@ -5,7 +5,15 @@ from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
-from .helpers import accepted, describe, mark_all, mark_group, problems_of, proportions, scheme
+from .helpers import (
+    accepted_answer,
+    describe,
+    mark_all,
+    mark_group,
+    mark_scheme_of,
+    problems_of,
+    proportions,
+)
 
 
 def test_not_allowed_gives_the_marks_its_check_doesnt() -> None:
@@ -13,9 +21,12 @@ def test_not_allowed_gives_the_marks_its_check_doesnt() -> None:
         "uses": "gradeflow/not-allowed@1",
         "with": {"check": {"uses": "gradeflow/key-point@1", "with": {"point": "denser"}}},
     }
-    correct, failed = mark_all(check, ["less dense", "denser"])
-    assert (correct.proportion, failed.proportion) == (1, 0)
-    assert (correct.feedback, failed.feedback) == ("Correct.", "Not allowed. Includes “denser”.")
+    allowed, not_allowed = mark_all(check, ["less dense", "denser"])
+    assert (allowed.proportion, not_allowed.proportion) == (1, 0)
+    assert (allowed.feedback, not_allowed.feedback) == (
+        "Correct.",
+        "Not allowed. Includes “denser”.",
+    )
     assert describe(check) == "**Not allowed:** Includes `denser`."
 
 
@@ -23,16 +34,16 @@ def test_conditional_describes_the_checks_of_each_branch_by_question() -> None:
     marking = {
         "uses": "gradeflow/conditional@1",
         "with": {
-            "condition": [accepted("a", question="Q1")],
-            "then": [accepted("Paris", question="Q2")],
-            "otherwise": [accepted("Rome", question="Q2")],
+            "condition": [accepted_answer("a", question="Q1")],
+            "then": [accepted_answer("Paris", question="Q2")],
+            "otherwise": [accepted_answer("Rome", question="Q2")],
         },
     }
-    [conditional] = scheme(marking).markings
+    [conditional] = mark_scheme_of(marking).markings
     assert conditional.describe() == (
         "If all are correct:\n- **Q1:** Matches `a`.\n\n"
         "Then:\n- **Q2:** Matches `Paris`.\n\n"
-        "Else:\n- **Q2:** Matches `Rome`."
+        "Otherwise:\n- **Q2:** Matches `Rome`."
     )
 
 
@@ -69,7 +80,7 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
 
 
 def test_checks_in_a_check_of_one_value_read_it_unless_they_name_another() -> None:
-    accepted = {"uses": "gradeflow/accepted-answers@1"}
+    accepted_answers_method = {"uses": "gradeflow/accepted-answers@1"}
     heights = {
         "uses": "gradeflow/combination@1",
         "with": {
@@ -78,11 +89,19 @@ def test_checks_in_a_check_of_one_value_read_it_unless_they_name_another() -> No
                     "id": "k2",
                     "value": 1,
                     "read_only": True,
-                    **accepted,
+                    **accepted_answers_method,
                     "with": {"answers": ["K2"]},
                 },
-                {"if": "{{ checks.k2.correct }}", **accepted, "with": {"answers": ["8611"]}},
-                {"if": "{{ not checks.k2.correct }}", **accepted, "with": {"answers": ["8849"]}},
+                {
+                    "if": "{{ checks.k2.correct }}",
+                    **accepted_answers_method,
+                    "with": {"answers": ["8611"]},
+                },
+                {
+                    "if": "{{ not checks.k2.correct }}",
+                    **accepted_answers_method,
+                    "with": {"answers": ["8849"]},
+                },
             ]
         },
     }
@@ -135,7 +154,7 @@ def test_conditional_marks_its_branch_and_only_reads_its_condition() -> None:
     ]
     assert [list(result) for result in results] == [["Q2"]] * 3
     assert [result["Q2"].proportion for result in results] == [1, 1, 0]
-    assert results[0]["Q2"].method == "Conditional"
+    assert results[0]["Q2"].method_label == "Conditional"
 
 
 def test_answer_sets_count_the_set_giving_the_most_marks() -> None:
@@ -147,7 +166,10 @@ def test_answer_sets_count_the_set_giving_the_most_marks() -> None:
                     "name": "Expected",
                     "uses": "gradeflow/combination@1",
                     "with": {
-                        "checks": [accepted("6", question="Q1"), accepted("24", question="Q2")]
+                        "checks": [
+                            accepted_answer("6", question="Q1"),
+                            accepted_answer("24", question="Q2"),
+                        ]
                     },
                 },
                 {
@@ -155,7 +177,10 @@ def test_answer_sets_count_the_set_giving_the_most_marks() -> None:
                     "weight": 0.5,
                     "uses": "gradeflow/combination@1",
                     "with": {
-                        "checks": [accepted("9", question="Q1"), accepted("36", question="Q2")]
+                        "checks": [
+                            accepted_answer("9", question="Q1"),
+                            accepted_answer("36", question="Q2"),
+                        ]
                     },
                 },
             ]
@@ -178,29 +203,33 @@ def test_a_condition_met_by_any_one_check_is_correct_when_one_does() -> None:
     marking = {
         "uses": "gradeflow/conditional@1",
         "with": {
-            "combine": "any",
-            "condition": [accepted("a", question="Q1"), accepted("z", question="Q3")],
-            "then": [accepted("x", question="Q2")],
+            "condition_combine": "any",
+            "condition": [accepted_answer("a", question="Q1"), accepted_answer("z", question="Q3")],
+            "then": [accepted_answer("x", question="Q2")],
         },
     }
     questions = {"Q1": TextQuestion(), "Q2": TextQuestion(), "Q3": TextQuestion()}
-    met = mark_group(marking, {"Q1": "b", "Q2": "x", "Q3": "z"}, questions)
-    unmet = mark_group(marking, {"Q1": "b", "Q2": "x", "Q3": "y"}, questions)
-    assert (met["Q2"].proportion, unmet["Q2"].proportion, unmet["Q2"].feedback) == (1, 0, "")
+    when_condition_true = mark_group(marking, {"Q1": "b", "Q2": "x", "Q3": "z"}, questions)
+    when_condition_false = mark_group(marking, {"Q1": "b", "Q2": "x", "Q3": "y"}, questions)
+    assert (
+        when_condition_true["Q2"].proportion,
+        when_condition_false["Q2"].proportion,
+        when_condition_false["Q2"].feedback,
+    ) == (1, 0, "")
 
 
-def test_list_inputs_need_an_item_unless_they_may_be_empty() -> None:
+def test_list_settings_need_an_item_unless_they_may_be_empty() -> None:
     with pytest.raises(InvalidError) as caught:
-        scheme({"uses": "gradeflow/conditional@1", "with": {"condition": []}})
-    assert [(p.field, p.message) for p in caught.value.problems] == [
+        mark_scheme_of({"uses": "gradeflow/conditional@1", "with": {"condition": []}})
+    assert [(problem.field, problem.message) for problem in caught.value.problems] == [
         (("condition",), "Add at least one."),
         (("then",), "Required."),
     ]
-    otherwise_empty = {
+    without_otherwise = {
         "uses": "gradeflow/conditional@1",
         "with": {
             "condition": [{"question": "Q1", "uses": "gradeflow/full-marks@1"}],
             "then": [{"question": "Q1", "uses": "gradeflow/full-marks@1"}],
         },
     }
-    assert scheme(otherwise_empty).markings
+    assert mark_scheme_of(without_otherwise).markings

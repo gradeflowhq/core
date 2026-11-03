@@ -2,20 +2,20 @@ version: 1
 label: Conditional
 summary: Marks questions differently depending on another answer.
 level: advanced
-group: true
+marks_question_group: true
 guide: |-
   **Use it when:** How a question is marked depends on another answer, such as when students choose which part to answer.
 
-  **How it marks:** The **If** checks run first and give no marks. When they're correct, the **Then** checks mark their questions, and otherwise the **Else** checks do.
+  **How it marks:** The **If** checks run first and give no marks. When they're correct, the **Then** checks mark their questions; when they aren't, the **Otherwise** checks do.
 
-  **Good to know:** Mark the same questions under Then and Else, so every student is marked one way or the other.
+  **Good to know:** Mark the same questions under Then and Otherwise, so every student is marked one way or the other.
 
   **Related:** To accept several consistent sets of answers, use Answer Sets.
 inputs:
   condition:
     title: If
     description: Checks that choose the branch. They give no marks.
-  combine:
+  condition_combine:
     title: Then applies when
     default: all
     choices: [all, any]
@@ -24,7 +24,7 @@ inputs:
     title: Then
     description: Checks that mark the questions when the If checks are correct.
   otherwise:
-    title: Else
+    title: Otherwise
     description: Checks that mark the questions otherwise.
     default: []
 checks:
@@ -32,7 +32,7 @@ checks:
     read_only: true
     uses: gradeflow/combination@1
     with:
-      combine: "{{ inputs.combine }}"
+      combine: "{{ inputs.condition_combine }}"
       checks: "{{ inputs.condition }}"
   - if: "{{ checks.condition.correct }}"
     uses: gradeflow/combination@1
@@ -43,15 +43,15 @@ checks:
     with:
       checks: "{{ inputs.otherwise }}"
 description: |-
-  If {% if inputs.combine == "all" %}all are correct{% else %}any one is correct{% endif %}:
-  {{ inputs.condition | described }}
+  If {% if inputs.condition_combine == "all" %}all are correct{% else %}any one is correct{% endif %}:
+  {{ inputs.condition | description_list }}
 
   Then:
-  {{ inputs.then | described }}
+  {{ inputs.then | description_list }}
   {% if inputs.otherwise %}
 
-  Else:
-  {{ inputs.otherwise | described }}
+  Otherwise:
+  {{ inputs.otherwise | description_list }}
   {% endif %}
 examples:
   - title: Answer part A or part B.
@@ -62,7 +62,7 @@ examples:
       Then:
       - **Q2:** Matches `Paris`.
 
-      Else:
+      Otherwise:
       - **Q2:** Matches `Rome`.
     questions:
       Q1: {type: choice, options: [a, b], description: Which part did you answer?}
@@ -98,7 +98,7 @@ examples:
       Then:
       - **Q2:** Is between `1.8` and `2.5`.
 
-      Else:
+      Otherwise:
       - **Q2:** Is between `6` and `8`.
     questions:
       Q1: {type: choice, options: [metres, feet], description: Which units did you use?}

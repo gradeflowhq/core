@@ -10,7 +10,7 @@ from gradeflow_core.methods.code.runner import CodeError, run
 
 
 class TestRun:
-    def test_basic_execution(self) -> None:
+    def test_run_updates_variables(self) -> None:
         variables: dict[str, Any] = {"x": 5}
         run("x = x * 2", variables, time_limit_s=5)
         assert variables["x"] == 10
@@ -30,14 +30,14 @@ class TestRun:
             run("", {"obj": object()}, time_limit_s=5)
 
     def test_a_failure_says_its_exception_without_the_traceback(self) -> None:
-        with pytest.raises(CodeError) as error:
+        with pytest.raises(CodeError) as caught:
             run("1 / 0", {"x": 1}, time_limit_s=5)
-        assert error.value.reason == "ZeroDivisionError: division by zero"
+        assert caught.value.reason == "ZeroDivisionError: division by zero"
 
     def test_a_timeout_says_how_long_the_code_had(self) -> None:
-        with pytest.raises(CodeError) as error:
+        with pytest.raises(CodeError) as caught:
             run("while True: pass", {}, time_limit_s=1)
-        assert error.value.reason == "it took longer than 1 second"
+        assert caught.value.reason == "it took longer than 1 second"
 
     def test_a_timeout_does_not_prevent_the_next_execution(self) -> None:
         with pytest.raises(CodeError):
@@ -48,15 +48,15 @@ class TestRun:
 
     def test_nan_and_infinity_round_trip(self) -> None:
         variables: dict[str, Any] = {}
-        run("missing = float('nan')\nunbounded = float('-inf')", variables)
-        assert math.isnan(variables["missing"])
-        assert variables["unbounded"] == -math.inf
+        run("not_a_number = float('nan')\nnegative_infinity = float('-inf')", variables)
+        assert math.isnan(variables["not_a_number"])
+        assert variables["negative_infinity"] == -math.inf
 
     def test_code_aborting_its_sandbox_fails_only_its_run(self) -> None:
         # Eryx 0.12 aborts the process running it when deep C recursion overflows its stack.
-        with pytest.raises(CodeError) as error:
+        with pytest.raises(CodeError) as caught:
             run("nested = []\nfor _ in range(5000): nested = [nested]", {})
-        assert error.value.reason == "it crashed the sandbox"
+        assert caught.value.reason == "it crashed the sandbox"
         variables: dict[str, Any] = {}
         run("correct = True", variables)
         assert variables == {"correct": True}
@@ -78,9 +78,9 @@ class TestRun:
         assert variables["results"] == {"Q1": {"a", "b"}}
 
     def test_memory_is_capped(self) -> None:
-        with pytest.raises(CodeError) as error:
+        with pytest.raises(CodeError) as caught:
             run("data = b'x' * 1024**3", {}, time_limit_s=5)
-        assert error.value.reason.startswith("MemoryError")
+        assert caught.value.reason.startswith("MemoryError")
 
     def test_memory_limit_is_set_per_run(self) -> None:
         code = "data = b'x' * (96 * 1024**2)\nallocated = len(data)\ndel data"
@@ -98,10 +98,10 @@ class TestRun:
             run(f"data = open({str(secret)!r}).read()", {}, time_limit_s=5)
 
     def test_host_files_cannot_be_written(self, tmp_path: Path) -> None:
-        target = tmp_path / "output"
+        output_file = tmp_path / "output"
         with pytest.raises(CodeError):
-            run(f"open({str(target)!r}, 'w').write('changed')", {}, time_limit_s=5)
-        assert not target.exists()
+            run(f"open({str(output_file)!r}, 'w').write('changed')", {}, time_limit_s=5)
+        assert not output_file.exists()
 
     def test_network_access_is_denied(self) -> None:
         with socket.socket() as listener:
@@ -122,11 +122,11 @@ class TestRun:
         variables: dict[str, Any] = {}
         run(
             "import builtins, math\n"
-            "clean = not hasattr(builtins, 'leaked') and not hasattr(math, 'leaked')",
+            "nothing_leaked = not hasattr(builtins, 'leaked') and not hasattr(math, 'leaked')",
             variables,
             time_limit_s=5,
         )
-        assert variables == {"clean": True}
+        assert variables == {"nothing_leaked": True}
 
     def test_failed_code_does_not_update_inputs(self) -> None:
         variables: dict[str, Any] = {"answer": [1]}

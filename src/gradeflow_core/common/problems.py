@@ -9,9 +9,9 @@ from pydantic_core import ErrorDetails
 
 from .error_formatting import error_message
 from .exceptions import InvalidError
-from .paths import Loc, get, join
+from .paths import Location, get, join
 
-_INCOMPLETE = frozenset({"missing", "too_short"})
+_INCOMPLETE_ERROR_TYPES = frozenset({"missing", "too_short"})
 """What pydantic finds of a value not filled in yet, rather than wrong."""
 
 
@@ -23,9 +23,9 @@ class Problem:
     message: str
     check: str = ""
     """Where the check is, such as ``with.checks.0``; ``""`` is the marking itself."""
-    field: Loc = ()
+    field: Location = ()
     """Where in the check, its settings and keys as one, such as ``("answers", 0)``."""
-    incomplete: bool = False
+    is_incomplete: bool = False
     """Not filled in yet, rather than wrong."""
 
     @property
@@ -35,12 +35,16 @@ class Problem:
 
     def __str__(self) -> str:
         """The message after the field at fault, such as ``answers: Add at least one.``"""
-        named = next((part for part in reversed(self.field) if isinstance(part, str)), "")
-        return f"{named}: {self.message}" if named not in ("", "with", "uses") else self.message
+        field_name = next((part for part in reversed(self.field) if isinstance(part, str)), "")
+        return (
+            f"{field_name}: {self.message}"
+            if field_name not in ("", "with", "uses")
+            else self.message
+        )
 
 
 @contextmanager
-def as_invalid(data: object) -> Iterator[None]:
+def invalid_errors(data: object) -> Iterator[None]:
     """Raises ``InvalidError`` with the problems pydantic finds validating ``data`` inside."""
     try:
         yield
@@ -49,54 +53,58 @@ def as_invalid(data: object) -> Iterator[None]:
 
 
 def validation_problems(
-    error: ValidationError, data: object, is_check: Callable[[Loc], bool] | None = None
+    error: ValidationError, data: object, is_check: Callable[[Location], bool] | None = None
 ) -> list[Problem]:
     """The problems pydantic found validating ``data``, each at the check holding it, if any:
     where ``is_check`` says one is, or else a mapping whose ``uses`` names a method, or is at
     fault."""
 
-    def problem(details: ErrorDetails) -> Problem:
-        loc = _untagged(tuple(details["loc"]), data)
+    def problem_of(details: ErrorDetails) -> Problem:
+        location = _untagged(tuple(details["loc"]), data)
 
-        def holds_uses(at: Loc) -> bool:
+        def is_check_at(at: Location) -> bool:
             node = get(data, join(*at))
             return isinstance(node, Mapping) and (
-                isinstance(node.get("uses"), str) or loc[len(at) :] == ("uses",)
+                isinstance(node.get("uses"), str) or location[len(at) :] == ("uses",)
             )
 
-        incomplete = details["type"] in _INCOMPLETE
-        found = placed(
-            Problem(error_message(details), incomplete=incomplete), loc, is_check or holds_uses
+        is_incomplete = details["type"] in _INCOMPLETE_ERROR_TYPES
+        problem = at_innermost_check(
+            Problem(error_message(details), is_incomplete=is_incomplete),
+            location,
+            is_check or is_check_at,
         )
-        if found.field == ("with",) and details["type"] == "value_error":
-            return replace(found, field=())  # a rule over all its settings is the check's
-        return found
+        if problem.field == ("with",) and details["type"] == "value_error":
+            return replace(problem, field=())  # a rule over all its settings is the check's
+        return problem
 
-    return list(dict.fromkeys(map(problem, error.errors())))
+    return list(dict.fromkeys(map(problem_of, error.errors())))
 
 
-def _untagged(loc: Loc, data: object) -> Loc:
-    """``loc`` without the tags pydantic puts in it for a member of a tagged union: a value of the
-    object there, such as its ``type``, rather than one of its keys."""
-    kept: list[str | int] = []
+def _untagged(location: Location, data: object) -> Location:
+    """``location`` without the tags pydantic puts in it for a member of a tagged union: a value
+    of the object there, such as its ``type``, rather than one of its keys."""
+    parts: list[str | int] = []
     node = data
-    for part in loc:
+    for part in location:
         if isinstance(node, Mapping) and part not in node and part in node.values():
             continue
-        kept.append(part)
+        parts.append(part)
         node = get(node, str(part))
-    return tuple(kept)
+    return tuple(parts)
 
 
-def placed(problem: Problem, loc: Loc, is_check: Callable[[Loc], bool]) -> Problem:
-    """``problem``, found at ``loc`` of the data, at the innermost check holding it; a check's
+def at_innermost_check(
+    problem: Problem, location: Location, is_check: Callable[[Location], bool]
+) -> Problem:
+    """``problem``, found at ``location`` of the data, at the innermost check holding it; a check's
     settings are its fields, without their ``with``."""
-    checks = [n for n in range(len(loc) + 1) if is_check(loc[:n])]
+    checks = [length for length in range(len(location) + 1) if is_check(location[:length])]
     if not checks:
-        return replace(problem, field=loc)
-    end, field = checks[-1], loc[checks[-1] :]
+        return replace(problem, field=location)
+    end, field = checks[-1], location[checks[-1] :]
     return replace(
         problem,
-        check=join(*loc[:end]),
+        check=join(*location[:end]),
         field=field[1:] if len(field) > 1 and field[0] == "with" else field,
     )
