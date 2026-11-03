@@ -7,7 +7,7 @@ from pydantic import Field, PlainSerializer, ValidationInfo, field_validator
 from ..common.schemas import JsonDict, tag
 from ..common.text import quoted
 from .base import Question
-from .reading import ListReading, read_list, reading_field
+from .reading import ListReading, is_blank, read_list, reading_field
 
 Options = Annotated[
     frozenset[str], PlainSerializer(sorted, return_type=list[str], when_used="json")
@@ -58,7 +58,12 @@ class ChoiceQuestion(Question):
 
     def read(self, answer: str) -> frozenset[str] | None:
         values = read_list(answer, self.reading)
-        return None if values is None else frozenset(values)
+        if values is None:
+            return None
+        return frozenset(
+            value if is_blank(value, self.reading) else self.reading.option(value)
+            for value in values
+        )
 
     def answer_schema(self) -> JsonDict:
         options = {"type": "string", "enum": natsorted(self.options)}

@@ -64,3 +64,11 @@ def test_a_choice_of_several_options_takes_them_in_order() -> None:
     assert question.answer_values("C, a, z") == {"options": ["a", "c"]}
     assert question.answer_from({"options": ["c", "a"]}) == "a,c"
     assert question.answer_from({"options": []}) == ""
+
+
+def test_choice_ignores_punctuation_when_set() -> None:
+    question = ChoiceQuestion.model_validate(
+        {"options": ["(a)", "b."], "reading": {"ignore_punctuation": True}}
+    )
+    assert question.options == {"a", "b"}
+    assert question.read("(A), b") == frozenset({"a", "b"})

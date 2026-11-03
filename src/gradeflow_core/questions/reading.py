@@ -49,9 +49,13 @@ class TextReading(Reading):
     )
 
     def option(self, value: str) -> str:
-        """``value``, such as a choice option, with its spaces and capitals read as in answers."""
+        """``value``, such as a choice option, with its spaces, capitals and punctuation read as in
+        answers."""
         value = value.strip() if self.trim_spaces else value
-        return value.lower() if self.ignore_case else value
+        value = value.lower() if self.ignore_case else value
+        if self.ignore_punctuation:
+            value = "".join(c for c in value if not unicodedata.category(c).startswith("P"))
+        return value
 
 
 class ListReading(TextReading):
@@ -98,13 +102,7 @@ def read_text(raw: str, reading: TextReading) -> str | None:
     # Case is changed after the blank check, so a blank marker in capitals still counts.
     if reading.trim_spaces:
         raw = raw.strip()
-    if is_blank(raw, reading):
-        return None
-    if reading.ignore_case:
-        raw = raw.lower()
-    if reading.ignore_punctuation:
-        raw = "".join(c for c in raw if not unicodedata.category(c).startswith("P"))
-    return raw
+    return None if is_blank(raw, reading) else reading.option(raw)
 
 
 def read_code(raw: str, reading: CodeReading) -> str | list[str] | None:
