@@ -11,6 +11,7 @@ from gradeflow_core.editing import HINT_KEY, QUESTION_TYPES, Position, compatibl
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
+from tests.schemas import schema_nodes
 
 METHODS = {method.name: method for method in BUILTINS}
 
@@ -24,33 +25,15 @@ class _SchemaWithoutDefaultTitles(GenerateJsonSchema):
         return False
 
 
-def _properties(schema: object) -> Iterator[tuple[str, dict[str, Any]]]:
-    if isinstance(schema, dict):
-        yield from schema.get("properties", {}).items()
-        for value in schema.values():
-            yield from _properties(value)
-    elif isinstance(schema, list):
-        for value in schema:
-            yield from _properties(value)
-
-
-def _titles(schema: object) -> Iterator[str]:
-    if isinstance(schema, dict):
-        if isinstance(schema.get("title"), str):
-            yield schema["title"]
-        for value in schema.values():
-            yield from _titles(value)
-    elif isinstance(schema, list):
-        for value in schema:
-            yield from _titles(value)
-
-
 @pytest.mark.parametrize("model", FORM_MODELS, ids=lambda model: model.__name__)
 def test_form_fields_have_plain_titles_help_and_enum_labels(model: type[BaseModel]) -> None:
     schema = model.model_json_schema(
         mode="validation", schema_generator=_SchemaWithoutDefaultTitles
     )
-    for name, property_schema in _properties(schema):
+    properties = (
+        item for node in schema_nodes(schema) for item in node.get("properties", {}).items()
+    )
+    for name, property_schema in properties:
         if property_schema.get("readOnly") or "const" in property_schema:
             continue
         field_path = f"{model.__name__}.{name}"
@@ -86,9 +69,10 @@ def _schemas() -> Iterator[dict[str, Any]]:
 
 def test_no_schema_title_is_a_class_name() -> None:
     for schema in _schemas():
-        for title in _titles(schema):
-            assert not CAMEL_CASE_TITLE.match(title), title
-            assert not CAPITALISED_ID_WORD.search(title), title
+        for node in schema_nodes(schema):
+            if isinstance(title := node.get("title"), str):
+                assert not CAMEL_CASE_TITLE.match(title), title
+                assert not CAPITALISED_ID_WORD.search(title), title
 
 
 def test_form_titles_read_like_labels() -> None:

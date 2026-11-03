@@ -1,8 +1,7 @@
 import sys
-import types
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from unittest.mock import Mock, call
 
 import pytest
 
@@ -22,49 +21,35 @@ def test_setup_and_grouping_share_the_cache(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("GRADEFLOW_CACHE_DIR", str(tmp_path))
-    calls: list[tuple[str, str, bool]] = []
-
-    class FakeTextEmbedding:
-        def __init__(self, model: str, *, cache_dir: str, lazy_load: bool = False) -> None:
-            calls.append((model, cache_dir, lazy_load))
-
-    fake_fastembed = types.ModuleType("fastembed")
-    cast(Any, fake_fastembed).TextEmbedding = FakeTextEmbedding
-    monkeypatch.setitem(sys.modules, "fastembed", fake_fastembed)
+    fastembed = Mock()
+    monkeypatch.setitem(sys.modules, "fastembed", fastembed)
     embeddings.setup()
     embeddings._model()
     embeddings._model()
     directory = str(tmp_path / "models")
-    assert calls == [
-        (embeddings.EMBEDDING_MODEL, directory, True),
-        (embeddings.EMBEDDING_MODEL, directory, False),
+    assert fastembed.TextEmbedding.call_args_list == [
+        call(embeddings.EMBEDDING_MODEL, cache_dir=directory, lazy_load=True),
+        call(embeddings.EMBEDDING_MODEL, cache_dir=directory, lazy_load=False),
     ]
 
 
-def test_grouping_embeddings_preserve_document_encoding_and_float32_normalization(
+def test_grouping_embeddings_are_the_model_vectors_one_row_each(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     np = pytest.importorskip("numpy")
-    embedded_texts: list[list[str]] = []
-
-    class FakeEmbeddingModel:
-        def embed(self, texts: list[str]) -> Iterator[Any]:
-            embedded_texts.append(texts)
-            return iter(np.array([[3.0, 4.0], [-2.0, 0.0]], dtype=np.float64))
-
-    monkeypatch.setattr(embeddings, "_model", lambda: FakeEmbeddingModel())
-    texts = ["first", "second"]
+    rows = np.array([[0.6, 0.8], [-1.0, 0.0]], dtype=np.float32)
+    model = Mock()
+    model.embed.return_value = iter(rows)
+    monkeypatch.setattr(embeddings, "_model", lambda: model)
+    texts = ("first", "second")
     vectors = embeddings.embed_texts(texts)
-    expected = np.asarray([[3.0, 4.0], [-2.0, 0.0]], dtype=np.float32)
-    expected /= np.linalg.norm(expected, axis=1, keepdims=True)
-    assert vectors == expected.tolist()
-    assert embedded_texts == [["first", "second"]]
-    assert texts == ["first", "second"]
+    assert vectors.dtype == np.float32
+    assert vectors.tolist() == rows.tolist()
+    model.embed.assert_called_once_with(["first", "second"])
 
 
 def test_empty_embedding_batch_does_not_load_the_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    def forbidden() -> Any:
-        pytest.fail("An empty batch needs no model.")
-
-    monkeypatch.setattr(embeddings, "_model", forbidden)
-    assert embeddings.embed_texts([]) == []
+    load_model = Mock()
+    monkeypatch.setattr(embeddings, "_model", load_model)
+    assert embeddings.embed_texts([]).size == 0
+    load_model.assert_not_called()

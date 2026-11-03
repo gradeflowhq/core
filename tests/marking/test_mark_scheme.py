@@ -18,6 +18,8 @@ from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 from tests.methods.helpers import key_point
 
+from ..methods.helpers import located
+
 QUESTIONS = QuestionSet(
     {
         "Q1": TextQuestion(),
@@ -30,9 +32,7 @@ QUESTIONS = QuestionSet(
 
 def problems(*markings: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]]:
     scheme = MarkScheme.load(list(markings))
-    return [
-        (problem.check, problem.field, problem.message) for problem in scheme.problems(QUESTIONS)
-    ]
+    return located(scheme.problems(QUESTIONS))
 
 
 def test_a_mark_scheme_that_can_mark_has_no_problems() -> None:

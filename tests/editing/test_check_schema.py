@@ -1,18 +1,24 @@
 import json
 import re
-from collections.abc import Iterator
 
 import pytest
 
 from gradeflow_core import BUILTINS, InvalidError, Methods, QuestionSet
 from gradeflow_core.common.hints import Hint
-from gradeflow_core.editing import EditingError, MarkingDraft, Position, compatible_methods
+from gradeflow_core.editing import (
+    HINT_KEY,
+    EditingError,
+    MarkingDraft,
+    Position,
+    compatible_methods,
+)
 from gradeflow_core.editing.drafts import _check_schema, _new_check
 from gradeflow_core.methods.check import CHECK_FIELDS
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
+from tests.schemas import schema_nodes
 
 METHODS = {method.name: method for method in BUILTINS}
 
@@ -24,24 +30,15 @@ QUESTIONS = QuestionSet(
         "Q4": NumberQuestion(),
     }
 )
-POSITIONS = [
-    Position(QUESTIONS, in_group=True),
-    Position(QUESTIONS, "Q1"),
-    Position(QUESTIONS, "Q2"),
-    Position(QUESTIONS, "Q3"),
-    Position(QUESTIONS, "Q4"),
-    Position(QUESTIONS, "Q3", 2, in_list=True),
-    Position(QUESTIONS, "Q1", in_list=True, in_group=True),
-]
-POSITION_IDS = [
-    "question group",
-    "text",
-    "choice",
-    "values",
-    "number",
-    "value",
-    "in question group",
-]
+POSITIONS = {
+    "question group": Position(QUESTIONS, in_group=True),
+    "text": Position(QUESTIONS, "Q1"),
+    "choice": Position(QUESTIONS, "Q2"),
+    "values": Position(QUESTIONS, "Q3"),
+    "number": Position(QUESTIONS, "Q4"),
+    "value": Position(QUESTIONS, "Q3", 2, in_list=True),
+    "in question group": Position(QUESTIONS, "Q1", in_list=True, in_group=True),
+}
 
 
 def test_a_draft_offers_the_methods_compatible_with_its_check() -> None:
@@ -72,7 +69,7 @@ def test_a_checks_fields_are_its_settings_and_the_keys_a_check_there_may_have() 
         "if",
         "feedback",
     ]
-    assert check_keys(POSITIONS[-1]) == [
+    assert check_keys(POSITIONS["in question group"]) == [
         "question",
         "read_only",
         "name",
@@ -80,10 +77,12 @@ def test_a_checks_fields_are_its_settings_and_the_keys_a_check_there_may_have() 
         "if",
         "feedback",
     ]
-    assert check_keys(POSITIONS[0]) == ["if", "feedback"], (
+    assert check_keys(POSITIONS["question group"]) == ["if", "feedback"], (
         "a question group's marking reads no question"
     )
-    group_check_schema = _check_schema(METHODS["gradeflow/key-point"], POSITIONS[-1])
+    group_check_schema = _check_schema(
+        METHODS["gradeflow/key-point"], POSITIONS["in question group"]
+    )
     assert list(group_check_schema["properties"])[:3] == ["question", "read_only", "point"]
     assert group_check_schema["properties"]["question"]["enum"] == ["Q1", "Q2", "Q3", "Q4"]
     assert "question" in group_check_schema["required"], (
@@ -138,7 +137,7 @@ def test_only_fields_of_whole_answers_take_them(
     assert properties[field].get("x-gradeflow", {}).get("lists_answers", False) == lists_answers
 
 
-@pytest.mark.parametrize("position", POSITIONS, ids=POSITION_IDS)
+@pytest.mark.parametrize("position", POSITIONS.values(), ids=POSITIONS)
 def test_new_checks_are_plain_json_of_their_method(position: Position) -> None:
     for method in compatible_methods(position):
         new_check = _new_check(method, position, names_question=False)
@@ -174,22 +173,12 @@ def test_a_new_multiple_values_check_checks_each_value() -> None:
     ]
 
 
-def _hints(schema: object) -> Iterator[object]:
-    if isinstance(schema, dict):
-        if "x-gradeflow" in schema:
-            yield schema["x-gradeflow"]
-        for value in schema.values():
-            yield from _hints(value)
-    elif isinstance(schema, list):
-        for value in schema:
-            yield from _hints(value)
-
-
-@pytest.mark.parametrize("position", POSITIONS, ids=POSITION_IDS)
+@pytest.mark.parametrize("position", POSITIONS.values(), ids=POSITIONS)
 def test_every_hint_uses_the_typed_vocabulary(position: Position) -> None:
     for method in compatible_methods(position):
-        for hint in _hints(_check_schema(method, position)):
-            Hint.model_validate(hint, strict=True)
+        for node in schema_nodes(_check_schema(method, position)):
+            if HINT_KEY in node:
+                Hint.model_validate(node[HINT_KEY], strict=True)
 
 
 def test_unknown_methods_are_refused_by_the_draft() -> None:

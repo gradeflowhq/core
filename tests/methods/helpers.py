@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import gradeflow_core
@@ -6,6 +6,7 @@ from gradeflow_core import (
     BUILTINS,
     MarkScheme,
     Methods,
+    Problem,
     Question,
     QuestionResult,
     QuestionSet,
@@ -16,6 +17,18 @@ from gradeflow_core.questions.text import TextQuestion
 
 QUESTION_ID = "Q1"
 CODE_QUESTION = CodeQuestion()
+WRAPPED_NUMBER_RANGE = (
+    "sample/wrapped",
+    """label: Wrapped
+version: 1
+summary: A wrapped number range.
+question_types: [text]
+checks:
+  - uses: gradeflow/number-range@1
+    with: {min_value: 1}
+""",
+)
+"""A method file whose check can't mark the text questions it says it marks."""
 
 
 def mark_scheme_of(*markings: Mapping[str, Any], methods: Methods = BUILTINS) -> MarkScheme:
@@ -28,6 +41,14 @@ def accepted_answer(answer: str, **check_keys: Any) -> dict[str, Any]:
 
 def key_point(point: str, **check_keys: Any) -> dict[str, Any]:
     return {**check_keys, "uses": "gradeflow/key-point@1", "with": {"point": point}}
+
+
+def combination(combine: str, *checks: Mapping[str, Any], **check_keys: Any) -> dict[str, Any]:
+    return {
+        **check_keys,
+        "uses": "gradeflow/combination@1",
+        "with": {"combine": combine, "checks": list(checks)},
+    }
 
 
 def code_tests(*tests: Mapping[str, Any], **settings: Any) -> dict[str, Any]:
@@ -68,14 +89,17 @@ def mark_group(
     return submission.results
 
 
+def located(problems: Iterable[Problem]) -> list[tuple[str, tuple[str | int, ...], str]]:
+    """Each problem as the check and field it is at, and its message."""
+    return [(problem.check, problem.field, problem.message) for problem in problems]
+
+
 def problems_of(
     check: Mapping[str, Any], question: Question | None = None
-) -> list[tuple[str, tuple[Any, ...], str]]:
+) -> list[tuple[str, tuple[str | int, ...], str]]:
     questions = QuestionSet({QUESTION_ID: question or TextQuestion()})
     [marking] = mark_scheme_of({"question": QUESTION_ID, **check}).markings
-    return [
-        (problem.check, problem.field, problem.message) for problem in marking.problems(questions)
-    ]
+    return located(marking.problems(questions))
 
 
 def proportions(results: list[QuestionResult]) -> list[float]:

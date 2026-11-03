@@ -1,15 +1,17 @@
 from collections.abc import Callable
-from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
-from gradeflow_core import Check, InvalidError, Method, Problem, QuestionSet
+from gradeflow_core import Check, InvalidError, Problem, QuestionSet
 from gradeflow_core.editing import Condition, ConditionRow, EditingError, MarkingDraft
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
+
+from ..methods.helpers import located
 
 QUESTIONS = QuestionSet(
     {"Q1": TextQuestion(), "Q2": ValuesQuestion(value_types=["number", "number"])}
@@ -145,7 +147,7 @@ def test_a_condition_is_offered_where_it_has_an_earlier_check_to_read() -> None:
     draft.update("with.checks.1", {"if": Condition((ConditionRow("with.checks.0", "correct"),))})
     draft.move("with.checks.1", -1)
     assert "if" in draft.schema("with.checks.0")["properties"]
-    assert [(problem.check, problem.field, problem.message) for problem in draft.problems] == [
+    assert located(draft.problems) == [
         ("with.checks.0", ("if",), "Accepted Answers must come before this check.")
     ]
 
@@ -191,9 +193,9 @@ def test_a_condition_reading_a_later_check_is_reported_while_another_check_is_un
     draft.update("with.checks.0", {"answers": ["Paris"]})
     draft.update("with.checks.1", {"if": Condition((ConditionRow("with.checks.0", "correct"),))})
     draft.move("with.checks.1", -1)
-    assert ("with.checks.0", ("if",), "Accepted Answers must come before this check.") in [
-        (problem.check, problem.field, problem.message) for problem in draft.problems
-    ]
+    assert ("with.checks.0", ("if",), "Accepted Answers must come before this check.") in located(
+        draft.problems
+    )
 
 
 def test_a_condition_reading_a_removed_check_says_no_check_before_it_has_that_name() -> None:
@@ -202,7 +204,7 @@ def test_a_condition_reading_a_removed_check_says_no_check_before_it_has_that_na
     draft.update("with.checks.1", {"points": ["capital"]})
     draft.update("with.checks.1", {"if": Condition((ConditionRow("with.checks.0", "correct"),))})
     draft.remove("with.checks.0")
-    assert [(problem.check, problem.field, problem.message) for problem in draft.problems] == [
+    assert located(draft.problems) == [
         ("with.checks.0", ("if",), "No check before this one is called capital.")
     ]
 
@@ -322,9 +324,7 @@ def test_a_condition_that_cant_be_read_says_so() -> None:
     draft = combination_draft()
     draft.update("with.checks.0", {"answers": ["Paris"]})
     draft.update("with.checks.1", {"points": ["capital"], "if": "{{ checks.x.correct garbage(( }}"})
-    assert [(problem.check, problem.field, problem.message) for problem in draft.problems] == [
-        ("with.checks.1", ("if",), "Can't read this condition.")
-    ]
+    assert located(draft.problems) == [("with.checks.1", ("if",), "Can't read this condition.")]
 
 
 def test_a_method_that_cant_mark_the_question_says_so_before_its_finished() -> None:
@@ -342,19 +342,16 @@ def test_a_checks_schema_is_worked_out_once_for_where_it_is(
 ) -> None:
     from gradeflow_core.editing import drafts
 
-    schema_methods: list[str] = []
-    original_check_schema = drafts._check_schema
-
-    def recording_check_schema(method: Method[Any], *args: object, **kwargs: object) -> object:
-        schema_methods.append(method.name)
-        return original_check_schema(method, *args, **kwargs)  # type: ignore[arg-type]
-
+    check_schema = Mock(wraps=drafts._check_schema)
     draft = combination_draft()
-    monkeypatch.setattr(drafts, "_check_schema", recording_check_schema)
+    monkeypatch.setattr(drafts, "_check_schema", check_schema)
     for _ in range(2):
         draft.schema("with.checks.0")
         draft.schema("with.checks.1")
-    assert schema_methods == ["gradeflow/accepted-answers", "gradeflow/key-points"]
+    assert [schema_call.args[0].name for schema_call in check_schema.call_args_list] == [
+        "gradeflow/accepted-answers",
+        "gradeflow/key-points",
+    ]
 
 
 def test_a_checks_values_are_read_as_its_question_reads_them() -> None:

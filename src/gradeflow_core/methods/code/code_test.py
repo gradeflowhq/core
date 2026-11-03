@@ -1,3 +1,4 @@
+import textwrap
 from functools import lru_cache
 from typing import Any
 
@@ -76,9 +77,7 @@ class TestSetup(Settings):
     )
 
     def program_for(self, code: str) -> str:
-        indented = "\n".join(
-            " " * self.indent_spaces + line if line.strip() else line for line in code.splitlines()
-        )
+        indented = textwrap.indent(code, " " * self.indent_spaces)
         return f"{self.code_before}\n{indented}\n{self.code_after}"
 
 

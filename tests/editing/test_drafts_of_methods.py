@@ -8,6 +8,8 @@ from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 from tests.methods.helpers import mark_all, proportions
 
+from ..methods.helpers import WRAPPED_NUMBER_RANGE, located
+
 QUESTIONS = QuestionSet({"Q1": TextQuestion()})
 
 
@@ -30,27 +32,11 @@ def test_any_order_values_give_their_checks_no_earlier_checks() -> None:
 
 
 def test_a_composed_methods_check_that_cant_mark_the_question_is_its_users_problem() -> None:
-    methods = BUILTINS.with_files(
-        [
-            (
-                "sample/wrapped",
-                """label: Wrapped
-version: 1
-summary: A wrapped number range.
-question_types: [text]
-checks:
-  - uses: gradeflow/number-range@1
-    with: {min_value: 1}
-""",
-            )
-        ]
-    )
+    methods = BUILTINS.with_files([WRAPPED_NUMBER_RANGE])
     draft = MarkingDraft(
         {"question": "Q1", "uses": "sample/wrapped@1"}, QUESTIONS, "Q1", methods=methods
     )
-    assert [(problem.check, problem.field, problem.message) for problem in draft.problems] == [
-        ("", (), "Number Range can't mark a text question.")
-    ]
+    assert located(draft.problems) == [("", (), "Number Range can't mark a text question.")]
     assert draft.checks_settings("") == []
 
 

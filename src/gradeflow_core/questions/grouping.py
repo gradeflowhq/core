@@ -136,10 +136,10 @@ def _meaning_links(keys: list[str]) -> list[_Link]:
     their least similar pair."""
     import numpy as np
     from scipy.cluster.hierarchy import linkage
+    from scipy.spatial.distance import pdist
 
-    vectors = np.asarray(embeddings.embed_texts(keys), dtype=np.float32)
-    scores = (vectors @ vectors.T)[np.triu_indices(len(keys), 1)]
-    tree = linkage(np.clip(1 - scores.astype(np.float64), 0, 2), method="complete")
+    vectors = embeddings.embed_texts(keys)
+    tree = linkage(pdist(vectors, "cosine"), method="complete")
     first_answer = list(range(len(keys)))
     links = []
     for left, right, distance, _ in tree:

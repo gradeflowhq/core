@@ -7,14 +7,7 @@ import pytest
 from gradeflow_core import BUILTINS, InvalidError, Methods, Problem, QuestionSet
 from gradeflow_core.editing import EditingError, ExampleRow, MethodDraft, load_yaml, mark_rows
 
-NUMBER_QUESTIONS = QuestionSet.model_validate({"Q1": {"type": "number"}})
-
-
-def number_range_draft() -> MethodDraft:
-    draft = MethodDraft.new(NUMBER_QUESTIONS, name="range", version=1, label="Range")
-    draft.checks.add("with.checks.0", "gradeflow/number-range@1")
-    draft.checks.update("with.checks.0", {"min_value": 10, "max_value": 20})
-    return draft
+from .helpers import NUMBER_QUESTIONS, number_range_draft
 
 
 def test_exposing_inherits_current_value_without_creating_a_test_value() -> None:

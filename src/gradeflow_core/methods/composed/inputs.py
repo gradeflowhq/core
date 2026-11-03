@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, get_args, get_origin
 
-from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError, create_model
+from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError, create_model
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
@@ -192,9 +192,7 @@ class _InputTypes:
         return {
             key: (
                 annotation,
-                FieldInfo.merge_field_infos(
-                    field, **item_titles[key].model_dump(exclude_none=True)
-                ),
+                _merged(field, Field(**item_titles[key].model_dump(exclude_none=True))),
             )
             if key in item_titles
             else (annotation, field)
@@ -244,9 +242,12 @@ def _with_input_conditions(
         return info
     conditions_hint = hint.model_copy(update={"applies_when": conditions or None})
     extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
-    return FieldInfo.merge_field_infos(
-        info, json_schema_extra=extra | conditions_hint.schema_extra()
-    )
+    return _merged(info, Field(json_schema_extra=extra | conditions_hint.schema_extra()))
+
+
+def _merged(info: FieldInfo, *changes: FieldInfo) -> FieldInfo:
+    """``info`` with the attributes and constraints of ``changes`` merged in."""
+    return FieldInfo.from_annotation(annotated(info.annotation, info, *changes))
 
 
 def _type_of(default: Any) -> Any:
@@ -300,9 +301,7 @@ def input_field(declared_input: Input, annotation: Any, info: FieldInfo) -> tupl
             "validate_default": True,
         }
     needs_item = get_origin(annotation) is list and declared_input.default != []
-    field = FieldInfo.merge_field_infos(
-        info, *([FieldInfo(min_length=1)] if needs_item else []), **changes
-    )
+    field = _merged(info, *([Field(min_length=1)] if needs_item else []), Field(**changes))
     if required:  # merging keeps the setting's own default rather than an undefined one
         field.default = PydanticUndefined
     field.annotation = annotation

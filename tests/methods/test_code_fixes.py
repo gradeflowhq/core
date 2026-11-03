@@ -243,11 +243,14 @@ def test_code_that_compiles_needs_no_indentation() -> None:
     assert first_fixed_version("x = 1\nprint(x)\n", kinds=frozenset({"indentation"})) is None
 
 
-def test_fixes_default_to_unset_with_no_penalty() -> None:
+@pytest.mark.parametrize("kind", get_args(FixKind))
+def test_fixes_default_to_unset_with_no_penalty(kind: str) -> None:
     fields = CodeFixes.model_fields
-    for kind in get_args(FixKind):
-        assert fields[kind].default is False, kind
-        penalty = fields[f"{kind}_penalty"]
-        assert penalty.default == 0, kind
-        assert hint_of(penalty).applies_when == {kind: True}, kind
+    assert fields[kind].default is False
+    penalty = fields[f"{kind}_penalty"]
+    assert penalty.default == 0
+    assert hint_of(penalty).applies_when == {kind: True}
+
+
+def test_no_fix_is_on_by_default() -> None:
     assert CodeFixes().enabled_kinds == frozenset()

@@ -26,12 +26,14 @@ def test_catalogue_lists_every_question_type_with_text_first() -> None:
     assert all(question_type.summary.endswith(".") for question_type in QUESTION_TYPES.values())
 
 
+@pytest.mark.parametrize("question_type", QUESTION_TYPES)
+def test_a_question_type_is_fixed_in_its_schema(question_type: QuestionType) -> None:
+    type_schema = QUESTION_TYPES[question_type].json_schema()["properties"]["type"]
+    assert (type_schema["const"], type_schema["readOnly"]) == (question_type, True)
+
+
 def test_catalogue_schemas_describe_editable_fields() -> None:
     schemas = {name: question_type.json_schema() for name, question_type in QUESTION_TYPES.items()}
-
-    for question_type, schema in schemas.items():
-        assert schema["properties"]["type"]["const"] == question_type
-        assert schema["properties"]["type"]["readOnly"] is True
     assert schemas["choice"]["properties"]["options"]["minItems"] == 1
     assert schemas["text"]["properties"]["description"]["type"] == ["string", "null"]
 

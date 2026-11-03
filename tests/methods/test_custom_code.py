@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from gradeflow_core import BUILTINS, Question, QuestionSet
 from gradeflow_core.editing import Position
@@ -13,7 +13,15 @@ from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
-from .helpers import describe, mark, mark_all, mark_group, mark_scheme_of, problems_of
+from .helpers import (
+    describe,
+    located,
+    mark,
+    mark_all,
+    mark_group,
+    mark_scheme_of,
+    problems_of,
+)
 
 METHODS = {method.name: method for method in BUILTINS}
 
@@ -157,15 +165,20 @@ def test_code_runs_within_its_time_limit() -> None:
         {"memory_limit": runner.MAX_MEMORY_LIMIT_MB + 1},
     ],
 )
-def test_limits_are_bounded(limits: dict[str, int]) -> None:
-    for settings, valid_settings in (
+@pytest.mark.parametrize(
+    ("settings", "valid_settings"),
+    [
         (CustomCodeSettings, {"code": "x = 1"}),
         (CustomCodeForAGroupSettings, {"code": "x = 1", "questions": ["Q1"]}),
-    ):
-        settings.model_validate(valid_settings)
-        with pytest.raises(ValidationError) as caught:
-            settings.model_validate({**valid_settings, **limits})
-        assert [error_detail["loc"] for error_detail in caught.value.errors()] == [tuple(limits)]
+    ],
+)
+def test_limits_are_bounded(
+    limits: dict[str, int], settings: type[BaseModel], valid_settings: dict[str, Any]
+) -> None:
+    settings.model_validate(valid_settings)
+    with pytest.raises(ValidationError) as caught:
+        settings.model_validate({**valid_settings, **limits})
+    assert [error_detail["loc"] for error_detail in caught.value.errors()] == [tuple(limits)]
 
 
 def test_group_code_marks_each_of_its_questions_from_its_results() -> None:
@@ -208,10 +221,7 @@ def test_group_code_that_fails_leaves_its_questions_for_a_person(source: str, me
 
 def test_group_code_lists_each_question_of_the_assessment_once() -> None:
     [marking] = mark_scheme_of(custom_code_for_a_group("results = {}", "Q1", "Q1", "Q9")).markings
-    problems = [
-        (problem.check, problem.field, problem.message)
-        for problem in marking.problems(QuestionSet(QUESTIONS))
-    ]
+    problems = located(marking.problems(QuestionSet(QUESTIONS)))
     assert problems == [
         ("", ("questions", 1), "Q1 is listed twice."),
         ("", ("questions", 2), "Q9 isn't one of the questions."),

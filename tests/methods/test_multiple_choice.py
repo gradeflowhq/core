@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from gradeflow_core import BUILTINS, QuestionSet
@@ -35,37 +37,45 @@ def test_wrong_options_are_a_penalty_with_a_share_for_each_never_below_zero() ->
     assert proportions(mark_all(check, ["a, c", "c, d"], CHOICE)) == [0, 0]
 
 
-def test_feedback_names_the_correct_options() -> None:
-    def feedback(correct: list[str], compare: str, answer: str) -> str:
-        check = {
-            "uses": "gradeflow/multiple-choice@1",
-            "with": {"correct": correct, "compare": compare},
-        }
-        return mark(check, answer, CHOICE).feedback
-
-    assert feedback(["a", "b"], "exactly", "a, b") == "Correct."
-    assert feedback(["a", "b"], "exactly", "c") == "Expected “a” and “b”."
-    assert feedback(["a", "b"], "share_each", "a") == "Expected “a” and “b”."
-    assert feedback(["a", "b"], "any", "c") == "Expected “a” or “b”."
-    assert feedback(["c", "d"], "none", "d") == "Expected none of “c” and “d”."
-
-
-def test_it_describes_itself_and_refuses_options_the_question_lacks() -> None:
+@pytest.mark.parametrize(
+    ("correct", "compare", "answer", "feedback"),
+    [
+        (["a", "b"], "exactly", "a, b", "Correct."),
+        (["a", "b"], "exactly", "c", "Expected “a” and “b”."),
+        (["a", "b"], "share_each", "a", "Expected “a” and “b”."),
+        (["a", "b"], "any", "c", "Expected “a” or “b”."),
+        (["c", "d"], "none", "d", "Expected none of “c” and “d”."),
+    ],
+)
+def test_feedback_names_the_correct_options(
+    correct: list[str], compare: str, answer: str, feedback: str
+) -> None:
     check = {
         "uses": "gradeflow/multiple-choice@1",
-        "with": {"correct": ["a", "z"], "compare": "share_each"},
+        "with": {"correct": correct, "compare": compare},
     }
-    assert describe(check) == "Chooses `a` and `z`, a share for each."
-    assert describe({**check, "with": {"correct": ["b"]}}) == "Chooses exactly `b`."
-    assert describe({**check, "with": {"correct": ["a", "b"], "compare": "all"}}) == (
-        "Chooses `a` and `b`, other options allowed."
-    )
-    assert describe({**check, "with": {"correct": ["a", "b"], "compare": "none"}}) == (
-        "Chooses none of `a` and `b`."
-    )
-    assert describe({**check, "with": {"correct": ["a", "b"], "compare": "any"}}) == (
-        "Chooses `a` or `b`."
-    )
+    assert mark(check, answer, CHOICE).feedback == feedback
+
+
+@pytest.mark.parametrize(
+    ("settings", "description"),
+    [
+        (
+            {"correct": ["a", "z"], "compare": "share_each"},
+            "Chooses `a` and `z`, a share for each.",
+        ),
+        ({"correct": ["b"]}, "Chooses exactly `b`."),
+        ({"correct": ["a", "b"], "compare": "all"}, "Chooses `a` and `b`, other options allowed."),
+        ({"correct": ["a", "b"], "compare": "none"}, "Chooses none of `a` and `b`."),
+        ({"correct": ["a", "b"], "compare": "any"}, "Chooses `a` or `b`."),
+    ],
+)
+def test_it_describes_itself(settings: dict[str, Any], description: str) -> None:
+    assert describe({"uses": "gradeflow/multiple-choice@1", "with": settings}) == description
+
+
+def test_it_refuses_options_the_question_lacks() -> None:
+    check = {"uses": "gradeflow/multiple-choice@1", "with": {"correct": ["a", "z"]}}
     assert problems_of(check, CHOICE) == [("", ("correct", 1), "z isn't one of the options.")]
 
 

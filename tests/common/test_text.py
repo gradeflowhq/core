@@ -94,8 +94,11 @@ def test_unescaped_markdown_undoes_escapes_and_types_out_formulas() -> None:
     markdown = r"2\. Which state $(r,k)$ costs $\frac{1}{2}$, not \$5?" + "\n\n$$\nx \\le 3\n$$"
     assert unescaped_markdown(markdown) == "2. Which state (r,k) costs 1/2, not $5?\n\nx<=3"
     assert unescaped_markdown(r"A\_1 is $\text{50\% of \$5}$") == "A_1 is 50% of $5"
-    for text in ("costs $5 or $6", "a $ x$ b", "a 2$x$ b", "$x$5"):
-        assert unescaped_markdown(text) == text
+
+
+@pytest.mark.parametrize("text", ["costs $5 or $6", "a $ x$ b", "a 2$x$ b", "$x$5"])
+def test_unescaped_markdown_keeps_dollars_around_no_formula(text: str) -> None:
+    assert unescaped_markdown(text) == text
 
 
 def test_quoting_drops_a_final_full_stop_so_the_sentence_ends_once() -> None:

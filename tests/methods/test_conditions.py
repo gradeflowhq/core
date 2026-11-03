@@ -1,4 +1,5 @@
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -6,6 +7,7 @@ from gradeflow_core import (
     BUILTINS,
     MarkScheme,
     MethodFileError,
+    Question,
     QuestionSet,
     Submission,
     mark,
@@ -14,16 +16,8 @@ from gradeflow_core.methods.code import runner
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
-
-def mark_q1(check: dict[str, Any], answer: str = "x", *, two_values: bool = False) -> Any:
-    question = ValuesQuestion(value_types=["text", "text"]) if two_values else TextQuestion()
-    questions = QuestionSet({"Q1": question})
-    scheme = MarkScheme.load([{"question": "Q1", **check}])
-    assert not scheme.problems(questions)
-    return next(
-        mark(questions, scheme, [Submission(student_id="s", answers={"Q1": answer})])
-    ).results["Q1"]
-
+from . import helpers
+from .helpers import WRAPPED_NUMBER_RANGE
 
 NEVER_CORRECT = {
     "id": "never_correct",
@@ -38,35 +32,42 @@ ALWAYS_FALSE, ALWAYS_TRUE = (
 )
 
 
+TWO_VALUES = ValuesQuestion(value_types=["text", "text"])
+METHODS_OF_CHECKS = pytest.mark.parametrize(
+    ("method", "answer", "question"),
+    [("gradeflow/combination@1", "x", None), ("gradeflow/multiple-values@1", "x, y", TWO_VALUES)],
+)
+"""Methods holding checks, with an answer for each to mark."""
+
+
 def after_never_correct(check: dict[str, Any]) -> dict[str, Any]:
     return {"uses": "gradeflow/combination@1", "with": {"checks": [NEVER_CORRECT, check]}}
 
 
 @pytest.mark.parametrize(
-    "method", ["gradeflow/full-marks@1", "gradeflow/not-allowed@1", "gradeflow/custom-code@1"]
+    ("method", "settings"),
+    [
+        ("gradeflow/full-marks@1", {}),
+        ("gradeflow/not-allowed@1", {"check": {"uses": "gradeflow/full-marks@1"}}),
+        ("gradeflow/custom-code@1", {"code": "correct = True"}),
+    ],
 )
 def test_a_false_condition_precedes_method_execution(
-    monkeypatch: pytest.MonkeyPatch, method: str
+    monkeypatch: pytest.MonkeyPatch, method: str, settings: dict[str, Any]
 ) -> None:
-    def forbidden(*args: Any, **kwargs: Any) -> Any:
-        pytest.fail("A skipped check executed custom code")
-
-    monkeypatch.setattr(runner, "run", forbidden)
-    settings = (
-        {"check": {"uses": "gradeflow/full-marks@1"}}
-        if method == "gradeflow/not-allowed@1"
-        else {"code": "correct = True"}
-        if method == "gradeflow/custom-code@1"
-        else {}
+    run = Mock()
+    monkeypatch.setattr(runner, "run", run)
+    result = helpers.mark(
+        after_never_correct({"uses": method, "with": settings, "if": ALWAYS_FALSE}), "x"
     )
-    result = mark_q1(after_never_correct({"uses": method, "with": settings, "if": ALWAYS_FALSE}))
     assert (result.proportion, result.feedback, result.is_marked) == (0, "", True)
+    run.assert_not_called()
 
 
 @pytest.mark.parametrize("combine", ["all", "any", "none", "total", "proportional"])
-@pytest.mark.parametrize("method", ["gradeflow/combination@1", "gradeflow/multiple-values@1"])
+@METHODS_OF_CHECKS
 def test_skipped_checks_count_for_nothing_even_when_all_are_skipped(
-    combine: str, method: str
+    combine: str, method: str, answer: str, question: Question | None
 ) -> None:
     check = {
         "uses": method,
@@ -78,12 +79,8 @@ def test_skipped_checks_count_for_nothing_even_when_all_are_skipped(
             ],
         },
     }
-    result = mark_q1(
-        after_never_correct(check),
-        "x, y" if method == "gradeflow/multiple-values@1" else "x",
-        two_values=method == "gradeflow/multiple-values@1",
-    )
-    assert result.proportion == 0
+    result = helpers.mark(after_never_correct(check), answer, question)
+    assert (result.proportion, result.is_marked) == (0, True)
 
 
 @pytest.mark.parametrize("any_order", [False, True])
@@ -99,14 +96,16 @@ def test_skipped_values_count_for_nothing(any_order: bool) -> None:
             ],
         },
     }
-    assert mark_q1(after_never_correct(check), "x, y", two_values=True).proportion == 1
+    assert helpers.mark(after_never_correct(check), "x, y", TWO_VALUES).proportion == 1
     check["with"]["combine"] = "total"
     check["with"]["checks"][1]["weight"] = 0.5
-    assert mark_q1(after_never_correct(check), "x, y", two_values=True).proportion == 0.5
+    assert helpers.mark(after_never_correct(check), "x, y", TWO_VALUES).proportion == 0.5
 
 
-@pytest.mark.parametrize("method", ["gradeflow/combination@1", "gradeflow/multiple-values@1"])
-def test_named_skips_are_available_to_later_conditions(method: str) -> None:
+@METHODS_OF_CHECKS
+def test_named_skips_are_available_to_later_conditions(
+    method: str, answer: str, question: Question | None
+) -> None:
     check = {
         "uses": method,
         "with": {
@@ -116,14 +115,7 @@ def test_named_skips_are_available_to_later_conditions(method: str) -> None:
             ]
         },
     }
-    assert (
-        mark_q1(
-            after_never_correct(check),
-            "x, y" if method == "gradeflow/multiple-values@1" else "x",
-            two_values=method == "gradeflow/multiple-values@1",
-        ).proportion
-        == 1
-    )
+    assert helpers.mark(after_never_correct(check), answer, question).proportion == 1
 
 
 def test_any_order_values_cant_read_earlier_checks() -> None:
@@ -144,28 +136,12 @@ def test_any_order_values_cant_read_earlier_checks() -> None:
 
 
 def test_wrapped_incompatible_check_rejected() -> None:
-    methods = BUILTINS.with_files(
-        [
-            (
-                "sample/wrapped",
-                """label: Wrapped
-version: 1
-summary: A wrapped number range.
-question_types: [text]
-checks:
-  - uses: gradeflow/number-range@1
-    with: {min_value: 1}
-""",
-            )
-        ]
-    )
+    methods = BUILTINS.with_files([WRAPPED_NUMBER_RANGE])
     questions = QuestionSet({"Q1": TextQuestion()})
     marking = {"question": "Q1", "uses": "sample/wrapped@1"}
     problems = MarkScheme.load([marking], methods=methods).problems(questions)
     message = "Number Range can't mark a text question."
-    assert [(problem.check, problem.field, problem.message) for problem in problems] == [
-        ("markings.0", (), message)
-    ]
+    assert helpers.located(problems) == [("markings.0", (), message)]
 
 
 def test_problems_in_a_conditionals_branch_name_their_path() -> None:

@@ -12,6 +12,8 @@ from gradeflow_core.common.error_formatting import error_message
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.reading import ListReading
 
+from ..methods.helpers import located
+
 PYDANTIC_WORDING = (
     "Input should be",
     "validation error for",
@@ -24,9 +26,7 @@ PYDANTIC_WORDING = (
 def problems_of(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]]:
     with pytest.raises(InvalidError) as caught:
         Check.load(check)
-    problems = [
-        (problem.check, problem.field, problem.message) for problem in caught.value.problems
-    ]
+    problems = located(caught.value.problems)
     assert not any(fragment in message for *_, message in problems for fragment in PYDANTIC_WORDING)
     return problems
 

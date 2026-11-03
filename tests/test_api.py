@@ -92,10 +92,18 @@ def test_every_public_name_has_help_and_a_signature(module: ModuleType, name: st
         inspect.signature(member)
 
 
-def test_import_leaves_the_language_model_unloaded() -> None:
+def test_import_leaves_the_language_models_unloaded() -> None:
+    optional_packages = {
+        "fastembed",
+        "huggingface_hub",
+        "numpy",
+        "onnxruntime",
+        "openai",
+        "tokenizers",
+    }
     code = (
         "import sys, gradeflow_core, gradeflow_core.editing\n"
-        "assert not {'fastembed', 'numpy', 'onnxruntime', 'openai'} & sys.modules.keys()\n"
+        f"assert not {optional_packages} & sys.modules.keys()\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 

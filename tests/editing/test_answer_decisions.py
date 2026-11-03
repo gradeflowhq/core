@@ -9,9 +9,10 @@ from gradeflow_core.methods.answers.accepted_answers import AcceptedAnswers
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
-from .test_by_example import ACCEPTS_9_81, answer_proportions
+from ..methods.helpers import accepted_answer
+from .helpers import ACCEPTS_9_81, answer_proportions
 
-ACCEPTS_X = {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["x"]}}
+ACCEPTS_X = accepted_answer("x")
 
 
 @pytest.mark.parametrize("action", ["full_marks", "part_marks", "not_allowed"])
@@ -26,15 +27,15 @@ def test_nested_decisions_are_read_and_cancelled(action: Decision) -> None:
     assert marking == before
 
 
-def test_cancelling_an_override_restores_the_remaining_method() -> None:
+@pytest.mark.parametrize("action", ["full_marks", "part_marks", "not_allowed"])
+def test_cancelling_an_override_restores_the_remaining_method(action: Decision) -> None:
     marking = {"question": "Q1", "uses": "gradeflow/number-range@1", "with": {"min_value": 0}}
-    for action in ("full_marks", "part_marks", "not_allowed"):
-        with_decision = mark_by_example(marking, ["10"], action)
-        assert answer_decisions(with_decision) == {"10": action}
-        cancelled = mark_by_example(with_decision, ["10"], "cancel")
-        assert answer_decisions(cancelled) == {}
-        assert answer_proportions(cancelled) == [1, 0, 1, 1]
-        assert cancelled == marking
+    with_decision = mark_by_example(marking, ["10"], action)
+    assert answer_decisions(with_decision) == {"10": action}
+    cancelled = mark_by_example(with_decision, ["10"], "cancel")
+    assert answer_decisions(cancelled) == {}
+    assert answer_proportions(cancelled) == [1, 0, 1, 1]
+    assert cancelled == marking
 
 
 def test_full_marks_method_keeps_an_explicit_full_decision() -> None:
@@ -107,11 +108,11 @@ def test_recursive_cancellation_keeps_conditions_and_weights() -> None:
 
 
 def test_double_negation_and_added_up_decisions() -> None:
-    check: dict[str, Any] = {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["10"]}}
+    check = accepted_answer("10")
     for _ in range(2):
         check = {"uses": "gradeflow/not-allowed@1", "with": {"check": check}}
     assert answer_decisions(check) == {"10": "full_marks"}
-    accepts_eleven = {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["11"]}}
+    accepts_eleven = accepted_answer("11")
     proportional: dict[str, Any] = {
         "uses": "gradeflow/combination@1",
         "with": {"combine": "proportional", "checks": [check, accepts_eleven]},
@@ -151,12 +152,8 @@ def test_cancel_preserves_other_proportions_of_the_marks() -> None:
         "with": {
             "combine": "proportional",
             "checks": [
-                {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["10"]}},
-                {
-                    "weight": 3,
-                    "uses": "gradeflow/accepted-answers@1",
-                    "with": {"answers": ["9.81"]},
-                },
+                accepted_answer("10"),
+                accepted_answer("9.81", weight=3),
             ],
         },
     }
@@ -166,13 +163,16 @@ def test_cancel_preserves_other_proportions_of_the_marks() -> None:
     assert answer_decisions(cancelled) == {"9.81": "part_marks"}
 
 
-def test_an_incomplete_draft_has_no_decisions() -> None:
-    for marking in (
+@pytest.mark.parametrize(
+    "marking",
+    [
         {},
         {"uses": "gradeflow/not-allowed@1", "with": {}},
         {"uses": "gradeflow/accepted-answers@1", "with": {}},
-    ):
-        assert answer_decisions(marking) == {}
+    ],
+)
+def test_an_incomplete_draft_has_no_decisions(marking: dict[str, Any]) -> None:
+    assert answer_decisions(marking) == {}
 
 
 def test_cancelling_an_absent_decision_changes_nothing() -> None:

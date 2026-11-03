@@ -3,7 +3,7 @@ import zlib
 
 import pytest
 
-from gradeflow_core import GradeFlowError, QuestionSet, read_question_document
+from gradeflow_core import GradeFlowError, Question, QuestionSet, read_question_document
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.reading import ListReading
@@ -135,22 +135,28 @@ def test_choices_make_a_choice_question_with_every_option() -> None:
     )
 
 
-def test_one_correct_choice_keeps_whether_several_are_allowed() -> None:
+@pytest.mark.parametrize(
+    ("existing", "allow_multiple"),
+    [
+        (QUESTIONS["Q1"], False),
+        (ChoiceQuestion(options=frozenset({"a", "e"}), allow_multiple=True), True),
+    ],
+)
+def test_one_correct_choice_keeps_whether_several_are_allowed(
+    existing: Question, allow_multiple: bool
+) -> None:
     one_correct_item = _item(
         1, r"\pard\plain Pick\par" + _choice("A", "x", correct=True) + _choice("B", "y")
     )
-    allows_several = ChoiceQuestion(options=frozenset({"a", "e"}), allow_multiple=True)
-
-    for existing, allow_multiple in ((QUESTIONS["Q1"], False), (allows_several, True)):
-        questions_read = read_question_document(
-            _document(one_correct_item), QuestionSet({"Q1": existing})
-        )
-        assert questions_read["Q1"] == ChoiceQuestion(
-            options=frozenset({"a", "b"}),
-            allow_multiple=allow_multiple,
-            max_marks=2,
-            description="Pick\n\nA. x\n\nB. y",
-        )
+    questions_read = read_question_document(
+        _document(one_correct_item), QuestionSet({"Q1": existing})
+    )
+    assert questions_read["Q1"] == ChoiceQuestion(
+        options=frozenset({"a", "b"}),
+        allow_multiple=allow_multiple,
+        max_marks=2,
+        description="Pick\n\nA. x\n\nB. y",
+    )
 
 
 def test_blanks_make_a_question_of_their_values_and_hide_the_accepted_answers() -> None:

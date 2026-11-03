@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -122,12 +123,10 @@ def test_setup_downloads_nothing_once_prepared(
     monkeypatch: pytest.MonkeyPatch, prepared_cache: Path
 ) -> None:
     huggingface_hub = pytest.importorskip("huggingface_hub")
-
-    def forbidden(*args: Any, **kwargs: Any) -> str:
-        pytest.fail("Prepared files need no download.")
-
-    monkeypatch.setattr(huggingface_hub, "hf_hub_download", forbidden)
+    download = Mock()
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", download)
     nli.setup()
+    download.assert_not_called()
 
 
 @pytest.mark.parametrize("previous_cache", ["unversioned", "different-source"])

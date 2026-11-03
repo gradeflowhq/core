@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Literal
 
 from pydantic import Field, JsonValue
+from rapidfuzz import process
 from rapidfuzz.distance import Levenshtein
 
 from ..common.hints import hint
@@ -51,14 +52,8 @@ def match_note(match: Match, strictness: Strictness) -> str:
 
 def closest_spelling(text: str, candidates: Sequence[str], cutoff: float) -> int | None:
     """The index of the candidate spelt most like ``text``, the first on a tie, if alike enough."""
-    best = max(
-        range(len(candidates)),
-        key=lambda index: Levenshtein.normalized_similarity(text, candidates[index]),
-        default=None,
-    )
-    if best is None or Levenshtein.normalized_similarity(text, candidates[best]) < cutoff:
-        return None
-    return best
+    found = process.extractOne(text, candidates, scorer=Levenshtein.normalized_similarity)
+    return found[2] if found and found[1] >= cutoff else None
 
 
 def model_context(question: Question) -> str:

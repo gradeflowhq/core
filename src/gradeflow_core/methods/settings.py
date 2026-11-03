@@ -3,7 +3,7 @@
 from collections.abc import Iterable, Mapping
 from typing import Annotated, Any, Literal, get_args, get_origin
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, create_model
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model
 from pydantic.fields import FieldInfo
 
 IDENTIFIER = r"^[A-Za-z_][A-Za-z0-9_]*$"
@@ -57,19 +57,9 @@ def specialized(
     fields: dict[str, Any] = {}
     for name, info in settings.model_fields.items():
         if name not in without:
-            merged = _changed(info, changes.get(name, {}))
-            fields[name] = (merged.annotation, merged)
+            change = dict(changes.get(name, {}))
+            annotation = change.pop("annotation", info.annotation)
+            fields[name] = annotated(annotation, info, Field(**change))
     return create_model(
         settings.model_config.get("title") or settings.__name__, __base__=Settings, **fields
-    )
-
-
-def _changed(info: FieldInfo, changes: Mapping[str, Any]) -> FieldInfo:
-    """``info`` with ``changes`` to its attributes, such as its default, and constraints, such as
-    ``min_length``."""
-    attributes = {key: value for key, value in changes.items() if key in FieldInfo.__slots__}
-    constraints = {key: value for key, value in changes.items() if key not in attributes}
-    changed = FieldInfo.merge_field_infos(info, **attributes)
-    return (
-        FieldInfo.merge_field_infos(changed, FieldInfo(**constraints)) if constraints else changed
     )

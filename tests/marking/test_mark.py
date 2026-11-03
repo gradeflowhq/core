@@ -1,5 +1,6 @@
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -119,10 +120,7 @@ def test_a_marking_that_fails_leaves_its_questions_for_a_person_saying_why_only_
     error: Exception,
     feedback: str,
 ) -> None:
-    def broken(*args: object, **kwargs: object) -> None:
-        raise error
-
-    monkeypatch.setattr(code_runner, "run", broken)
+    monkeypatch.setattr(code_runner, "run", Mock(side_effect=error))
     custom = {"question": "Q1", "uses": "gradeflow/custom-code@1", "with": {"code": "x = 1"}}
     result = results_of(custom, Q1="a")["Q1"]
     assert (result.proportion, result.is_marked, result.feedback) == (0, False, feedback)
@@ -244,13 +242,12 @@ def test_each_version_of_a_method_precomputes_for_itself() -> None:
 def test_a_marking_of_a_question_not_supplied_precomputes_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def forbidden(*args: object, **kwargs: object) -> None:
-        pytest.fail("A marking with problems precomputed")
-
-    monkeypatch.setattr(PrecomputingVersion1, "precompute", forbidden)
+    precompute = Mock()
+    monkeypatch.setattr(PrecomputingVersion1, "precompute", precompute)
     scheme = MarkScheme.load(
         [{"question": "Q9", "uses": "test/precomputing@1"}],
         methods=Methods([PrecomputingVersion1()]),
     )
     [submission] = mark(QUESTIONS, scheme, [Submission(student_id="s1", answers={"Q9": "x"})])
     assert "Q9" not in submission.results
+    precompute.assert_not_called()

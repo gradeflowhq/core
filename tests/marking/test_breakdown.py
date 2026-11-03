@@ -7,12 +7,13 @@ from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
-from tests.fake_models import ENDPOINT, InstallFakeModels
+from tests.fake_models import FAST_MODEL_ENDPOINT, InstallFakeModels
 
 from ..methods.helpers import (
     CODE_QUESTION,
     accepted_answer,
     code_tests,
+    combination,
     key_point,
     mark,
     mark_all,
@@ -37,10 +38,6 @@ def breakdown_details(result: QuestionResult) -> list[dict[str, str]]:
         {detail.title: detail.value for detail in child.details}
         for child in result.breakdown.children
     ]
-
-
-def combination(combine: str, *checks: dict[str, Any]) -> dict[str, Any]:
-    return {"uses": "gradeflow/combination@1", "with": {"combine": combine, "checks": list(checks)}}
 
 
 def test_code_tests_break_down_into_their_tests_with_what_each_gave() -> None:
@@ -319,7 +316,7 @@ def number_range(question: str, min_value: float, max_value: float) -> dict[str,
 
 
 def answer_set(name: str, *checks: dict[str, Any], weight: float = 1) -> dict[str, Any]:
-    return {"name": name, "weight": weight, **combination("all", *checks)}
+    return combination("all", *checks, name=name, weight=weight)
 
 
 ANSWER_SETS_WITH_CARRIED_ERROR = {
@@ -384,18 +381,16 @@ PART_A_OR_B = {
             {"question": "Q1", "uses": "gradeflow/multiple-choice@1", "with": {"correct": ["a"]}}
         ],
         "then": [
-            {
-                "question": "Q2",
-                **combination(
-                    "total",
-                    {
-                        "uses": "gradeflow/key-points@1",
-                        "with": {"points": ["oxygen", "glucose", "chlorophyll"]},
-                    },
-                    {"uses": "gradeflow/length@1", "with": {"max_length": 30, "unit": "words"}},
-                    key_point("animals", name="Says animals photosynthesise", weight=-1),
-                ),
-            }
+            combination(
+                "total",
+                {
+                    "uses": "gradeflow/key-points@1",
+                    "with": {"points": ["oxygen", "glucose", "chlorophyll"]},
+                },
+                {"uses": "gradeflow/length@1", "with": {"max_length": 30, "unit": "words"}},
+                key_point("animals", name="Says animals photosynthesise", weight=-1),
+                question="Q2",
+            )
         ],
         "otherwise": [accepted_answer("respiration", question="Q2")],
     },
@@ -450,7 +445,7 @@ def test_answer_criteria_are_named_by_what_they_look_for(fake_models: InstallFak
         marking,
         ["6 + 10 = 16"],
         TextQuestion(max_marks=3),
-        model_endpoint=ENDPOINT.model_copy(update={"fast_model": "decider"}),
+        model_endpoint=FAST_MODEL_ENDPOINT,
     )
     assert breakdown_rows(result) == [
         ("**Correct total**", "earned", 2.0),

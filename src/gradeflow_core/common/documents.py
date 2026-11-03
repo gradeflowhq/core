@@ -1,15 +1,15 @@
 """YAML as people write it: loaded with the line of everything in it, and written back."""
 
 import re
-from collections.abc import Mapping, MutableMapping
-from copy import deepcopy
+from collections.abc import Mapping
 from io import StringIO
 from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.constructor import DuplicateKeyError
 from ruamel.yaml.error import YAMLError
-from ruamel.yaml.scalarstring import LiteralScalarString
+from ruamel.yaml.nodes import ScalarNode
+from ruamel.yaml.representer import RoundTripRepresenter
 
 from .exceptions import InvalidError
 from .paths import Location
@@ -25,8 +25,19 @@ class YamlError(InvalidError):
         super().__init__([Problem(message)])
 
 
+class _Representer(RoundTripRepresenter):
+    def represent_str(self, data: str) -> ScalarNode:
+        """``data``, as a block if it has several lines, as people write code."""
+        style = "|" if "\n" in data else None
+        return self.represent_scalar("tag:yaml.org,2002:str", data, style=style)
+
+
+_Representer.add_representer(str, _Representer.represent_str)
+
+
 def _new_yaml() -> YAML:
     yaml = YAML(typ="rt")
+    yaml.Representer = _Representer
     yaml.default_flow_style = False
     yaml.indent(mapping=2, sequence=4, offset=2)
     yaml.width = 100
@@ -75,22 +86,8 @@ def load_yaml(text: str) -> Any:
 
 def dump_yaml(data: Any) -> str:
     buffer = StringIO()
-    _new_yaml().dump(_as_blocks(deepcopy(data)), buffer)
+    _new_yaml().dump(data, buffer)
     return buffer.getvalue()
-
-
-def _as_blocks(node: Any) -> Any:
-    """``node``, changed in place so that text of several lines is written as a block, as people
-    write code."""
-    if isinstance(node, str) and "\n" in node:
-        return LiteralScalarString(node)
-    if isinstance(node, MutableMapping):
-        for key, value in node.items():
-            node[key] = _as_blocks(value)
-    elif isinstance(node, list):
-        for index, value in enumerate(node):
-            node[index] = _as_blocks(value)
-    return node
 
 
 def _line_of(document: Any, path: Location) -> int | None:

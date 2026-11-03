@@ -1,7 +1,6 @@
 """The templates of a method file, checked when it loads."""
 
 from collections.abc import Mapping
-from types import UnionType
 from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel
@@ -28,7 +27,7 @@ def _template_shape(annotation: Any) -> Shape:
     origin, args = get_origin(annotation), get_args(annotation)
     if origin is Annotated:
         return _template_shape(args[0])
-    if origin in (Union, UnionType):
+    if origin is Union:
         return _template_shape(next(arg for arg in args if arg is not type(None)))
     if origin is list:
         return ListOf(_template_shape(args[0]) if args else "any")

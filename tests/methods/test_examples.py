@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -16,7 +17,11 @@ from gradeflow_core import (
     mark_examples,
 )
 from gradeflow_core.editing import ExpectedResult, RowResult, mark_rows
-from tests.fake_models import ENDPOINT, InstallFakeModels, example_verdicts
+from tests.fake_models import (
+    FAST_AND_CAREFUL_ENDPOINT,
+    InstallFakeModels,
+    example_verdicts,
+)
 
 BASIC_METHOD_NAMES = {
     "gradeflow/accepted-answers",
@@ -188,11 +193,8 @@ examples:
 
 def test_methods_hold_declared_content_without_marking(monkeypatch: pytest.MonkeyPatch) -> None:
     methods = BUILTINS.with_files([("sample/example", EXAMPLE_METHOD_FILE)])
-
-    def forbidden(*args: Any, **kwargs: Any) -> Any:
-        pytest.fail("Reading method content must not evaluate examples.")
-
-    monkeypatch.setattr("gradeflow_core.marking.examples.mark", forbidden)
+    mark = Mock()
+    monkeypatch.setattr("gradeflow_core.marking.examples.mark", mark)
     [example] = methods[-1].examples
     assert example.description == "A declared description."
     assert example.rows[0].answers == {"Q1": "sample"}
@@ -200,6 +202,7 @@ def test_methods_hold_declared_content_without_marking(monkeypatch: pytest.Monke
         "Q1": ExpectedResult(marks=0, feedback="A declared expectation.")
     }
     assert BY_NAME["gradeflow/key-points"].examples
+    mark.assert_not_called()
 
 
 def test_explicit_evaluation_leaves_declared_expectations_unchanged() -> None:
@@ -281,8 +284,7 @@ def test_built_in_examples_declare_what_evaluating_them_gives(
     method: Method[Any], fake_models: InstallFakeModels
 ) -> None:
     fake_models(example_verdicts)
-    endpoint = ENDPOINT.model_copy(update={"fast_model": "decider", "careful_model": "reasoner"})
-    actual = mark_examples(method.ref, model_endpoint=endpoint)
+    actual = mark_examples(method.ref, model_endpoint=FAST_AND_CAREFUL_ENDPOINT)
     assert [example.description for example in actual] == [
         example.description for example in method.examples
     ]

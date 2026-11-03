@@ -12,20 +12,23 @@ def submission(student_id: str, answers: dict[str, str]) -> Submission:
     return Submission(student_id=student_id, answers=answers)
 
 
+def _inferred_question(answers: list[str], existing: Question | None = None) -> Question:
+    """The question of ``answers``, inferred or updated from ``existing``."""
+    submissions = [
+        Submission(student_id=f"s{index}", answers={"Q": answer})
+        for index, answer in enumerate(answers)
+    ]
+    return QuestionSet({"Q": existing} if existing else {}).updated_from(submissions)["Q"]
+
+
 def test_infer_empty_submissions_returns_empty_question_set() -> None:
     assert QuestionSet({}).updated_from([]) == QuestionSet({})
 
 
 def test_infer_choice_from_few_distinct_values() -> None:
-    submissions = [
-        submission("s1", {"q1": "red, blue, green"}),
-        submission("s2", {"q1": "blue , yellow"}),
-        submission("s3", {"q1": "green, purple"}),
-        submission("s4", {"q1": "red, blue"}),
-        submission("s5", {"q1": "yellow"}),
-    ]
-    questions = QuestionSet({}).updated_from(submissions)
-    question = questions["q1"]
+    question = _inferred_question(
+        ["red, blue, green", "blue , yellow", "green, purple", "red, blue", "yellow"]
+    )
     assert isinstance(question, ChoiceQuestion)
     assert question.options == {"red", "blue", "green", "yellow", "purple"}
     options = question.read("blue,  yellow ,  purple")
@@ -33,74 +36,35 @@ def test_infer_choice_from_few_distinct_values() -> None:
 
 
 def test_infer_choice_ignores_capitals() -> None:
-    submissions = [
-        submission("s1", {"q1": "A,B,C"}),
-        submission("s2", {"q1": "B,D"}),
-        submission("s3", {"q1": "C,E,A"}),
-    ]
-    questions = QuestionSet({}).updated_from(submissions)
-    question = questions["q1"]
+    question = _inferred_question(["A,B,C", "B,D", "C,E,A"])
     assert isinstance(question, ChoiceQuestion)
     assert question.options == {"a", "b", "c", "d", "e"}
     assert question.read("B,E,A") == frozenset({"b", "e", "a"})
 
 
 def test_infer_multiple_values_when_the_number_of_values_is_consistent() -> None:
-    submissions = [
-        submission("s1", {"q2": "x~ y"}),
-        submission("s2", {"q2": "a~ b"}),
-        submission("s3", {"q2": "  c ~  d  "}),
-        submission("s4", {"q2": ""}),
-    ]
-    questions = QuestionSet({}).updated_from(submissions)
-    question = questions["q2"]
+    question = _inferred_question(["x~ y", "a~ b", "  c ~  d  ", ""])
     assert isinstance(question, ValuesQuestion)
     values = question.read("m~ n")
     assert values == ["m", "n"]
 
 
 def test_infer_no_multiple_values_when_the_number_of_values_varies() -> None:
-    submissions = [
-        submission("s1", {"Q1": "x~ y~ z"}),
-        submission("s2", {"Q1": "a~ b"}),
-        submission("s3", {"Q1": "c1"}),
-        submission("s4", {"Q1": "c2"}),
-        submission("s5", {"Q1": "c3"}),
-        submission("s6", {"Q1": "c4"}),
-    ]
-    questions = QuestionSet({}).updated_from(submissions)
-    question = questions["Q1"]
+    question = _inferred_question(["x~ y~ z", "a~ b", "c1", "c2", "c3", "c4"])
     assert isinstance(question, TextQuestion)
 
 
 def test_infer_a_number_question_when_most_answers_are_numbers() -> None:
-    submissions = [
-        submission("s1", {"q3": "42"}),
-        submission("s2", {"q3": "3.14"}),
-        submission("s3", {"q3": "100"}),
-        submission("s4", {"q3": "N/A"}),
-        submission("s5", {"q3": "text"}),
-    ]
-    questions = QuestionSet({}).updated_from(submissions)
-    question = questions["q3"]
+    question = _inferred_question(["42", "3.14", "100", "N/A", "text"])
     assert isinstance(question, NumberQuestion)
     assert question.read("15") == 15
     assert question.read("2.5") == 2.5
 
 
 def test_infer_text_when_no_other_type_fits() -> None:
-    submissions = [
-        submission("s1", {"q4": "alpha"}),
-        submission("s2", {"q4": "beta"}),
-        submission("s3", {"q4": "gamma"}),
-        submission("s4", {"q4": "delta"}),
-        submission("s5", {"q4": "epsilon"}),
-        submission("s6", {"q4": "zeta"}),
-        submission("s7", {"q4": "eta"}),
-        submission("s8", {"q4": "theta"}),
-    ]
-    questions = QuestionSet({}).updated_from(submissions)
-    question = questions["q4"]
+    question = _inferred_question(
+        ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"]
+    )
     assert isinstance(question, TextQuestion)
     assert question.read("Hello World") == "hello world"
 
@@ -198,24 +162,10 @@ def test_read_with_an_inferred_question_set() -> None:
 
 
 def test_infer_choice_allows_multiple_when_counts_not_all_single_token() -> None:
-    submissions = [
-        submission("s1", {"Q1": "red, blue"}),
-        submission("s2", {"Q1": "blue"}),
-        submission("s3", {"Q1": "red, green"}),
-    ]
-    questions = QuestionSet({}).updated_from(submissions)
-    question = questions["Q1"]
+    question = _inferred_question(["red, blue", "blue", "red, green"])
     assert isinstance(question, ChoiceQuestion)
     assert question.allow_multiple is True
     assert question.read("red, blue") == frozenset({"red", "blue"})
-
-
-def _inferred_question(answers: list[str]) -> Question:
-    submissions = [
-        Submission(student_id=str(index), answers={"Q": answer})
-        for index, answer in enumerate(answers)
-    ]
-    return QuestionSet({}).updated_from(submissions)["Q"]
 
 
 @pytest.mark.parametrize(
@@ -246,26 +196,13 @@ def test_words_that_are_not_numbers_are_not_inferred_as_numbers() -> None:
 BLANK_ANSWERS = ["", "N/A", " , ", "  "]
 
 
-def _blank_submissions() -> list[Submission]:
-    return [
-        Submission(student_id=f"s{index}", answers={"Q1": answer})
-        for index, answer in enumerate(BLANK_ANSWERS)
-    ]
-
-
 def test_infer_blank_answers_as_text_not_an_empty_choice() -> None:
-    assert QuestionSet({}).updated_from(_blank_submissions())["Q1"].type == "text"
-
-
-def test_updating_infers_blank_new_questions_as_text() -> None:
-    updated = QuestionSet({}).updated_from(_blank_submissions())
-    assert updated["Q1"].type == "text"
+    assert _inferred_question(BLANK_ANSWERS).type == "text"
 
 
 def test_updating_keeps_choice_options_when_every_answer_is_blank() -> None:
-    question_set = QuestionSet({"Q1": ChoiceQuestion(options=frozenset({"a", "b"}))})
-    updated = question_set.updated_from(_blank_submissions())
-    assert updated["Q1"] == question_set["Q1"]
+    choice = ChoiceQuestion(options=frozenset({"a", "b"}))
+    assert _inferred_question(BLANK_ANSWERS, choice) == choice
 
 
 @pytest.mark.parametrize(
@@ -280,8 +217,7 @@ def test_updating_keeps_choice_options_when_every_answer_is_blank() -> None:
 def test_few_distinct_answers_are_choices_only_when_they_look_like_options(
     answers: list[str],
 ) -> None:
-    submissions = [submission(f"s{index}", {"q": answer}) for index, answer in enumerate(answers)]
-    assert not isinstance(QuestionSet({}).updated_from(submissions)["q"], ChoiceQuestion)
+    assert not isinstance(_inferred_question(answers), ChoiceQuestion)
 
 
 def test_a_chosen_type_takes_its_settings_from_the_answers() -> None:
@@ -304,30 +240,19 @@ def test_a_chosen_type_keeps_what_every_question_has() -> None:
 
 
 def test_answers_with_the_same_number_of_comma_separated_values_are_values() -> None:
-    submissions = [
-        submission(f"s{index}", {"q": answer})
-        for index, answer in enumerate(["2, -3", "-3, 2", "(2, -3)", "3, -2", ""])
-    ]
-    question = QuestionSet({}).updated_from(submissions)["q"]
+    question = _inferred_question(["2, -3", "-3, 2", "(2, -3)", "3, -2", ""])
     assert isinstance(question, ValuesQuestion)
     assert question.value_types == ["number", "number"]
     assert question.read("3, -2") == [3, -2]
 
 
 def test_options_listed_with_commas_stay_a_choice() -> None:
-    submissions = [
-        submission(f"s{index}", {"q": answer})
-        for index, answer in enumerate(["A, C", "B, D", "A, B"])
-    ]
-    assert isinstance(QuestionSet({}).updated_from(submissions)["q"], ChoiceQuestion)
+    assert isinstance(_inferred_question(["A, C", "B, D", "A, B"]), ChoiceQuestion)
 
 
 def test_commas_in_prose_do_not_turn_text_into_multiple_values() -> None:
-    submissions = [
-        submission("s1", {"q": "Ice floats, because it is less dense."}),
-        submission("s2", {"q": "Ice sinks, because it is denser."}),
-    ]
-    assert isinstance(QuestionSet({}).updated_from(submissions)["q"], TextQuestion)
+    answers = ["Ice floats, because it is less dense.", "Ice sinks, because it is denser."]
+    assert isinstance(_inferred_question(answers), TextQuestion)
 
 
 def test_multiple_values_chosen_are_read_with_the_default_separator() -> None:
@@ -342,5 +267,4 @@ def test_multiple_values_chosen_are_read_with_the_default_separator() -> None:
 
 @pytest.mark.parametrize("answers", [["Paris", "London"], ["3, east"], ["A", "B", "C"]])
 def test_answers_that_share_no_option_arent_a_choice(answers: list[str]) -> None:
-    submissions = [submission(f"s{index}", {"q": answer}) for index, answer in enumerate(answers)]
-    assert not isinstance(QuestionSet({}).updated_from(submissions)["q"], ChoiceQuestion)
+    assert not isinstance(_inferred_question(answers), ChoiceQuestion)

@@ -15,7 +15,7 @@ from gradeflow_core import (
     Submission,
     mark,
 )
-from gradeflow_core.editing import methods_used, rewrite_references
+from gradeflow_core.editing import dump_yaml, methods_used, rewrite_references
 from gradeflow_core.methods.logic.full_marks import FullMarks
 from gradeflow_core.methods.outcome import Outcome
 from gradeflow_core.methods.settings import Settings
@@ -23,10 +23,15 @@ from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.types import Answer
 
 
-def method_file(uses: str) -> str:
-    return (
-        "label: Wrapper\nversion: 1\nsummary: A wrapper.\nquestion_types: [text]\n"
-        f"checks:\n  - uses: {uses}\n"
+def method_file(uses: str, version: int = 1) -> str:
+    return dump_yaml(
+        {
+            "label": "Wrapper",
+            "version": version,
+            "summary": "A wrapper.",
+            "question_types": ["text"],
+            "checks": [{"uses": uses}],
+        }
     )
 
 
@@ -60,15 +65,11 @@ def test_loading_preserves_input_order_and_does_not_modify_supplied_collections(
     }
 
 
-def method_file_version(version: int, uses: str) -> str:
-    return method_file(uses).replace("version: 1", f"version: {version}")
-
-
 def test_versions_of_a_method_are_distinct_and_latest_keeps_the_highest() -> None:
     files = [
-        ("sample/wrapper", method_file_version(2, "gradeflow/full-marks@1")),
+        ("sample/wrapper", method_file("gradeflow/full-marks@1", version=2)),
         ("sample/other", method_file("gradeflow/full-marks@1")),
-        ("sample/wrapper", method_file_version(1, "gradeflow/not-allowed@1")),
+        ("sample/wrapper", method_file("gradeflow/not-allowed@1", version=1)),
     ]
     methods = BUILTINS.with_files(files)
     loaded = Methods(methods[len(BUILTINS) :])

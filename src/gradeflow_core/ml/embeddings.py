@@ -2,12 +2,14 @@
 
 import functools
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from . import MISSING_MODEL_MESSAGE, cache_directory
 
 if TYPE_CHECKING:
+    import numpy as np
     from fastembed import TextEmbedding
+    from numpy.typing import NDArray
 
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
@@ -30,13 +32,10 @@ def _model() -> TextEmbedding:
     return _load_model()
 
 
-def embed_texts(texts: Sequence[str]) -> list[list[float]]:
-    """Encode texts as normalized document vectors for comparing them by meaning."""
-    if not texts:
-        return []
-    model = _model()
+def embed_texts(texts: Sequence[str]) -> NDArray[np.float32]:
+    """Encode texts as normalized document vectors for comparing them by meaning, one row each."""
     import numpy as np
 
-    vectors = np.asarray(list(model.embed(list(texts))), dtype=np.float32)
-    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
-    return cast(list[list[float]], vectors.tolist())
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
+    return np.stack(list(_model().embed(list(texts))))

@@ -6,6 +6,8 @@ from ..questions.types import Answer, QuestionId, Unreadable
 
 FULL_MARKS_PROPORTION = 1 - 1e-9
 """A proportion this close to 1 is full marks, so rounding in sums doesn't cost a correct answer."""
+NO_MARKS_PROPORTION = 1e-9
+"""A proportion this close to 0 is no marks, so 0.1 + 0.2 - 0.3 in a sum gives none."""
 ROUNDING_TOLERANCE = 1e-6
 """Numbers this close count as equal, so rounding in sums such as 9.81 + 0.05 doesn't matter."""
 
@@ -99,8 +101,8 @@ def unanswered_outcome(answer: Answer | Unreadable) -> Outcome | None:
 
 
 def clamped(proportion: float) -> float:
-    """``proportion`` kept between 0 and 1."""
-    return min(max(proportion, 0.0), 1.0)
+    """``proportion`` kept between 0 and 1, and 0 when it is only rounding away from it."""
+    return 0.0 if proportion < NO_MARKS_PROPORTION else min(proportion, 1.0)
 
 
 def feedback_scope(

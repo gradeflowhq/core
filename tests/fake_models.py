@@ -16,6 +16,8 @@ from gradeflow_core import ModelEndpoint
 from gradeflow_core.common import model_service
 
 ENDPOINT = ModelEndpoint(url="https://models.test/v1", token=SecretStr("key"))
+FAST_MODEL_ENDPOINT = ENDPOINT.model_copy(update={"fast_model": "decider"})
+FAST_AND_CAREFUL_ENDPOINT = FAST_MODEL_ENDPOINT.model_copy(update={"careful_model": "reasoner"})
 
 type Verdict = float | str
 """P(yes), or "yes", "no" or "unsure: reason". The fast model reads a word as 0.95 or 0.05;
@@ -70,15 +72,15 @@ class FakeModels:
             message = "Unsupported parameter: reasoning_effort."
             return httpx2.Response(400, json={"error": {"message": message}})
         if self.answers_per_reply is not None and len(answers) > self.answers_per_reply:
-            return _reply("I can't tell.", [])
+            return reply("I can't tell.", [])
         if any(text in self.failing_answers for _, text, _ in answers):
             return httpx2.Response(500, json={"error": {"message": "Overloaded."}})
         logprobs = bool(body.get("logprobs")) and model not in self.without_logprobs
         if not answers:  # a plain question, as choosing models asks first
-            return _reply("Yes", [_token("Yes", 0.99)] if logprobs else [])
+            return reply("Yes", [_token("Yes", 0.99)] if logprobs else [])
         if self.garbled_replies:
             self.garbled_replies -= 1
-            return _reply("I can't tell.", [])
+            return reply("I can't tell.", [])
         preamble = prompt.split("\n\n<answer")[0]
         criteria = dict(_NUMBERED_CRITERION.findall(preamble))
         question_match = _QUESTION.match(preamble)
@@ -108,7 +110,7 @@ class FakeModels:
                 word = "Yes" if probability >= 0.5 else "No"
                 lines[-1] += f" {word}"
                 tokens.append(_token(f" {word}", probability))
-        return _reply("\n".join(lines), tokens if logprobs else [])
+        return reply("\n".join(lines), tokens if logprobs else [])
 
     def _careful_reply(
         self,
@@ -125,7 +127,7 @@ class FakeModels:
                 ).partition(":")
                 reason_suffix = f" ({reason.strip()})" if reason else ""
                 lines.append(f"{label} {number}: {word.capitalize()}{reason_suffix}")
-        return _reply("<think>Looking at each answer.</think>\n" + "\n".join(lines), [])
+        return reply("<think>Looking at each answer.</think>\n" + "\n".join(lines), [])
 
 
 def _probability(verdict: Verdict) -> float:
@@ -186,7 +188,7 @@ def _token(text: str, probability: float) -> dict[str, Any]:
     }
 
 
-def _reply(content: str, tokens: list[dict[str, Any]]) -> httpx2.Response:
+def reply(content: str, tokens: list[dict[str, Any]]) -> httpx2.Response:
     return httpx2.Response(
         200,
         json={
@@ -206,22 +208,29 @@ def _reply(content: str, tokens: list[dict[str, Any]]) -> httpx2.Response:
     )
 
 
+def fake_client(
+    respond: Callable[[httpx2.Request], httpx2.Response],
+) -> Callable[[ModelEndpoint], openai.OpenAI]:
+    """A client for every endpoint, served by ``respond``."""
+
+    def client(endpoint: ModelEndpoint) -> openai.OpenAI:
+        return openai.OpenAI(
+            base_url=endpoint.url,
+            api_key=endpoint.token.get_secret_value(),
+            max_retries=0,
+            http_client=httpx2.Client(transport=httpx2.MockTransport(respond)),
+        )
+
+    return client
+
+
 @pytest.fixture
 def fake_models(monkeypatch: pytest.MonkeyPatch) -> InstallFakeModels:
     """Point every model endpoint at a fake service answering from the given verdicts."""
 
     def install(verdicts: VerdictFunction) -> FakeModels:
         fake = FakeModels(verdicts)
-
-        def client(endpoint: ModelEndpoint) -> openai.OpenAI:
-            return openai.OpenAI(
-                base_url=endpoint.url,
-                api_key=endpoint.token.get_secret_value(),
-                max_retries=0,
-                http_client=httpx2.Client(transport=httpx2.MockTransport(fake.respond)),
-            )
-
-        monkeypatch.setattr(model_service, "_client", client)
+        monkeypatch.setattr(model_service, "_client", fake_client(fake.respond))
         return fake
 
     return install

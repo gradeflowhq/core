@@ -6,7 +6,13 @@ import pytest
 from gradeflow_core import GradeFlowError, MarkScheme, QuestionSet, Submission, choose_models, mark
 from gradeflow_core.editing import list_models, try_model
 from gradeflow_core.questions.text import TextQuestion
-from tests.fake_models import ENDPOINT, InstallFakeModels, Verdict, example_verdicts
+from tests.fake_models import (
+    ENDPOINT,
+    FAST_MODEL_ENDPOINT,
+    InstallFakeModels,
+    Verdict,
+    example_verdicts,
+)
 
 QUESTIONS = QuestionSet({"Q1": TextQuestion(max_marks=3)})
 SCHEME = MarkScheme.load(
@@ -26,7 +32,6 @@ SCHEME = MarkScheme.load(
 )
 CORRECT_ANSWER = "3 × 2 = 6 and 2 × 5 = 10, so 6 + 10 = $16"
 UNSUMMED_ANSWER = "3 × 2 = 6 and 2 × 5 = 10, so she pays $6 and $10"
-FAST_MODEL_ENDPOINT = ENDPOINT.model_copy(update={"fast_model": "decider"})
 
 
 def submissions(*answers: str) -> list[Submission]:

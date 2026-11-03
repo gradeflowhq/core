@@ -1,5 +1,6 @@
 import errno
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
@@ -81,10 +82,8 @@ def test_feedback_shows_values_as_python_writes_them() -> None:
 
 
 def test_code_that_cannot_start_is_left_for_a_person(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unavailable(*args: object, **kwargs: object) -> None:
-        raise OSError(errno.EAGAIN, "Resource temporarily unavailable")
-
-    monkeypatch.setattr(runner, "run", unavailable)
+    unavailable = OSError(errno.EAGAIN, "Resource temporarily unavailable")
+    monkeypatch.setattr(runner, "run", Mock(side_effect=unavailable))
     result = mark(code_tests(F_GIVES_1), "def f():\n    return 1", CODE_QUESTION)
     assert (result.is_marked, result.feedback) == (False, "Couldn't mark this answer.")
 

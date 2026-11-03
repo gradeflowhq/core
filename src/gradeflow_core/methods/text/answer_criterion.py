@@ -42,6 +42,8 @@ CAREFUL_SYSTEM_PROMPT = (
 )
 NO_REPLY = "no reply from the model"
 _VERDICT_LINE = re.compile(r"^\W*(A\d+)\W+(\d+)\W*:\s*(yes|no|unsure)\b\W*(.*?)\W*$", re.IGNORECASE)
+_ANSWER_TAG = re.compile(r"<(?=\s*/?\s*answer)", re.IGNORECASE)
+"""The ``<`` of an answer tag, which a student's answer can't write."""
 
 
 class AnswerCriterionSettings(Settings):
@@ -156,7 +158,7 @@ class AnswerCriterion(Method[AnswerCriterionSettings]):
                 request_verdicts = requests.decide(texts)
             except ModelNotChosen as error:
                 request_verdicts = _undecided_verdicts(
-                    _answer_criterion_pairs(texts, criteria), (), _reason_from_error(error)
+                    itertools.product(texts, criteria), (), _reason_from_error(error)
                 )
             for (text, criterion), verdict in request_verdicts.items():
                 verdicts[request_key, text, criterion] = verdict
@@ -177,10 +179,6 @@ def _undecided_verdicts(
     pairs: Iterable[tuple[str, str]], models: tuple[str, ...], reason: str
 ) -> dict[tuple[str, str], Verdict]:
     return dict.fromkeys(pairs, Verdict(None, models, reason))
-
-
-def _answer_criterion_pairs(texts: Iterable[str], criteria: Sequence[str]) -> list[tuple[str, str]]:
-    return [(text, criterion) for text in texts for criterion in criteria]
 
 
 def _request_key(settings: AnswerCriterionSettings) -> Hashable:
@@ -255,7 +253,7 @@ class _CriterionRequests:
                 probabilities = _ask_with_retry(lambda: self._yes_probabilities(model, batch))
             except model_service.ServiceError as error:
                 return _undecided_verdicts(
-                    _answer_criterion_pairs(batch, self.criteria),
+                    itertools.product(batch, self.criteria),
                     (model,),
                     _reason_from_error(error),
                 )
@@ -273,9 +271,7 @@ class _CriterionRequests:
                 return {
                     key: verdict for text in batch for key, verdict in decide_batch([text]).items()
                 }
-            return _undecided_verdicts(
-                _answer_criterion_pairs(batch, self.criteria), (model,), NO_REPLY
-            )
+            return _undecided_verdicts(itertools.product(batch, self.criteria), (model,), NO_REPLY)
 
         return self._ask_in_batches(decide_batch, texts, "Deciding criteria")
 
@@ -303,7 +299,7 @@ class _CriterionRequests:
         probabilities = model_service.yes_probabilities(reply)
         if len(probabilities) != len(batch) * len(self.criteria):
             return None
-        return dict(zip(_answer_criterion_pairs(batch, self.criteria), probabilities, strict=True))
+        return dict(zip(itertools.product(batch, self.criteria), probabilities, strict=True))
 
     def _decide_carefully(
         self, criteria_to_ask: Mapping[str, list[int]], earlier_models: tuple[str, ...]
@@ -401,4 +397,4 @@ def _ask_with_retry[T](ask: Callable[[], T | None]) -> T | None:
 
 
 def _tagged_answer(label: str, text: str) -> str:
-    return f'<answer id="{label}">\n{text}\n</answer>'
+    return f'<answer id="{label}">\n{_ANSWER_TAG.sub("&lt;", text)}\n</answer>'

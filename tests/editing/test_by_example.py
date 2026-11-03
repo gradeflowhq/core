@@ -12,14 +12,8 @@ from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
-from ..methods.helpers import describe, mark_all, proportions
-
-ACCEPTS_9_81: dict[str, Any] = {
-    "question": "Q1",
-    "uses": "gradeflow/accepted-answers@1",
-    "with": {"answers": ["9.81"]},
-}
-ANSWERS = ["9.81", "-9.81", "9.8", "10"]
+from ..methods.helpers import describe
+from .helpers import ACCEPTS_9_81, ANSWERS, answer_proportions, check_of
 
 
 def decide_again(
@@ -33,11 +27,6 @@ def decide_again(
     """Cancel the answers' decision, if any, and decide them again."""
     cancelled = mark_by_example(marking, answers, "cancel", question=question)
     return mark_by_example(cancelled, answers, action, proportion, question=question)
-
-
-def answer_proportions(marking: Mapping[str, object]) -> list[float]:
-    check = {key: value for key, value in marking.items() if key != "question"}
-    return proportions(mark_all(check, ANSWERS, NumberQuestion()))
 
 
 def test_full_marks_accept_the_answers() -> None:
@@ -162,20 +151,15 @@ def test_cancelling_the_last_accepted_answer_gives_no_marks_to_every_answer() ->
     assert answer_proportions(mark_by_example(marking, ["10"], "part_marks")) == [0, 0, 0, 0.5]
 
 
-def test_marking_an_empty_draft_by_example_produces_valid_marking() -> None:
+@pytest.mark.parametrize(
+    ("action", "proportion"), [("full_marks", 1), ("part_marks", 0.5), ("not_allowed", 0)]
+)
+def test_marking_an_empty_draft_by_example_produces_valid_marking(
+    action: Decision, proportion: float
+) -> None:
     empty_marking = {"question": "Q1", "uses": "gradeflow/accepted-answers@1", "with": {}}
-    decisions: list[tuple[Decision, float]] = [
-        ("full_marks", 1),
-        ("part_marks", 0.5),
-        ("not_allowed", 0),
-    ]
-    for action, expected in decisions:
-        assert answer_proportions(mark_by_example(empty_marking, ["10"], action)) == [
-            0,
-            0,
-            0,
-            expected,
-        ]
+    marking = mark_by_example(empty_marking, ["10"], action)
+    assert answer_proportions(marking) == [0, 0, 0, proportion]
 
 
 @pytest.mark.parametrize("settings", [{}, {"answers": ["10"]}])
@@ -186,17 +170,13 @@ def test_not_allowed_keeps_the_answer_when_nothing_is_accepted(settings: dict[st
         "with": settings,
     }
     not_allowed_marking = decide_again(empty_marking, ["10"], "not_allowed")
-    description = describe(
-        {key: value for key, value in not_allowed_marking.items() if key != "question"}
-    )
+    description = describe(check_of(not_allowed_marking))
     assert "**Not allowed:** Matches `10`." in description
     assert "- Full marks for every answer" not in description
     assert answer_proportions(not_allowed_marking) == [0, 0, 0, 0]
 
     accepting_marking = mark_by_example(not_allowed_marking, ["9.81"], "full_marks")
-    description = describe(
-        {key: value for key, value in accepting_marking.items() if key != "question"}
-    )
+    description = describe(check_of(accepting_marking))
     assert "**Not allowed:** Matches `10`." in description
     assert answer_proportions(accepting_marking) == [1, 0, 0, 0]
     assert answer_proportions(decide_again(accepting_marking, ["10"], "full_marks")) == [1, 0, 0, 1]
@@ -206,7 +186,7 @@ def test_repeated_rejections_keep_each_answer() -> None:
     marking = {"question": "Q1", "uses": "gradeflow/accepted-answers@1", "with": {}}
     for answer in ["10", "9.8", "-9.81"]:
         marking = mark_by_example(marking, [answer], "not_allowed")
-    description = describe({key: value for key, value in marking.items() if key != "question"})
+    description = describe(check_of(marking))
     assert all(f"`{answer}`" in description for answer in ["10", "9.8", "-9.81"])
     assert answer_proportions(marking) == [0, 0, 0, 0]
 
@@ -270,7 +250,7 @@ def test_existing_nested_accepted_answers_are_flattened_on_the_next_edit() -> No
         "with": {
             "combine": "any",
             "checks": [
-                {key: value for key, value in rejected.items() if key != "question"},
+                check_of(rejected),
                 {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["-9.81"]}},
             ],
         },
@@ -299,7 +279,7 @@ def test_a_not_allowed_check_stays_local_when_another_alternative_accepts_its_an
         "with": {
             "combine": "any",
             "checks": [
-                {key: value for key, value in rejected.items() if key != "question"},
+                check_of(rejected),
                 {"uses": "gradeflow/accepted-answers@1", "with": other_settings},
             ],
         },

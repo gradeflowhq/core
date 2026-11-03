@@ -53,13 +53,13 @@ def test_feedback_says_what_was_expected() -> None:
     )
 
 
-def test_an_answer_that_isnt_an_expression_gets_no_marks() -> None:
-    for answer in ["2x +", "2x = 2", "__import__('os')", "x.real"]:
-        result = mark(equivalent_expression("2x + 2"), answer)
-        assert (result.proportion, result.feedback) == (
-            0,
-            "Couldn't read it as an expression. Expected an expression equal to “2x + 2”.",
-        )
+@pytest.mark.parametrize("answer", ["2x +", "2x = 2", "__import__('os')", "x.real"])
+def test_an_answer_that_isnt_an_expression_gets_no_marks(answer: str) -> None:
+    result = mark(equivalent_expression("2x + 2"), answer)
+    assert (result.proportion, result.feedback) == (
+        0,
+        "Couldn't read it as an expression. Expected an expression equal to “2x + 2”.",
+    )
 
 
 def test_a_variable_the_accepted_expressions_dont_use_gets_no_marks() -> None:

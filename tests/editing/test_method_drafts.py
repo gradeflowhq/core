@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -27,20 +28,12 @@ from gradeflow_core.editing import (
 )
 from gradeflow_core.methods import catalogue
 
-NUMBER_QUESTIONS = QuestionSet.model_validate({"Q1": {"type": "number", "max_marks": 2}})
+from .helpers import NUMBER_QUESTIONS, number_range_draft
+
 TWO_NUMBER_QUESTIONS = QuestionSet.model_validate(
     {"Q1": {"type": "number"}, "Q2": {"type": "number"}}
 )
 TEXT_QUESTIONS = QuestionSet.model_validate({"Q1": {"type": "text"}})
-
-
-def number_range_draft() -> MethodDraft:
-    draft = MethodDraft.new(
-        NUMBER_QUESTIONS, name="range", version=1, label="Within a range", summary="In range."
-    )
-    draft.checks.add("with.checks.0", "gradeflow/number-range@1")
-    draft.checks.update("with.checks.0", {"min_value": 10, "max_value": 20})
-    return draft
 
 
 def reopen(draft: MethodDraft, *, version: int = 1) -> MethodDraft:
@@ -205,12 +198,16 @@ def test_trying_rows_leaves_the_examples_unchanged() -> None:
     assert draft.examples == ()
 
 
-def test_versions_are_explicit_positive_and_written_by_the_draft() -> None:
+@pytest.mark.parametrize("version", [0, -1])
+def test_a_version_is_positive(version: int) -> None:
     text = number_range_draft().to_yaml()
-    for invalid, message in ((0, "Must be more than 0"), (-1, "Must be more than 0")):
-        draft = MethodDraft.from_yaml(text, NUMBER_QUESTIONS, name="range", version=invalid)
-        with pytest.raises(EditingError, match=message):
-            draft.finalized()
+    draft = MethodDraft.from_yaml(text, NUMBER_QUESTIONS, name="range", version=version)
+    with pytest.raises(EditingError, match="Must be more than 0"):
+        draft.finalized()
+
+
+def test_versions_are_explicit_and_written_by_the_draft() -> None:
+    text = number_range_draft().to_yaml()
     with pytest.raises(MethodFileError, match="version"):
         BUILTINS.with_files([("sample/range", text.replace("version: 1\n", ""))])
     version_5 = MethodDraft.from_yaml(text, NUMBER_QUESTIONS, name="range", version=5)
@@ -430,11 +427,8 @@ def test_examples_publish_without_execution_or_fabricated_expectations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     draft = number_range_draft()
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        pytest.fail("Publishing examples must not run marking.")
-
-    monkeypatch.setattr("gradeflow_core.marking.examples.mark", forbidden)
+    mark = Mock()
+    monkeypatch.setattr("gradeflow_core.marking.examples.mark", mark)
     wrong_expected = {"Q1": ExpectedResult(marks=2, feedback="Wrong.")}
     index = draft.set_example(
         [
@@ -451,6 +445,7 @@ def test_examples_publish_without_execution_or_fabricated_expectations(
     assert method.examples[0].questions == dict(draft.questions)
     assert draft.set_example([], index=0) is None
     assert draft.finalized().examples == ()
+    mark.assert_not_called()
 
 
 def test_changed_test_values_do_not_replace_defaults_and_fix_uses_authored_default() -> None:

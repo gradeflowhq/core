@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any
+from unittest.mock import Mock, call
 
 import pytest
 
@@ -20,7 +20,7 @@ from gradeflow_core.methods.templates import (
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
-from .helpers import mark, mark_all, mark_group, problems_of
+from .helpers import accepted_answer, mark, mark_all, mark_group, problems_of
 
 TEMPLATE_SCOPE: Mapping[str, Shape] = {
     "checks": {"test": EARLIER_RESULT},
@@ -85,13 +85,12 @@ def test_templates_are_refused_on_load_for_what_they_cant_do(source: str, messag
 
 
 def test_a_checks_feedback_template_replaces_its_feedback_with_the_answer_as_written() -> None:
-    check = {
-        "uses": "gradeflow/accepted-answers@1",
-        "with": {"answers": ["Paris"]},
-        "feedback": (
+    check = accepted_answer(
+        "Paris",
+        feedback=(
             "{% if correct %}Yes, {{ answer }}.{% else %}{{ answer }} isn't the capital.{% endif %}"
         ),
-    }
+    )
     assert [mark(check, answer).feedback for answer in ("Paris ", "Lyon")] == [
         "Yes, Paris.",
         "Lyon isn't the capital.",
@@ -99,11 +98,7 @@ def test_a_checks_feedback_template_replaces_its_feedback_with_the_answer_as_wri
 
 
 def test_feedback_for_each_outcome_replaces_its_feedback_and_an_empty_one_keeps_it() -> None:
-    check = {
-        "uses": "gradeflow/accepted-answers@1",
-        "with": {"answers": ["Paris"]},
-        "feedback": {"correct": "Yes, {{ answer }}.", "incorrect": ""},
-    }
+    check = accepted_answer("Paris", feedback={"correct": "Yes, {{ answer }}.", "incorrect": ""})
     assert [mark(check, answer).feedback for answer in ("paris", "lyon")] == [
         "Yes, paris.",
         "Expected “Paris”.",
@@ -111,11 +106,7 @@ def test_feedback_for_each_outcome_replaces_its_feedback_and_an_empty_one_keeps_
 
 
 def test_feedback_for_an_outcome_says_where_its_template_is_wrong() -> None:
-    check = {
-        "uses": "gradeflow/accepted-answers@1",
-        "with": {"answers": ["Paris"]},
-        "feedback": {"partly_correct": "{{ anser }}"},
-    }
+    check = accepted_answer("Paris", feedback={"partly_correct": "{{ anser }}"})
     assert problems_of(check) == [("", ("feedback", "partly_correct"), "There's no anser.")]
 
 
@@ -131,15 +122,14 @@ def test_feedback_can_name_earlier_checks_results() -> None:
                     "uses": "gradeflow/key-point@1",
                     "with": {"point": "m/s"},
                 },
-                {
-                    "question": "Q2",
-                    "uses": "gradeflow/accepted-answers@1",
-                    "with": {"answers": ["9.81"]},
-                    "feedback": (
+                accepted_answer(
+                    "9.81",
+                    question="Q2",
+                    feedback=(
                         "{% if not checks.unit.correct %}Give units in Q1. {% endif %}"
                         "{{ proportion | percent }}"
                     ),
-                },
+                ),
             ]
         },
     }
@@ -221,18 +211,12 @@ def test_feedback_can_add_to_the_methods_own() -> None:
 def test_marking_compiles_each_template_once_for_every_student(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    compiled: list[str] = []
-    original = templates.ENVIRONMENT.from_string
-
-    def recording_from_string(source: str) -> Any:
-        compiled.append(source)
-        return original(source)
-
-    monkeypatch.setattr(templates.ENVIRONMENT, "from_string", recording_from_string)
+    from_string = Mock(wraps=templates.ENVIRONMENT.from_string)
+    monkeypatch.setattr(templates.ENVIRONMENT, "from_string", from_string)
     feedback = "{{ answer }} was marked {{ feedback }} once per template"
     check = {"uses": "gradeflow/key-point@1", "with": {"point": "x"}, "feedback": feedback}
     mark_all(check, [f"answer {index}" for index in range(5)])
-    assert compiled.count(feedback) == 1
+    assert from_string.call_args_list.count(call(feedback)) == 1
 
 
 def test_template_shapes_match_what_marking_gives_them() -> None:

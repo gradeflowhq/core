@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from ..common.documents import YamlError, as_plain_data, load_yaml_with_lines, with_line
 from ..common.error_formatting import error_message
 from ..common.exceptions import GradeFlowError, MethodFileError
+from ..common.paths import join
 from .composed.file import MethodFile, MethodFileFieldError, methods_used, methods_used_by_file
 from .composed.method import ComposedMethod
 from .method import Method
@@ -162,9 +163,8 @@ def _validated(document: Any, data: Any) -> MethodFile:
     except ValidationError as error:
         first_error = error.errors()[0]
         path = tuple(first_error["loc"])
-        field_path = ".".join(map(str, path))
         raise MethodFileError(
-            with_line(document, path, f"{field_path}: {error_message(first_error)}")
+            with_line(document, path, f"{join(*path)}: {error_message(first_error)}")
         ) from None
 
 
