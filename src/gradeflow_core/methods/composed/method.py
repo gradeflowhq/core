@@ -75,7 +75,7 @@ class ComposedMethod(Method[Settings]):
         inner = self._expanded(check)
         if self.file.description is None:
             return inner.describe()
-        parts = [part.describe() for _, part, _ in inner.method.nested(inner)]
+        parts = [part.describe() for _, part, _ in inner.method.inner_checks(inner)]
         return render(
             self.file.description, {"inputs": dict(self._settings_of(check)), "parts": parts}
         )
@@ -90,6 +90,8 @@ class ComposedMethod(Method[Settings]):
         outcomes = self._expanded(check).mark(context, question, value)
         template = self.file.feedback
         scope = {"inputs": dict(self._settings_of(check))}
+        # A method file with a description is titled by it, not by the checks it is written as.
+        described = self.file.description is not None
         return {
             key: replace(
                 outcome,
@@ -97,6 +99,8 @@ class ComposedMethod(Method[Settings]):
                 feedback=outcome.feedback
                 if template is None
                 else rendered_feedback(template, scope, outcome, context, key, value),
+                title="" if described else outcome.title,
+                labels=() if described else outcome.labels,
             )
             for key, outcome in outcomes.items()
         }
@@ -107,7 +111,7 @@ class ComposedMethod(Method[Settings]):
     def questions_read(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
         return self._expanded(check).questions_read(question)
 
-    def validation_children(self, check: Check) -> Iterator[tuple[Loc, Check, bool]]:
+    def expanded_checks(self, check: Check) -> Iterator[tuple[Loc, Check, bool]]:
         yield ("generated", self.name), self._expanded(check), False
 
 

@@ -12,7 +12,7 @@ from pydantic import Field
 from ...common import model_service
 from ...common.hints import hint
 from ...common.model_service import ModelEndpoint
-from ...common.text import markdown_code, sentence
+from ...common.text import markdown_code, markdown_text, sentence
 from ...questions.base import Question
 from ...questions.question_set import read_answer
 from ...questions.types import QuestionId
@@ -110,6 +110,11 @@ class AnswerCriterion(Method[AnswerCriterionSettings]):
 
     def describe(self, check: Check) -> str:
         return f"Meets {markdown_code(self._settings_of(check).criterion)}."
+
+    def title(self, check: Check) -> str:
+        # Answer Criteria names each criterion by its text, which then needs no title of its own.
+        criterion = self._settings_of(check).criterion
+        return "" if check.name == criterion else markdown_text(criterion)
 
     def mark(
         self, check: Check, context: Context, question: QuestionId | None, value: int | None

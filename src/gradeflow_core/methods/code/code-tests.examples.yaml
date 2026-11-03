@@ -1,0 +1,54 @@
+examples:
+  - title: Write add(a, b), which returns the sum of a and b.
+    description: |-
+      Passes these tests, each counting:
+      - `add(2, 3)` gives `5`.
+      - `add(-1, 1)` gives `0`.
+    questions:
+      Q1: {type: code, max_marks: 2}
+    with:
+      combine: proportional
+      tests:
+        - {expression: "add(2, 3)", expected: "5"}
+        - {expression: "add(-1, 1)", expected: "0"}
+    rows:
+      - answers:
+          Q1: "def add(a, b):\n    return a + b"
+        expected:
+          Q1:
+            marks: 2.0
+            feedback: Passed both tests.
+      - answers:
+          Q1: "def add(a, b):\n    return 5"
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Passed 1 of 2 tests.
+              add(-1, 1) gave 5. Expected 0.
+  - title: Write mean(numbers), which returns 0 for an empty list.
+    description: |-
+      Passes both tests:
+      - `mean([1, 2, 3])` gives `2`.
+      - `mean([])` gives `0`.
+    questions:
+      Q1: {type: code}
+    with:
+      tests:
+        - {expression: "mean([1, 2, 3])", expected: "2"}
+        - {expression: "mean([])", expected: "0"}
+    rows:
+      - answers:
+          Q1: "def mean(numbers):\n    return sum(numbers) / len(numbers) if numbers else 0"
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: Passed both tests.
+      - answers:
+          Q1: "def mean(numbers):\n    return sum(numbers) / len(numbers)"
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: |-
+              Passed 1 of 2 tests.
+              mean([]) failed: ZeroDivisionError: division by zero. Expected 0.

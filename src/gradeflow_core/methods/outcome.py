@@ -1,5 +1,5 @@
-from dataclasses import dataclass, replace
-from typing import Any, TypedDict
+from dataclasses import dataclass
+from typing import Any, Literal, TypedDict
 
 from ..questions.reading import write_answer
 from ..questions.types import Answer, QuestionId, Unreadable
@@ -8,6 +8,19 @@ FULL_MARKS = 1 - 1e-9
 """A proportion this close to 1 is full marks, so rounding in sums doesn't cost a correct answer."""
 ROUNDING_TOLERANCE = 1e-6
 """Numbers this close count as equal, so rounding in sums such as 9.81 + 0.05 doesn't matter."""
+
+type Effect = Literal["earned", "partial", "lost", "uncounted", "yes", "no", "unmarked"]
+"""What a check did to the marks. A read-only check says yes or no instead, and "unmarked" leaves
+the answer to a person."""
+
+
+@dataclass(frozen=True)
+class Detail:
+    """A fact about how a check marked an answer, such as what the code gave."""
+
+    title: str
+    value: str
+    kind: Literal["text", "code", "error"] = "text"
 
 
 @dataclass(frozen=True)
@@ -27,6 +40,18 @@ class Outcome:
     """Its condition was false, so it did not execute or participate in aggregation."""
     models: tuple[str, ...] = ()
     """The language models that decided it."""
+    title: str = ""
+    """What the check that gave it checks, in a line of markdown."""
+    labels: tuple[str, ...] = ()
+    """What the title comes after: the check's name, and its question where that isn't the one
+    marked."""
+    details: tuple[Detail, ...] = ()
+    children: tuple[Outcome, ...] = ()
+    """Its children in the breakdown."""
+    effect: Effect | None = None
+    """What it did to the marks of the check it is part of."""
+    contribution: float | None = None
+    """The part of that check's proportion it gave, when that check adds its parts up."""
 
     def all_models(self) -> tuple[str, ...]:
         """The language models that decided it or any of its parts, each once."""
@@ -37,9 +62,6 @@ class Outcome:
     @property
     def correct(self) -> bool:
         return self.proportion >= FULL_MARKS
-
-    def labelled(self, method: str) -> Outcome:
-        return self if self.method else replace(self, method=method)
 
     def view(self, question: str) -> dict[str, Any]:
         """The outcome as templates see it."""
@@ -52,6 +74,13 @@ class Outcome:
             "marked": self.marked,
             "skipped": self.skipped,
         }
+
+
+def effect_of(outcome: Outcome) -> Effect:
+    """What ``outcome`` does to the marks it counts towards."""
+    if not outcome.marked:
+        return "unmarked"
+    return "earned" if outcome.correct else "partial" if outcome.proportion > 0 else "lost"
 
 
 CORRECT = "Correct."
@@ -83,7 +112,7 @@ def feedback_scope(
     }
 
 
-class CheckResult(TypedDict):
+class EarlierResult(TypedDict):
     """A check's result as later conditions and templates read it, as ``checks.<id>``."""
 
     correct: bool

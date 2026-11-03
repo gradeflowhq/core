@@ -87,8 +87,8 @@ class MultipleValues(Method[MultipleValuesSettings]):
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
         values = markdown_list(
-            f"**{child.name or f'Value {place}'}:** {child.describe()}"
-            for place, child in enumerate(settings.checks, start=1)
+            f"**{inner.name or f'Value {place}'}:** {inner.describe()}"
+            for place, inner in enumerate(settings.checks, start=1)
         )
         return f"{heading(settings, *(['in any order'] if settings.any_order else []))}\n{values}"
 
@@ -101,30 +101,30 @@ class MultipleValues(Method[MultipleValuesSettings]):
     ) -> dict[QuestionId, Outcome]:
         assert question is not None  # it marks a values question
         settings = self._settings_of(check)
-        children = settings.checks
+        checks = settings.checks
         if not settings.any_order:
-            places = range(1, len(children) + 1)
-            marked = marked_in_order(children, context, question, places)
+            places = range(1, len(checks) + 1)
+            marked = marked_in_order(checks, context, question, places)
             counted: Counted = [
-                (child, _at(outcomes, child, place))
-                for place, (child, outcomes) in enumerate(marked, start=1)
+                (inner, _at(outcomes, inner, place))
+                for place, (inner, outcomes) in enumerate(marked, start=1)
             ]
             return _spoken(combine(settings, counted, context.questions))
         count = len(context.answers.get(question) or [])  # type: ignore[arg-type]
         table = {
-            (index, place): _at(child.mark(context, question, place), child, place)
-            for index, child in enumerate(children)
+            (index, place): _at(inner.mark(context, question, place), inner, place)
+            for index, inner in enumerate(checks)
             for place in range(1, count + 1)
         }
 
         def combined(places: tuple[int, ...]) -> dict[QuestionId, Outcome]:
             counted = [
-                (child, table[index, place])
-                for index, (child, place) in enumerate(zip(children, places, strict=False))
+                (inner, table[index, place])
+                for index, (inner, place) in enumerate(zip(checks, places, strict=False))
             ]
             return combine(settings, counted, context.questions)
 
-        pairings = permutations(range(1, count + 1), len(children))
+        pairings = permutations(range(1, count + 1), len(checks))
         return _spoken(
             max(
                 (combined(places) for places in pairings),
@@ -157,8 +157,11 @@ class MultipleValues(Method[MultipleValuesSettings]):
 
 def _at(outcomes: dict[QuestionId, Outcome], check: Check, place: int) -> dict[QuestionId, Outcome]:
     """Outcomes named by the value they marked, so each line of feedback says which it is."""
+    if check.name:
+        return {key: replace(outcome, name=check.name) for key, outcome in outcomes.items()}
+    value = f"Value {place}"
     return {
-        key: replace(outcome, name=check.name or f"Value {place}")
+        key: replace(outcome, name=value, labels=(*outcome.labels, value))
         for key, outcome in outcomes.items()
     }
 

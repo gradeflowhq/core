@@ -13,6 +13,7 @@ from ..questions.base import Question
 from ..questions.question_set import QuestionSet, read_answer
 from ..questions.submissions import AnswerSheet, Submission
 from ..questions.types import QuestionId, Unreadable
+from .breakdown import breakdown_of
 from .mark_scheme import MarkScheme
 from .results import MarkedSheet, MarkedSubmission, QuestionResult
 
@@ -188,6 +189,7 @@ def _result(outcome: Outcome, question: Question, label: str) -> QuestionResult:
         method=outcome.method or label,
         marked=outcome.marked,
         models=outcome.all_models(),
+        breakdown=breakdown_of(outcome, question.max_marks),
     )
 
 

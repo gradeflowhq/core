@@ -85,11 +85,16 @@ class BestAnswer(Method[BestAnswerSettings]):
         ]
         best = max(range(len(marked)), key=lambda index: _score(marked[index].get(question)))
         outcomes = marked[best]
-        if best == 0 or question not in outcomes:
+        if question not in outcomes:
             return outcomes
         kept = outcomes[question]
-        feedback = f"Read as:\n{write_answer(possible[best])}\n\n{kept.feedback}".rstrip()
-        return {**outcomes, question: replace(kept, feedback=feedback)}
+        feedback = (
+            kept.feedback
+            if best == 0
+            else f"Read as:\n{write_answer(possible[best])}\n\n{kept.feedback}".rstrip()
+        )
+        # Shown as the answer that counted, under Best Answer's own title.
+        return {**outcomes, question: replace(kept, feedback=feedback, title="", labels=())}
 
     def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
         return self._settings_of(check).check.questions_marked(question)

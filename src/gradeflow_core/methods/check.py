@@ -25,7 +25,7 @@ from ..common.problems import Problem, as_invalid
 from ..common.text import capitalised
 from ..questions.question_set import Answers, QuestionSet, read_answer
 from ..questions.types import QuestionId
-from .outcome import CheckResult, Outcome, feedback_scope, unanswered
+from .outcome import EarlierResult, Outcome, feedback_scope, unanswered
 from .position import Position
 from .problems import located_problems
 from .settings import IDENTIFIER, Settings, item_field
@@ -56,7 +56,7 @@ class Context:
     questions: QuestionSet
     written: Mapping[QuestionId, str]
     precomputed: Mapping[str, Mapping[QuestionId, Any]]
-    earlier: Mapping[str, CheckResult] = field(default_factory=dict)
+    earlier: Mapping[str, EarlierResult] = field(default_factory=dict)
 
 
 class OutcomeFeedback(BaseModel):
@@ -175,24 +175,39 @@ class Check(BaseModel):
         self, context: Context, question: QuestionId | None = None, value: int | None = None
     ) -> dict[QuestionId, Outcome]:
         """Reads ``question``, or its ``value``, unless the check names its own."""
-        method = self.method
         at = Position(context.questions, question, value).at(self.question, self.value)
         question, value = at.question, at.value
+        label = self.method.label
+        return {
+            key: self._titled(replace(outcome, method=outcome.method or label), key)
+            for key, outcome in self._outcomes(context, question, value).items()
+        }
+
+    def _titled(self, outcome: Outcome, key: QuestionId) -> Outcome:
+        """``outcome`` titled after this check's name, and its question unless that is ``key``. A
+        named check with checks inside is titled by its name alone."""
+        labels = tuple(label for label in (self.question, self.name) if label and label != key)
+        title = "" if self.name and outcome.children else outcome.title or self.method.title(self)
+        return replace(outcome, title=title, labels=(*labels, *outcome.labels))
+
+    def _outcomes(
+        self, context: Context, question: QuestionId | None, value: int | None
+    ) -> dict[QuestionId, Outcome]:
         if (held := self._condition(context)) is not None:
             keys = self.questions_marked(question) or self.questions_read(question)
-            return {key: held.labelled(method.label) for key in keys}
+            return dict.fromkeys(keys, held)
         if question is not None:
             answer = read_answer(context.answers, question, value)
             unread = unanswered(answer)
-            if unread is not None and not (answer is None and method.marks_blank):
-                return {question: unread.labelled(method.label)}
-        outcomes = method.mark(self, context, question, value)
-        if self.feedback:
-            outcomes = {
-                key: replace(outcome, feedback=self._feedback(outcome, context, key, value))
-                for key, outcome in outcomes.items()
-            }
-        return {key: outcome.labelled(method.label) for key, outcome in outcomes.items()}
+            if unread is not None and not (answer is None and self.method.marks_blank):
+                return {question: unread}
+        outcomes = self.method.mark(self, context, question, value)
+        if not self.feedback:
+            return outcomes
+        return {
+            key: replace(outcome, feedback=self._feedback(outcome, context, key, value))
+            for key, outcome in outcomes.items()
+        }
 
     def _condition(self, context: Context) -> Outcome | None:
         if self.if_ is None:
@@ -341,8 +356,8 @@ def checks_in(
     reads. A generated body that can't be worked out, which marking reports, is left out."""
     yield check, question
     try:
-        children = list(check.method.validation_children(check))
+        inner_checks = list(check.method.expanded_checks(check))
     except ValidationError, TemplateError:
         return
-    for _, child, _ in children:
-        yield from checks_in(child, child.question or question)
+    for _, inner, _ in inner_checks:
+        yield from checks_in(inner, inner.question or question)

@@ -4,9 +4,9 @@ from typing import Any
 import pytest
 
 from gradeflow_core.methods import templates
-from gradeflow_core.methods.outcome import CheckResult, Outcome, feedback_scope
+from gradeflow_core.methods.outcome import EarlierResult, Outcome, feedback_scope
 from gradeflow_core.methods.templates import (
-    CHECK_RESULT,
+    EARLIER_RESULT,
     PART,
     ListOf,
     Shape,
@@ -23,7 +23,7 @@ from gradeflow_core.questions.text import TextQuestion
 from .helpers import mark, mark_all, mark_group, problems_of
 
 SCOPE: Mapping[str, Shape] = {
-    "checks": {"test": CHECK_RESULT},
+    "checks": {"test": EARLIER_RESULT},
     "inputs": {"points": ListOf("text")},
     "parts": ListOf(PART),
 }
@@ -237,6 +237,6 @@ def test_marking_compiles_each_template_once_for_every_student(
 
 def test_templates_are_checked_against_what_they_see() -> None:
     outcome = Outcome(1.0)
-    assert CHECK_RESULT.keys() == CheckResult.__annotations__.keys()
+    assert EARLIER_RESULT.keys() == EarlierResult.__annotations__.keys()
     assert PART.keys() == outcome.view("Q1").keys()
     assert templates.MARKED.keys() == feedback_scope(outcome, "Paris", "Q1").keys()

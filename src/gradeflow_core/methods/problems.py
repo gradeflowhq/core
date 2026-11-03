@@ -10,7 +10,7 @@ from ..common.paths import Loc, join
 from ..common.problems import Problem, placed
 from ..questions.question_set import QuestionSet
 from .position import Position
-from .templates import CHECK_RESULT, ListOf, Shape, TemplateError, template_errors
+from .templates import EARLIER_RESULT, ListOf, Shape, TemplateError, template_errors
 
 if TYPE_CHECKING:
     from .check import Check
@@ -76,14 +76,14 @@ def _problems(
     for found in method.problems(check, own):
         yield here((*at, "with", *found.field), found)
     lists: dict[Loc, dict[str, Any]] = {}
-    for loc, child, in_list in method.validation_children(check):
+    for loc, inner, in_list in method.expanded_checks(check):
         slot = loc[:-1] if in_list else loc
         siblings = lists.setdefault(slot, dict(earlier))
-        if child.id is not None and child.id in siblings and in_list:
-            yield here((*at, *loc, "id"), Problem(f"Another check here is called {child.id}."))
+        if inner.id is not None and inner.id in siblings and in_list:
+            yield here((*at, *loc, "id"), Problem(f"Another check here is called {inner.id}."))
         inside = method.inside(position.inside(check.question, check.value, in_list=in_list), loc)
         yield from _problems(
-            child,
+            inner,
             inside,
             (*at, *loc),
             owner,
@@ -91,8 +91,8 @@ def _problems(
             siblings if method.ordered(dict(check.with_)) else earlier,
             locations,
         )
-        if child.id is not None:
-            siblings[child.id] = CHECK_RESULT
+        if inner.id is not None:
+            siblings[inner.id] = EARLIER_RESULT
 
 
 def _cant_mark_here(check: Check, position: Position) -> tuple[Loc, str] | None:
@@ -113,8 +113,8 @@ def _cant_mark_here(check: Check, position: Position) -> tuple[Loc, str] | None:
 def written_checks(check: Check, at: Loc = ()) -> Iterator[tuple[Loc, Check]]:
     """``check`` at ``at`` and the checks written in its settings, each where it is."""
     yield at, check
-    for loc, child, _ in check.method.nested(check):
-        yield from written_checks(child, (*at, *loc))
+    for loc, inner, _ in check.method.inner_checks(check):
+        yield from written_checks(inner, (*at, *loc))
 
 
 def _value_problem(value: int, own: Position) -> str | None:

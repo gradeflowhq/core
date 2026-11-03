@@ -142,6 +142,10 @@ class Method[S: Settings](ABC):
     def describe(self, check: Check) -> str:
         """What the check does, in a sentence or two of markdown."""
 
+    def title(self, check: Check) -> str:
+        """What the check does, in a line of markdown: the first of its description."""
+        return self.describe(check).split("\n", 1)[0].removesuffix(":")
+
     @abstractmethod
     def mark(
         self,
@@ -161,8 +165,8 @@ class Method[S: Settings](ABC):
         """The questions whose answers the check reads, those it marks included."""
         return self.questions_marked(check, question)
 
-    def nested(self, check: Check) -> Iterator[tuple[Loc, Check, bool]]:
-        """The checks in its settings, where they are, and whether they are in a list."""
+    def inner_checks(self, check: Check) -> Iterator[tuple[Loc, Check, bool]]:
+        """The checks written in its settings, where they are, and whether they are in a list."""
         settings = self._settings_of(check)
         for name, info in type(settings).model_fields.items():
             held = holds_checks(info)
@@ -173,12 +177,12 @@ class Method[S: Settings](ABC):
                 for index, item in enumerate(value):
                     yield ("with", name, index), item, True
 
-    def validation_children(self, check: Check) -> Iterator[tuple[Loc, Check, bool]]:
-        """Checks to validate, including generated bodies that are not editable settings."""
-        yield from self.nested(check)
+    def expanded_checks(self, check: Check) -> Iterator[tuple[Loc, Check, bool]]:
+        """Its inner checks as they run: those of the checks a method file expands to."""
+        yield from self.inner_checks(check)
 
     def ordered(self, settings: Mapping[str, Any]) -> bool:
-        """Whether children in a list may read preceding sibling results."""
+        """Whether inner checks in a list may read the results of those before them."""
         return False
 
     def inside(self, position: Position, loc: Loc) -> Position:

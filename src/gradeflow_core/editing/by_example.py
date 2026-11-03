@@ -110,13 +110,13 @@ def _decisions(check: Mapping[str, Any], rules: _Rules, key: str | None) -> dict
         }
     if not rules.uses(check, Combination.name):
         return {}
-    children = [child for child in values.get("checks") or [] if _same_question(child, key)]
+    inner_checks = [inner for inner in values.get("checks") or [] if _same_question(inner, key)]
     mode = values.get("combine", "all")
-    weights = [child.get("weight", 1) for child in children]
+    weights = [inner.get("weight", 1) for inner in inner_checks]
     weighted: dict[str, list[tuple[float, float]]] = {}
-    for child in children:
-        for answer, proportion in _decisions(child, rules, key).items():
-            weighted.setdefault(answer, []).append((child.get("weight", 1), proportion))
+    for inner in inner_checks:
+        for answer, proportion in _decisions(inner, rules, key).items():
+            weighted.setdefault(answer, []).append((inner.get("weight", 1), proportion))
     return {
         answer: clamped(combined_proportion(mode, parts, weights, rules.max_marks))
         for answer, parts in weighted.items()
@@ -202,12 +202,12 @@ def _excludes(check: dict[str, Any], chosen: set[str], rules: _Rules) -> bool:
             map(rules.normalize, values.get("answers", []))
         )
     if _boolean(check, rules):
-        children = values.get("checks", [])
+        inner_checks = values.get("checks", [])
         match values.get("combine", "all"):
             case "any":
-                return all(_excludes(child, chosen, rules) for child in children)
+                return all(_excludes(inner, chosen, rules) for inner in inner_checks)
             case "all":
-                return any(_excludes(child, chosen, rules) for child in children)
+                return any(_excludes(inner, chosen, rules) for inner in inner_checks)
     return False
 
 
@@ -239,20 +239,20 @@ def _without(
             return deepcopy(rules.zero)
         return {**check, **deepcopy(rules.zero)}
     if rules.uses(check, NOT):
-        child = _without(values.get("check") or {}, chosen, rules, cancel=cancel, key=key)
-        if _bare(check) and child in (rules.zero, rules.full):
-            return deepcopy(rules.full if child == rules.zero else rules.zero)
-        return {**check, "with": {**values, "check": child}}
+        inner = _without(values.get("check") or {}, chosen, rules, cancel=cancel, key=key)
+        if _bare(check) and inner in (rules.zero, rules.full):
+            return deepcopy(rules.full if inner == rules.zero else rules.zero)
+        return {**check, "with": {**values, "check": inner}}
     if rules.uses(check, Combination.name) and (cancel or _boolean(check, rules)):
-        children = [
-            _without(child, chosen, rules, cancel=cancel, key=key)
-            for child in values.get("checks") or []
+        inner_checks = [
+            _without(inner, chosen, rules, cancel=cancel, key=key)
+            for inner in values.get("checks") or []
         ]
-        if not children:
+        if not inner_checks:
             return {**check, **deepcopy(rules.zero)}
         if _bare(check) and _boolean(check, rules) and set(values) <= {"combine", "checks"}:
-            return _combine(values.get("combine", "all"), children, rules)
-        return {**check, "with": {**values, "checks": children}}
+            return _combine(values.get("combine", "all"), inner_checks, rules)
+        return {**check, "with": {**values, "checks": inner_checks}}
     return check
 
 
@@ -266,8 +266,8 @@ def _boolean(check: dict[str, Any], rules: _Rules) -> bool:
         rules.uses(check, Combination.name)
         and values.get("combine", "all") in ("all", "any")
         and not any(
-            set(child) & {"id", "if", "read_only", "question", "value"}
-            for child in values.get("checks", [])
+            set(inner) & {"id", "if", "read_only", "question", "value"}
+            for inner in values.get("checks", [])
         )
     )
 
@@ -284,12 +284,12 @@ def _terms(check: dict[str, Any], mode: str, rules: _Rules) -> list[dict[str, An
     return [check]
 
 
-def _combine(mode: str, children: list[dict[str, Any]], rules: _Rules) -> dict[str, Any]:
+def _combine(mode: str, inner_checks: list[dict[str, Any]], rules: _Rules) -> dict[str, Any]:
     """Boolean identities keep repeated edits bounded; weights and other check settings stay put."""
     identity = rules.full if mode == "all" else rules.zero
     flattened: list[dict[str, Any]] = []
-    for child in children:
-        for term in _terms(child, mode, rules):
+    for inner in inner_checks:
+        for term in _terms(inner, mode, rules):
             if (
                 mode == "any"
                 and {key: value for key, value in term.items() if key != "weight"} == rules.zero
@@ -315,10 +315,10 @@ def _combine(mode: str, children: list[dict[str, Any]], rules: _Rules) -> dict[s
 
 
 def _shared_exclusions(
-    children: list[dict[str, Any]], rules: _Rules
+    inner_checks: list[dict[str, Any]], rules: _Rules
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Factor an exclusion out of alternatives only when none can award its rejected answers."""
-    groups = [_terms(child, "all", rules) for child in children]
+    groups = [_terms(inner, "all", rules) for inner in inner_checks]
     exclusions: list[dict[str, Any]] = []
     for group in groups:
         for check in group:
@@ -327,16 +327,16 @@ def _shared_exclusions(
                 rejected is not None
                 and check not in exclusions
                 and all(
-                    check in terms or _excludes(child, rejected, rules)
-                    for child, terms in zip(children, groups, strict=True)
+                    check in terms or _excludes(inner, rejected, rules)
+                    for inner, terms in zip(inner_checks, groups, strict=True)
                 )
             ):
                 exclusions.append(check)
     alternatives = [
         _combine("all", [check for check in group if check not in exclusions], rules)
         if any(check in exclusions for check in group)
-        else child
-        for child, group in zip(children, groups, strict=True)
+        else inner
+        for inner, group in zip(inner_checks, groups, strict=True)
     ]
     return exclusions, alternatives
 
@@ -344,13 +344,13 @@ def _shared_exclusions(
 def _rejected(check: dict[str, Any], rules: _Rules) -> set[str] | None:
     if not _bare(check) or not rules.uses(check, NOT):
         return None
-    child = check.get("with", {}).get("check", {})
-    if _bare(child) and _exact(child, rules):
-        return set(map(rules.normalize, child.get("with", {}).get("answers", [])))
+    inner = check.get("with", {}).get("check", {})
+    if _bare(inner) and _exact(inner, rules):
+        return set(map(rules.normalize, inner.get("with", {}).get("answers", [])))
     return None
 
 
-def _joined(children: list[dict[str, Any]], rules: _Rules) -> list[dict[str, Any]]:
+def _joined(inner_checks: list[dict[str, Any]], rules: _Rules) -> list[dict[str, Any]]:
     """Alternative answer lists with the same settings and weight are one list."""
 
     def plain_list(check: dict[str, Any]) -> bool:
@@ -360,23 +360,23 @@ def _joined(children: list[dict[str, Any]], rules: _Rules) -> list[dict[str, Any
         return {key: value for key, value in check.get("with", {}).items() if key != "answers"}
 
     joined: list[dict[str, Any]] = []
-    for child in children:
+    for inner in inner_checks:
         same = next(
             (
                 other
                 for other in joined
-                if plain_list(child)
+                if plain_list(inner)
                 and plain_list(other)
-                and other["uses"] == child["uses"]
-                and other.get("weight", 1) == child.get("weight", 1)
-                and settings(other) == settings(child)
+                and other["uses"] == inner["uses"]
+                and other.get("weight", 1) == inner.get("weight", 1)
+                and settings(other) == settings(inner)
             ),
             None,
         )
         if same is None:
-            joined.append(child)
+            joined.append(inner)
         else:
             same["with"]["answers"] = list(
-                dict.fromkeys(same["with"]["answers"] + child["with"]["answers"])
+                dict.fromkeys(same["with"]["answers"] + inner["with"]["answers"])
             )
     return joined

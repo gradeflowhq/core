@@ -10,8 +10,7 @@ from .answers.multiple_choice import MultipleChoice
 from .answers.multiple_values import MultipleValues
 from .answers.number_range import NumberRange
 from .answers.order import Order
-from .code.code_fixes import CodeFixes
-from .code.code_test import CodeTest
+from .code.code_tests import CodeTests
 from .code.code_uses import CodeUses
 from .code.custom_code import CustomCode
 from .code.custom_code_for_a_group import CustomCodeForAGroup
@@ -44,8 +43,7 @@ PYTHON: tuple[Method[Any], ...] = (
     CustomCode(),
     FormulaOfAnswers(),
     CustomCodeForAGroup(),
-    CodeTest(),
-    CodeFixes(),
+    CodeTests(),
 )
 ORDER = (
     "gradeflow/best-answer",
@@ -71,8 +69,6 @@ ORDER = (
     "gradeflow/custom-code-for-a-group",
     "gradeflow/key-point",
     "gradeflow/answer-criterion",
-    "gradeflow/code-test",
-    "gradeflow/code-fixes",
 )
 """Every built-in method's name, in catalogue order: basic methods, then advanced ones, then those
 for question groups. A name no Python method has is composed from its YAML file."""

@@ -10,7 +10,7 @@ from ...common.paths import Loc
 from ..check import Check
 from ..settings import Settings
 from ..templates import (
-    CHECK_RESULT,
+    EARLIER_RESULT,
     MARKED,
     ListOf,
     Shape,
@@ -71,7 +71,7 @@ def _check_entries(
     for index, entry in enumerate(entries):
         _check_value(entry, (*path, index), scope, earlier)
         if isinstance(entry, Mapping) and isinstance(entry.get("id"), str):
-            earlier[entry["id"]] = CHECK_RESULT
+            earlier[entry["id"]] = EARLIER_RESULT
 
 
 def _check_entry(

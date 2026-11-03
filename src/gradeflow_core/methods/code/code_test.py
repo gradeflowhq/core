@@ -1,37 +1,17 @@
-from dataclasses import replace
 from functools import lru_cache
 from typing import Any
 
 from pydantic import ConfigDict, Field
 
 from ...common.hints import ADVANCED, CODE, hint
-from ...common.text import markdown_code, sentence
-from ...questions.base import Question
-from ...questions.types import Answer
-from ..check import Check
-from ..method import AnswerMethod
-from ..outcome import Outcome
+from ...common.text import quoted, sentence
+from ..outcome import Detail, Outcome
 from ..settings import Settings
 from . import runner
-from .fixes import fixed_code
 
 MAX_TIME_LIMIT_S = 60
-FIXES = Field(
-    default=0,
-    ge=0,
-    le=10,
-    title="Most fixes",
-    description="Code that needs more fixes gets no second try.",
-    json_schema_extra=ADVANCED,
-)
-PENALTY = Field(
-    default=0.0,
-    ge=0,
-    le=1,
-    title="Marks off for fixes",
-    description="The share of the marks fixed code loses, from 0 to 1.",
-    json_schema_extra=ADVANCED,
-)
+LONGEST = 200
+"""How many characters of a value feedback shows."""
 
 
 class Test(Settings):
@@ -95,26 +75,6 @@ class TestSetup(Settings):
         return f"{self.code_before}\n{indented}\n{self.code_after}"
 
 
-class CodeTestSettings(Settings):
-    test: Test = Field(
-        title="Test", description="An expression to run and the value it should give."
-    )
-    setup: TestSetup = Field(
-        default_factory=TestSetup,
-        title="Test setup",
-        description="Code before and after the student's, and each test's time limit.",
-    )
-    evaluate_expected: bool = Field(
-        default=True,
-        title="Work out expected values",
-        description="Feedback shows what an expected expression gives, such as 5 for 2 + 3.",
-        json_schema_extra=ADVANCED,
-    )
-    fixes: int = FIXES
-    """With some, the test runs the code with up to that many small errors fixed."""
-    penalty: float = PENALTY
-
-
 @lru_cache(maxsize=4096)
 def _worked_out(expected: str, setup: TestSetup) -> str:
     """The expected value worked out around no student code, or as written if that fails."""
@@ -130,46 +90,65 @@ def _worked_out(expected: str, setup: TestSetup) -> str:
     return repr(variables.get("expected"))
 
 
-class CodeTest(AnswerMethod[CodeTestSettings]):
-    name = "gradeflow/code-test"
-    version = 1
-    label = "Code Test"
-    summary = "Full marks if the student's code passes one test."
-    level = "internal"
-    question_types = frozenset({"code"})
-    settings = CodeTestSettings
-
-    def describe(self, check: Check) -> str:
-        test = self._settings_of(check).test
-        return f"Makes {markdown_code(test.expression)} give {markdown_code(test.expected)}."
-
-    def _mark_answer(
-        self, settings: CodeTestSettings, answer: Answer, question: Question
-    ) -> Outcome:
-        assert isinstance(answer, str)  # a code question reading one answer
-        if settings.fixes:
-            fixed = fixed_code(answer, settings.setup.around("pass"), settings.fixes)
-            if fixed is None:
-                return Outcome(0.0, skipped=True)
-            outcome = self._tested(fixed.code, settings)
-            return replace(outcome, proportion=outcome.proportion * (1 - settings.penalty))
-        return self._tested(answer, settings)
-
-    def _tested(self, code: str, settings: CodeTestSettings) -> Outcome:
-        test, setup = settings.test, settings.setup
-        expected = (
-            _worked_out(test.expected, setup) if settings.evaluate_expected else test.expected
+def tested(code: str, test: Test, setup: TestSetup, *, evaluate_expected: bool) -> Outcome:
+    """How ``code`` does on ``test``, run inside ``setup``."""
+    program = setup.around(code)
+    expected = _cut(_worked_out(test.expected, setup) if evaluate_expected else test.expected)
+    asked = (
+        Detail("Expression", test.expression, "code"),
+        Detail("Expected", expected, "code"),
+    )
+    if (unreadable := _unreadable(program, setup)) is not None:
+        return Outcome(
+            0.0,
+            f"Couldn't run the code: {unreadable}.",
+            details=(*asked, Detail("Output", unreadable, "error")),
         )
-        check = (
-            f"output = {test.expression}\nexpected = {test.expected}\npassed = output == expected"
+    check = (
+        "import contextlib as _contextlib, io as _io\n"
+        "_printed = _io.StringIO()\n"
+        "with _contextlib.redirect_stdout(_printed):\n"
+        f"    output = {test.expression}\n"
+        "printed = _printed.getvalue()\n"
+        f"expected = {test.expected}\n"
+        "passed = output == expected"
+    )
+    variables: dict[str, Any] = {}
+    try:
+        runner.run(f"{program}\n{check}", variables, time_limit_s=setup.time_limit)
+    except runner.CodeError as error:
+        failed = sentence(f"{test.expression} failed: {error.reason}")
+        return Outcome(
+            0.0,
+            f"{failed} Expected {expected}.",
+            details=(*asked, Detail("Output", error.reason, "error")),
         )
-        variables: dict[str, Any] = {}
-        try:
-            runner.run(f"{setup.around(code)}\n{check}", variables, time_limit_s=setup.time_limit)
-        except runner.CodeError as error:
-            failed = sentence(f"{test.expression} failed: {error.reason}")
-            return Outcome(0.0, f"{failed} Expected {expected}.")
-        output = variables.get("output")
-        if variables.get("passed"):
-            return Outcome(1.0, f"{test.expression} gave {output!r}, as expected.")
-        return Outcome(0.0, f"{test.expression} gave {output!r}. Expected {expected}.")
+    output = _cut(repr(variables.get("output")))
+    gave = (*asked, Detail("Output", output, "code"))
+    if variables.get("passed"):
+        return Outcome(1.0, f"{test.expression} gave {output}, as expected.", details=gave)
+    feedback = f"{test.expression} gave {output}. Expected {expected}."
+    if printed := _cut(str(variables.get("printed", "")).rstrip()):
+        return Outcome(
+            0.0,
+            f"{feedback} It printed {quoted(printed)}.",
+            details=(*gave, Detail("Printed", printed)),
+        )
+    return Outcome(0.0, feedback, details=gave)
+
+
+def _cut(value: str) -> str:
+    """``value`` cut to ``LONGEST`` characters."""
+    return value if len(value) <= LONGEST else f"{value[:LONGEST]}…"
+
+
+def _unreadable(program: str, setup: TestSetup) -> str | None:
+    """Why Python can't read ``program``, with the line of the student's code; None if it
+    can."""
+    try:
+        compile(program, "<code>", "exec")
+    except SyntaxError as error:
+        line = (error.lineno or 0) - setup.code_before.count("\n") - 1
+        where = f" (line {line})" if line > 0 else ""
+        return f"SyntaxError: {error.msg}{where}"
+    return None

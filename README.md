@@ -59,6 +59,9 @@ print(ResultsCsv().write(questions, marked))
 `AnswerSheet` a `MarkedSheet`. Each holds a `QuestionResult` per question, and `report()` gives a
 printable `Report` per question.
 
+When a marking combines checks, a result's `breakdown` shows how each one marked the answer, such
+as what each code test's expression gave.
+
 A blank answer gets nothing, except from Full Marks. An answer the question can't read, a check that
 fails to run, or a marking with problems leaves the answer unmarked, with the reason as feedback. A
 question with no marking keeps the marks given on the sheet, if any.

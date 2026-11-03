@@ -1,12 +1,26 @@
 from dataclasses import dataclass
 
 from natsort import natsorted
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from ..common.text import format_rounded
-from ..methods.outcome import FULL_MARKS
+from ..methods.outcome import FULL_MARKS, Detail, Effect
 from ..questions.submissions import AnswerSheet, Submission
 from ..questions.types import QuestionId
+
+
+class CheckResult(BaseModel):
+    """How a check of a marking marked an answer, and how its own checks did."""
+
+    model_config = ConfigDict(frozen=True)
+
+    title: str = Field(description="What it checks, in a line of markdown")
+    effect: Effect = Field(description="What it did to the marks")
+    marks: float | None = Field(
+        default=None, description="The marks it gave or took off, where its checks add up"
+    )
+    details: tuple[Detail, ...] = ()
+    children: tuple[CheckResult, ...] = ()
 
 
 class QuestionResult(BaseModel):
@@ -21,6 +35,9 @@ class QuestionResult(BaseModel):
     marked: bool = Field(default=True, description="False when it needs a person to mark it")
     models: tuple[str, ...] = Field(
         default=(), description="The language models that decided it, if any"
+    )
+    breakdown: CheckResult | None = Field(
+        default=None, description="How each check marked it, when the marking has several"
     )
 
     @computed_field  # type: ignore[prop-decorator]

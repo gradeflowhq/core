@@ -9,11 +9,12 @@ from .marking.examples import MarkedExample, evaluate_examples
 from .marking.mark import mark
 from .marking.mark_scheme import MarkScheme
 from .marking.model_choice import ModelChoice, choose_models
-from .marking.results import MarkedSheet, MarkedSubmission, QuestionResult, Report
+from .marking.results import CheckResult, MarkedSheet, MarkedSubmission, QuestionResult, Report
 from .methods.catalogue import BUILTINS
 from .methods.check import Check
 from .methods.collection import Methods
 from .methods.method import Method, Progress
+from .methods.outcome import Detail
 from .questions.base import Question
 from .questions.choice import ChoiceQuestion
 from .questions.code import CodeQuestion
@@ -30,8 +31,10 @@ __all__ = [
     "AnswerSheet",
     "AnswersCsv",
     "Check",
+    "CheckResult",
     "ChoiceQuestion",
     "CodeQuestion",
+    "Detail",
     "GradeFlowError",
     "InvalidError",
     "MarkScheme",

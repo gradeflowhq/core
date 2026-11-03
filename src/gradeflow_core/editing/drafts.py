@@ -631,13 +631,13 @@ def _execution_earlier(check: Check, target: Check, earlier: list[Check]) -> lis
     if check is target:
         return earlier
     lists: dict[Loc, list[Check]] = {}
-    for loc, child, in_list in check.method.validation_children(check):
+    for loc, inner, in_list in check.method.expanded_checks(check):
         slot = loc[:-1] if in_list else loc
         siblings = lists.setdefault(slot, [])
         scope = [*earlier, *siblings] if check.method.ordered(dict(check.with_)) else earlier
-        if (found := _execution_earlier(child, target, scope)) is not None:
+        if (found := _execution_earlier(inner, target, scope)) is not None:
             return found
-        siblings.append(child)
+        siblings.append(inner)
     return None
 
 

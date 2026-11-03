@@ -113,7 +113,7 @@ class ListOf:
     item: Shape
 
 
-CHECK_RESULT: Mapping[str, Shape] = {
+EARLIER_RESULT: Mapping[str, Shape] = {
     "correct": "bool",
     "proportion": "number",
     "feedback": "text",
@@ -121,7 +121,7 @@ CHECK_RESULT: Mapping[str, Shape] = {
     "skipped": "bool",
 }
 """An earlier check's result, as ``checks.<id>``."""
-PART: Mapping[str, Shape] = {**CHECK_RESULT, "name": "text", "question": "text"}
+PART: Mapping[str, Shape] = {**EARLIER_RESULT, "name": "text", "question": "text"}
 """One of a check's own checks' results, as an item of ``parts``."""
 LOOP: Mapping[str, Shape] = {"index": "number", "first": "bool", "last": "bool", "length": "number"}
 MARKED: Mapping[str, Shape] = {

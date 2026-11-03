@@ -29,7 +29,7 @@ def test_a_test_compares_the_expression_with_the_expected_value(
             "def f():\n    return undefined_variable",
             "f() failed: NameError: name 'undefined_variable' is not defined. Expected 1.",
         ),
-        ("oops(", "f() failed: SyntaxError: '(' was never closed. Expected 1."),
+        ("oops(", "Couldn't run the code: SyntaxError: '(' was never closed (line 1)."),
         (
             "def f():\n    while True:\n        pass",
             "f() failed: it took longer than 1 second. Expected 1.",
@@ -41,10 +41,42 @@ def test_a_test_that_fails_says_why_and_is_still_marked(answer: str, feedback: s
     assert (result.proportion, result.marked, result.feedback) == (0, True, feedback)
 
 
+def test_feedback_counts_the_tests_passed_and_says_why_the_others_failed() -> None:
+    three = [
+        F,
+        {"expression": "f() + 1", "expected": "3"},
+        {"expression": "f() * 3", "expected": "3"},
+    ]
+    assert mark(code_tests(*three), "def f():\n    return 1", CODE).feedback == (
+        "Passed 2 of 3 tests.\nf() + 1 gave 2. Expected 3."
+    )
+    assert mark(code_tests(*three, combine="any"), "def f():\n    return 2", CODE).feedback == (
+        "Passed 1 of 3 tests."
+    ), "with Any, failures cost nothing"
+    fixed = code_tests(*three[::2], fix_small_errors=True, fix_penalty=0.5)
+    feedback = mark(fixed, "def f()\n    return 1", CODE).feedback
+    assert feedback.endswith("50% off. Line 1, added “:” after “def f()”.\nPassed both tests.")
+
+
+def test_an_error_that_stops_several_tests_is_said_once() -> None:
+    first = code_tests(
+        {"expression": "first([5])", "expected": "5"},
+        {"expression": "first([])", "expected": "None"},
+        {"expression": "first(list())", "expected": "None"},
+    )
+    assert mark(first, "def first(xs):\n    return xs[0]", CODE).feedback == (
+        "Passed 1 of 3 tests.\n"
+        "first([]) and first(list()) failed: IndexError: list index out of range."
+    )
+    assert mark(first, "def first(xs):\n    return xs[1]", CODE).feedback == (
+        "Passed 0 of 3 tests.\nAll 3 failed: IndexError: list index out of range."
+    )
+
+
 def test_feedback_shows_values_as_python_writes_them() -> None:
     check = code_tests(F, {"expression": "g()", "expected": "'b'"}, combine="proportional")
     assert mark(check, "def f():\n    return 1\ndef g():\n    return 'a'", CODE).feedback == (
-        "f() gave 1, as expected.\ng() gave 'a'. Expected 'b'."
+        "Passed 1 of 2 tests.\ng() gave 'a'. Expected 'b'."
     )
 
 
@@ -116,7 +148,9 @@ def test_expected_values_are_worked_out_once_per_test(monkeypatch: pytest.Monkey
     results = mark_all(check, [f"def f():\n    return {n}" for n in (2, 3, 4)], CODE)
     assert runs == ["1 + 1", "2 * 2"]
     assert proportions(results) == [1, 0, 0]
-    assert results[1].feedback == "f() gave 3. Expected 2.\nf() * 2 gave 6. Expected 4."
+    assert results[1].feedback == (
+        "Passed 0 of 2 tests.\nf() gave 3. Expected 2.\nf() * 2 gave 6. Expected 4."
+    )
 
 
 def test_expected_values_shown_as_written_are_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
