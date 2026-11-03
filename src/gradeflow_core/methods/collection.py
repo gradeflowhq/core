@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from ..common.documents import DocumentError, load_document, on_line, plain
 from ..common.error_formatting import error_message
 from ..common.exceptions import GradeFlowError, MethodFileError
-from .composed.file import Fault, MethodFile, methods_used
+from .composed.file import Fault, MethodFile, definition_references, methods_used
 from .composed.method import ComposedMethod
 from .method import Method
 from .names import method_name, method_ref
@@ -105,7 +105,7 @@ class Methods(Sequence[Method[Any]]):
             if method is None:
                 raise MethodFileError(f"There's no method {current}.")
             references = (
-                methods_used(method.file.body()) | _definition_references(method.file)
+                methods_used(method.file.body()) | definition_references(method.file)
                 if isinstance(method, ComposedMethod)
                 else set()
             )
@@ -128,7 +128,7 @@ def load_files(files: Sequence[tuple[str, str]], methods: Methods) -> Methods:
         if ref in lookup or ref in parsed:
             raise MethodFileError(f"Duplicate method {ref}.")
         parsed[ref] = name, document, file
-    dependencies = {ref: _definition_references(file) for ref, (_, _, file) in parsed.items()}
+    dependencies = {ref: definition_references(file) for ref, (_, _, file) in parsed.items()}
     for ref, references in dependencies.items():
         for missing in sorted(references - lookup.keys() - parsed.keys()):
             raise MethodFileError(f"{ref}: There's no method {missing}.")
@@ -186,11 +186,6 @@ def _composed(
         return ComposedMethod(name, file, lookup)
     except Fault as fault:
         raise MethodFileError(on_line(document, fault.path, str(fault))) from None
-
-
-def _definition_references(file: MethodFile) -> set[str]:
-    """Composition references, including defaults; examples are evaluated separately."""
-    return methods_used(file.model_dump(exclude={"examples"}))
 
 
 def _ordered(dependencies: Mapping[str, set[str]]) -> list[str]:

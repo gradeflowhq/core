@@ -190,6 +190,22 @@ checks: "{{ inputs.rules }}"
     assert result(methods, {"question": "Q1", "uses": "sample/wrapper@1"}) == 1
 
 
+def test_a_method_needs_a_model_endpoint_when_a_default_check_does() -> None:
+    wrapper = """label: Default checks
+version: 1
+summary: Uses the supplied checks.
+question_types: [text]
+inputs:
+  rules:
+    default:
+      - uses: gradeflow/answer-criterion@1
+        with: {criterion: Names a cell.}
+checks: "{{ inputs.rules }}"
+"""
+    methods = BUILTINS.with_files([("sample/wrapper", wrapper)])
+    assert methods.by_ref["sample/wrapper@1"].needs_model_endpoint
+
+
 def test_a_finite_nested_example_does_not_create_a_composition_cycle() -> None:
     from gradeflow_core import evaluate_examples
 

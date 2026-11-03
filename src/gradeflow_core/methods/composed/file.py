@@ -134,3 +134,8 @@ def methods_used(data: Any) -> set[str]:
     if isinstance(data, list):
         return set().union(*(methods_used(item) for item in data))
     return set()
+
+
+def definition_references(file: MethodFile) -> set[str]:
+    """Composition references, including defaults; examples are evaluated separately."""
+    return methods_used(file.model_dump(exclude={"examples"}))

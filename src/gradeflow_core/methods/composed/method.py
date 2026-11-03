@@ -15,7 +15,7 @@ from ..position import Position
 from ..settings import Settings
 from ..templates import render
 from .expand import expand
-from .file import MethodFile, methods_used
+from .file import MethodFile, definition_references
 from .inputs import settings_model
 from .validation import check_templates
 
@@ -55,7 +55,7 @@ class ComposedMethod(Method[Settings]):
         self.examples = tuple(file.examples)
         self.settings = settings_model(file, lookup)
         self.needs_model_endpoint = any(
-            lookup[ref].needs_model_endpoint for ref in methods_used(file.body()) if ref in lookup
+            lookup[ref].needs_model_endpoint for ref in definition_references(file) if ref in lookup
         )
         check_templates(file, self.settings)
 
