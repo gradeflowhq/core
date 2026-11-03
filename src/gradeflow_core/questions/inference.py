@@ -10,7 +10,7 @@ from .choice import ChoiceQuestion, choice_reading
 from .code import CodeQuestion
 from .layouts import guess_layouts
 from .number import NumberQuestion, reads_as_number
-from .reading import CodeReading, ListReading, read_code, read_list
+from .reading import ListReading, Reading, read_code, read_list
 from .text import TextQuestion
 from .types import QuestionType, ValueType
 from .values import BLANK_SEPARATOR, ValuesQuestion
@@ -91,9 +91,7 @@ def _mostly_numbers(texts: list[str]) -> bool:
 def _mostly_code(answers: list[str]) -> bool:
     """Whether most answers are programs: several lines that some layout compiles. A single word
     compiles too, as a name, and prose rarely does."""
-    codes = [
-        code for answer in answers if isinstance(code := read_code(answer, CodeReading()), str)
-    ]
+    codes = [code for answer in answers if (code := read_code(answer, Reading())) is not None]
     programs = sum("\n" in code and bool(guess_layouts(code, 1)) for code in codes)
     return programs > len(codes) / 2
 

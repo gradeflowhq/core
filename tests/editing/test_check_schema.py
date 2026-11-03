@@ -10,9 +10,7 @@ from gradeflow_core.editing import EditingError, MarkingDraft, Position, compati
 from gradeflow_core.editing.drafts import _check_schema, _new_check
 from gradeflow_core.methods.check import CHECK_FIELDS
 from gradeflow_core.questions.choice import ChoiceQuestion
-from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
-from gradeflow_core.questions.reading import CodeReading
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
@@ -309,12 +307,11 @@ def test_a_marking_written_as_yaml_reads_as_its_check() -> None:
 
 
 def test_a_drafts_schemas_differ_where_the_checks_positions_do() -> None:
-    code = QuestionSet({"Q1": CodeQuestion(reading=CodeReading(guess_indentation=True))})
     custom = METHODS["gradeflow/custom-code"]
-    draft = MarkingDraft({"question": "Q1", "uses": custom.ref, "with": {}}, code, "Q1")
+    draft = MarkingDraft({"question": "Q3", "uses": custom.ref, "with": {}}, QUESTIONS, "Q3")
     whole = draft.schema("")["properties"]["code"]
-    best = METHODS["gradeflow/best-answer"].ref
-    draft.replace({"question": "Q1", "uses": best, "with": {"check": {"uses": custom.ref}}})
-    one = draft.schema("with.check")["properties"]["code"]
+    values = METHODS["gradeflow/multiple-values"].ref
+    draft.replace({"question": "Q3", "uses": values, "with": {"checks": [{"uses": custom.ref}]}})
+    one = draft.schema("with.checks.0")["properties"]["code"]
     assert one != whole
-    assert one == _check_schema(custom, draft.position("with.check"))["properties"]["code"]
+    assert one == _check_schema(custom, draft.position("with.checks.0"))["properties"]["code"]

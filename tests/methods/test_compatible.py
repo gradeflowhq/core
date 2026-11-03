@@ -3,7 +3,6 @@ from gradeflow_core.editing import Position, compatible_methods
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
-from gradeflow_core.questions.reading import CodeReading
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
@@ -13,8 +12,7 @@ QUESTIONS = QuestionSet(
         "Q2": ChoiceQuestion(options=frozenset({"a", "b"})),
         "Q3": ValuesQuestion(value_types=["text", "number"]),
         "Q4": NumberQuestion(),
-        "Q5": CodeQuestion(reading=CodeReading(guess_indentation=True)),
-        "Q6": CodeQuestion(),
+        "Q5": CodeQuestion(),
     }
 )
 
@@ -64,53 +62,15 @@ def test_a_value_of_an_answer_offers_what_marks_its_type() -> None:
     ]
 
 
-ONE_CODE_ANSWER = [
-    "accepted-answers",
-    "answer-criteria",
-    "full-marks",
-    "combination",
-    "not-allowed",
-    "pattern",
-    "code-tests",
-    "code-uses",
-    "custom-code",
-]
-
-
-def test_code_read_as_typed_offers_the_methods_that_mark_code() -> None:
-    assert names(Position(QUESTIONS, "Q6")) == ONE_CODE_ANSWER
-
-
-def test_code_read_as_several_layouts_offers_what_marks_several_answers() -> None:
+def test_code_offers_the_methods_that_mark_code() -> None:
     assert names(Position(QUESTIONS, "Q5")) == [
-        "best-answer",
+        "accepted-answers",
+        "answer-criteria",
         "full-marks",
         "combination",
         "not-allowed",
+        "pattern",
+        "code-tests",
+        "code-uses",
         "custom-code",
     ]
-
-
-def test_a_check_inside_best_answer_reads_one_of_the_layouts() -> None:
-    assert names(Position(QUESTIONS, "Q5", one_answer=True)) == ONE_CODE_ANSWER
-
-
-def test_a_method_made_of_checks_fits_answers_read_as_its_checks_read_them() -> None:
-    text = """label: Best code
-version: 1
-question_types: [code]
-checks:
-  - uses: gradeflow/best-answer@1
-    with:
-      check: {uses: gradeflow/accepted-answers@1, with: {answers: ["print(1)"]}}
-"""
-    plain = text.replace("best-answer@1", "accepted-answers@1").replace(
-        """    with:
-      check: {uses: gradeflow/accepted-answers@1, with: {answers: ["print(1)"]}}""",
-        """    with: {answers: ["print(1)"]}""",
-    )
-    methods = BUILTINS.with_files([("sample/best", text), ("sample/plain", plain)])
-    best, exact = methods.find("sample/best@1"), methods.find("sample/plain@1")
-    guessed, typed = Position(QUESTIONS, "Q5"), Position(QUESTIONS, "Q6")
-    assert (best.fits(guessed), best.fits(typed)) == (True, False)
-    assert (exact.fits(guessed), exact.fits(typed)) == (False, True)

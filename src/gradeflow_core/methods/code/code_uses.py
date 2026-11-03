@@ -15,6 +15,7 @@ from ..method import AnswerMethod
 from ..outcome import Outcome
 from ..position import Position
 from ..settings import IDENTIFIER, Settings
+from .code_fixes import CodeFixes, best_fixed_outcome, fixes_field
 
 Construct = Literal["call", "import", "loop", "comprehension", "recursion"]
 CONSTRUCT_LABELS = {
@@ -44,6 +45,7 @@ class CodeUsesSettings(Settings):
         examples=["numpy"],
         json_schema_extra=hint(applies_when={"looks_for": "import"}),
     )
+    fixes: CodeFixes = fixes_field()
 
 
 class CodeUses(AnswerMethod[CodeUsesSettings]):
@@ -55,7 +57,8 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
         "**Use it when:** Code must use a construct, such as a loop, recursion or a call to a "
         "function.\n\n"
         "**How it marks:** The code is read as written, not run, so comments and strings don't "
-        "count. Code that can't be read gets no marks and is left for a person to look at.\n\n"
+        "count. Code that can't be read gets no marks and is left for a person to look at. "
+        "**Fix code** can fix small errors first.\n\n"
         "**Related:** To forbid a construct, put it in Not Allowed. To check what the code does, "
         "use Code Tests."
     )
@@ -81,40 +84,10 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
     def _mark_answer(
         self, settings: CodeUsesSettings, answer: Answer, question: Question
     ) -> Outcome:
-        assert isinstance(answer, str)  # a code question reading one answer
-        try:
-            tree = ast.parse(answer)
-        except SyntaxError as error:
-            where = f" on line {error.lineno}" if error.lineno else ""
-            return Outcome(
-                0.0, sentence(f"Couldn't read the code: {error.msg}{where}"), marked=False
-            )
-        nodes = list(ast.walk(tree))
-        match settings.looks_for:
-            case "call":
-                found = any(
-                    isinstance(node, ast.Call) and _called(node.func) == settings.function
-                    for node in nodes
-                )
-                said = (f"Calls {settings.function}.", f"Expected a call to {settings.function}.")
-            case "import":
-                module = settings.module or ""
-                found = any(
-                    name == module or name.startswith(f"{module}.")
-                    for node in nodes
-                    for name in _imported(node)
-                )
-                said = (f"Imports {module}.", f"Expected an import of {module}.")
-            case "loop":
-                found = any(isinstance(node, LOOPS) for node in nodes)
-                said = ("Uses a loop.", "Expected a loop.")
-            case "comprehension":
-                found = any(isinstance(node, COMPREHENSIONS) for node in nodes)
-                said = ("Uses a comprehension.", "Expected a comprehension.")
-            case "recursion":
-                found = any(isinstance(node, FUNCTIONS) and _recursive(node) for node in nodes)
-                said = ("Uses recursion.", "Expected recursion.")
-        return Outcome(float(found), said[0] if found else said[1])
+        assert isinstance(answer, str)  # a code question's answer
+        return best_fixed_outcome(
+            answer, settings.fixes, "", lambda code, penalty: _marked(settings, code, penalty)
+        )
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(check)
@@ -122,6 +95,41 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
             yield Problem("Name the function.", field=("function",), incomplete=True)
         if settings.looks_for == "import" and not settings.module:
             yield Problem("Name the module.", field=("module",), incomplete=True)
+
+
+def _marked(settings: CodeUsesSettings, code: str, penalty: float) -> Outcome:
+    """Whether ``code`` uses the construct, with its marks cut by ``penalty``."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as error:
+        where = f" on line {error.lineno}" if error.lineno else ""
+        return Outcome(0.0, sentence(f"Couldn't read the code: {error.msg}{where}"), marked=False)
+    nodes = list(ast.walk(tree))
+    match settings.looks_for:
+        case "call":
+            found = any(
+                isinstance(node, ast.Call) and _called(node.func) == settings.function
+                for node in nodes
+            )
+            said = (f"Calls {settings.function}.", f"Expected a call to {settings.function}.")
+        case "import":
+            module = settings.module or ""
+            found = any(
+                name == module or name.startswith(f"{module}.")
+                for node in nodes
+                for name in _imported(node)
+            )
+            said = (f"Imports {module}.", f"Expected an import of {module}.")
+        case "loop":
+            found = any(isinstance(node, LOOPS) for node in nodes)
+            said = ("Uses a loop.", "Expected a loop.")
+        case "comprehension":
+            found = any(isinstance(node, COMPREHENSIONS) for node in nodes)
+            said = ("Uses a comprehension.", "Expected a comprehension.")
+        case "recursion":
+            found = any(isinstance(node, FUNCTIONS) and _recursive(node) for node in nodes)
+            said = ("Uses recursion.", "Expected recursion.")
+    return Outcome(float(found) * (1 - penalty), said[0] if found else said[1])
 
 
 def _named(name: str | None, unnamed: str) -> str:

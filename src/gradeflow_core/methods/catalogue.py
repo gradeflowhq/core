@@ -15,7 +15,6 @@ from .code.code_uses import CodeUses
 from .code.custom_code import CustomCode
 from .code.custom_code_for_a_group import CustomCodeForAGroup
 from .collection import Methods, load_files
-from .logic.best_answer import BestAnswer
 from .logic.combination import Combination
 from .logic.full_marks import FullMarks
 from .method import Method
@@ -26,7 +25,6 @@ from .text.length import Length
 from .text.pattern import Pattern
 
 PYTHON: tuple[Method[Any], ...] = (
-    BestAnswer(),
     AcceptedAnswers(),
     EquivalentExpression(),
     NumberRange(),
@@ -46,7 +44,6 @@ PYTHON: tuple[Method[Any], ...] = (
     CodeTests(),
 )
 ORDER = (
-    "gradeflow/best-answer",
     "gradeflow/accepted-answers",
     "gradeflow/key-points",
     "gradeflow/answer-criteria",

@@ -170,3 +170,15 @@ def test_a_function_is_one_name() -> None:
 
 def test_code_is_read_as_typed() -> None:
     assert mark(uses("call", function="Counter"), "counts = Counter(words)", CODE).proportion == 1
+
+
+def test_fix_code_lets_unreadable_code_be_checked() -> None:
+    flat = "def factorial(n):\nif n < 2:\nreturn 1\nreturn n * factorial(n - 1)"
+    unread = mark(uses("recursion"), flat, CODE)
+    assert (unread.proportion, unread.marked) == (0, False)
+    fixes = {"indentation": True, "indentation_penalty": 0.5}
+    result = mark(uses("recursion", fixes=fixes), flat, CODE)
+    assert (result.proportion, result.marked) == (0.5, True)
+    assert result.feedback == (
+        "Fixed before marking:\n- Rebuilt the indentation (-50%).\nUses recursion."
+    )

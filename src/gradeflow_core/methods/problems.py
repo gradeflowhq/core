@@ -133,17 +133,6 @@ def misfit(method: Method[Any], position: Position) -> str | None:
     """Why ``method`` can't mark at ``position``, if it can't."""
     if method.fits(position):
         return None
-    if (
-        position.answer_type in method.question_types
-        and position.question is not None
-        and position.value is None
-    ):
-        if position.answer_shape == "multiple":
-            return (
-                f"{method.label} marks one answer, and this question reads each answer as "
-                "several. Put it inside Best Answer."
-            )
-        return f"{method.label} marks an answer read as several, which this question doesn't."
     return f"{method.label} can't mark {_what(position)}."
 
 

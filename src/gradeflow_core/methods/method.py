@@ -14,7 +14,7 @@ from ..common.problems import Problem
 from ..common.schemas import JsonDict, json_schema
 from ..questions.base import Question
 from ..questions.question_set import read_answer
-from ..questions.types import Answer, AnswerShape, QuestionId, QuestionType, Unreadable
+from ..questions.types import Answer, QuestionId, QuestionType, Unreadable
 from .check import CHECK_FIELDS, Check, Context, holds_checks
 from .example import Example
 from .names import method_ref
@@ -52,8 +52,6 @@ class Method[S: Settings](ABC):
     level: Level = "basic"
     question_types: frozenset[QuestionType] = frozenset()
     """The questions, or values of an answer, it can mark."""
-    answer_shape: AnswerShape | Literal["both"] = "single"
-    """Whether it marks one answer, an answer read as several possible answers, or both."""
     group: bool = False
     """Whether it can mark a question group."""
     marks_blank: bool = False
@@ -123,8 +121,7 @@ class Method[S: Settings](ABC):
             return self.group
         if position.value is not None and self.needs_model_endpoint:
             return False  # language models are asked about whole answers, once for everyone's
-        shapes = {"both", position.answer_shape}
-        return position.answer_type in self.question_types and self.answer_shape in shapes
+        return position.answer_type in self.question_types
 
     def settings_at(self, position: Position) -> type[Settings]:
         """Its settings at ``position``, such as narrowed to a question's options."""

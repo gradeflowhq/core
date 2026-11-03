@@ -1,5 +1,4 @@
-"""Small errors in Python code fixed, so code that nearly runs can still be tested: a missing
-colon, bracket or quote, ``=`` for ``==``, a misspelt keyword, or a misspelt name."""
+"""Fix code: small errors in Python code fixed before marking."""
 
 import ast
 import builtins
@@ -8,18 +7,28 @@ import keyword
 import symtable
 import tokenize
 import warnings
-from collections.abc import Collection, Iterator
-from dataclasses import dataclass
+from collections.abc import Callable, Collection, Iterator
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from tokenize import TokenInfo
-from typing import NamedTuple
+from typing import Any, Literal, NamedTuple, get_args
 
+from pydantic import ConfigDict, Field
 from rapidfuzz.distance import OSA
 
-from ...common.text import quoted
+from ...common.hints import ADVANCED, hint
+from ...common.text import capitalised, format_number, quoted
 from ...questions.layouts import BRACKETS, CLOSERS, OPENERS, guess_layouts
+from ..outcome import Detail, Outcome
+from ..settings import Settings
 
 type Position = tuple[int, int]
+FixKind = Literal["indentation", "colons", "brackets", "equals", "keywords", "names"]
+
+LAYOUTS = 3
+"""How many layouts to try for code with no indentation."""
+MAX_FIXES = 10
+"""Code that needs more fixes is marked as written."""
 
 STATEMENT_KEYWORDS = frozenset(
     {
@@ -65,74 +74,180 @@ SKIPPED = frozenset(
 BUILTINS = frozenset(dir(builtins))
 
 
+class Fix(NamedTuple):
+    kind: FixKind
+    phrase: str
+    """The fix as feedback says it, such as: line 3, added “:” after “def add(a, b)”."""
+
+
 @dataclass(frozen=True)
 class FixedCode:
     code: str
-    fixes: tuple[str, ...]
-    """Each fix as feedback says it, such as: line 3, added “:” after “def add(a, b)”."""
+    fixes: tuple[Fix, ...]
 
 
-class _Fix(NamedTuple):
+class _Edit(NamedTuple):
     start: Position
     end: Position
     text: str
-    phrase: str = ""
 
 
-def fix_small_errors(code: str, defined: Collection[str], limit: int) -> FixedCode | None:
-    """``code`` with its small errors fixed, or None when it has none, needs more than ``limit``
-    fixes, or still doesn't compile. ``defined`` are the names the setup code defines. Code typed
-    without indentation comes back in its most likely layout."""
-    fixes: list[str] = []
-    while fix := _line_fix(code):
-        code = _edit(code, fix)
-        fixes.append(fix.phrase)
-        if len(fixes) > limit:
-            return None
-    if _is_flat(code):
-        layouts = guess_layouts(code, 1)
-        if not layouts:
-            return None
-        code = layouts[0]
-    with warnings.catch_warnings(action="ignore"):
-        try:
-            code, renamed = _fixed_names(code, defined)
-            compile(code, "<answer>", "exec", dont_inherit=True)
-        except SyntaxError, ValueError:
-            return None
-    fixes += renamed
-    if not fixes or len(fixes) > limit:
-        return None
-    return FixedCode(code, tuple(fixes))
+type _LineFix = tuple[_Edit, Fix]
+
+
+def _penalty(kind: FixKind) -> Any:
+    return Field(
+        default=0,
+        ge=0,
+        le=1,
+        title="Penalty",
+        examples=[0.1, 0.25, 0.5],
+        json_schema_extra=hint(applies_when={kind: True}),
+    )
+
+
+class CodeFixes(Settings):
+    model_config = ConfigDict(title="Fix code", frozen=True)
+
+    indentation: bool = Field(
+        default=False,
+        title="Indentation",
+        description="Lost indentation is rebuilt.",
+    )
+    indentation_penalty: float = _penalty("indentation")
+    colons: bool = Field(
+        default=False,
+        title="Missing colons",
+        description="“if x > 0” reads as “if x > 0:”.",
+    )
+    colons_penalty: float = _penalty("colons")
+    brackets: bool = Field(
+        default=False,
+        title="Brackets and quotes",
+        description="“print(x” reads as “print(x)”.",
+    )
+    brackets_penalty: float = _penalty("brackets")
+    equals: bool = Field(
+        default=False,
+        title="Equals in conditions",
+        description="“if x = 1” reads as “if x == 1”.",
+    )
+    equals_penalty: float = _penalty("equals")
+    keywords: bool = Field(
+        default=False,
+        title="Misspelt keywords",
+        description="“retrun” reads as “return”.",
+    )
+    keywords_penalty: float = _penalty("keywords")
+    names: bool = Field(
+        default=False,
+        title="Misspelt names",
+        description="“lenght” reads as “length”, and “true” as “True”.",
+    )
+    names_penalty: float = _penalty("names")
+
+    @property
+    def kinds(self) -> frozenset[FixKind]:
+        return frozenset(kind for kind in get_args(FixKind) if getattr(self, kind))
+
+    def penalty(self, kind: FixKind) -> float:
+        """The share of the marks each fix of ``kind`` takes off."""
+        return float(getattr(self, f"{kind}_penalty"))
+
+    def total_penalty(self, fixed: FixedCode) -> float:
+        """The share of the marks the fixes in ``fixed`` take off, at most 1."""
+        return min(1.0, sum(self.penalty(fix.kind) for fix in fixed.fixes))
+
+
+def fixes_field() -> Any:
+    """A code method's ``fixes`` field."""
+    return Field(
+        default={},
+        validate_default=True,
+        title="Fix code",
+        description="Small errors fixed before marking.",
+        json_schema_extra=ADVANCED,
+    )
+
+
+def best_fixed_outcome(
+    code: str, fixes: CodeFixes, setup: str, mark: Callable[[str, float], Outcome]
+) -> Outcome:
+    """The best outcome ``mark`` gives ``code`` or one of its fixed versions; the earliest on a tie.
+    ``setup`` is the code run before it."""
+    best = mark(code, 0)
+    chosen: FixedCode | None = None
+    for fixed in fixed_versions(code, fixes.kinds, setup):
+        if best.correct:
+            break
+        outcome = mark(fixed.code, fixes.total_penalty(fixed))
+        if (outcome.marked, outcome.proportion) > (best.marked, best.proportion):
+            best, chosen = outcome, fixed
+    if chosen is None:
+        return best
+    listed = "\n".join(f"- {_fix_line(fix, fixes.penalty(fix.kind))}" for fix in chosen.fixes)
+    return replace(
+        best,
+        feedback=f"Fixed before marking:\n{listed}\n{best.feedback}",
+        details=(Detail("Marked as", chosen.code, "code"), *best.details),
+    )
+
+
+def _fix_line(fix: Fix, penalty: float) -> str:
+    suffix = f" (-{format_number(penalty * 100)}%)" if penalty else ""
+    return f"{capitalised(fix.phrase)}{suffix}."
 
 
 @lru_cache(maxsize=4096)
-def fixed_code(code: str, setup: str, fixes: int) -> FixedCode | None:
-    """``code`` with up to ``fixes`` small errors fixed, names the ``setup`` code defines counting
-    as defined; None when it has none to fix, or more."""
-    if not fixes:
-        return None
+def fixed_versions(code: str, kinds: frozenset[FixKind], setup: str) -> tuple[FixedCode, ...]:
+    """``code`` fixed with ``kinds`` of fixes, once for each likely layout. Empty when it can't be
+    fixed. Names defined in ``setup`` count as defined."""
+    line_fixes: list[Fix] = []
+    while found := _line_fix(code, kinds):
+        edit, fix = found
+        code = _edit(code, edit)
+        line_fixes.append(fix)
+        if len(line_fixes) > MAX_FIXES:
+            return ()
+    layouts = guess_layouts(code, LAYOUTS) if "indentation" in kinds and _is_flat(code) else [code]
+    defined = _defined(setup) if "names" in kinds else set()
+    versions = []
+    for layout in layouts:
+        indentation = [Fix("indentation", "rebuilt the indentation")] if layout != code else []
+        with warnings.catch_warnings(action="ignore"):
+            try:
+                fixed, renamed = _fixed_names(layout, defined) if "names" in kinds else (layout, [])
+                compile(fixed, "<answer>", "exec", dont_inherit=True)
+            except SyntaxError, ValueError:
+                continue
+        fixes = (*indentation, *line_fixes, *renamed)
+        if fixes:
+            versions.append(FixedCode(fixed, fixes))
+    return tuple(versions)
+
+
+def _defined(setup: str) -> set[str]:
     try:
-        defined = _bound_names(symtable.symtable(setup, "<setup>", "exec"))
+        return _bound_names(symtable.symtable(setup, "<setup>", "exec"))
     except SyntaxError:
-        defined = set()
-    return fix_small_errors(code, defined, fixes)
+        return set()
 
 
-def _line_fix(code: str) -> _Fix | None:
-    """The first fix in ``code`` that its lines show, whatever their indentation."""
+def _line_fix(code: str, kinds: frozenset[FixKind]) -> _LineFix | None:
+    """The first fix of ``kinds`` in ``code``, whatever its indentation."""
     lines = code.split("\n")
     tokens, error = _tokens(lines)
     *statements, partial = _statements(tokens)
     for statement in statements:
-        if fix := (
-            _bracket_fix(statement, at_end=False)
-            or _keyword_fix(statement)
-            or _condition_fix(statement)
-            or _colon_fix(statement, lines)
+        for fix in (
+            _bracket_fix(statement, at_end=False),
+            _keyword_fix(statement),
+            _condition_fix(statement),
+            _colon_fix(statement, lines),
         ):
-            return fix
-    if error is None:
+            if fix is not None and fix[1].kind in kinds:
+                return fix
+    if error is None or "brackets" not in kinds:
         return None
     message, place = error.args
     if fix := _bracket_fix(partial, at_end=message.startswith("unexpected EOF")):
@@ -179,7 +294,7 @@ def _statements(tokens: list[TokenInfo]) -> list[list[TokenInfo]]:
     return [statement for statement in statements[:-1] if statement] + statements[-1:]
 
 
-def _bracket_fix(statement: list[TokenInfo], *, at_end: bool) -> _Fix | None:
+def _bracket_fix(statement: list[TokenInfo], *, at_end: bool) -> _LineFix | None:
     """The brackets left open at the end of a line that the next line, or the code ending there,
     shows was finished."""
     for index, token in enumerate(statement):
@@ -197,7 +312,8 @@ def _bracket_fix(statement: list[TokenInfo], *, at_end: bool) -> _Fix | None:
         else:
             continue
         closing = "".join(BRACKETS[bracket] for bracket in reversed(opened))
-        return _Fix(place, place, closing, f"line {place[0]}, closed {quoted(''.join(opened))}")
+        phrase = f"line {place[0]}, closed {quoted(''.join(opened))}"
+        return _Edit(place, place, closing), Fix("brackets", phrase)
     return None
 
 
@@ -235,7 +351,7 @@ def _is_operand(token: TokenInfo) -> bool:
     return token.type in OPERANDS or token.string in CLOSERS
 
 
-def _quote_fix(partial: list[TokenInfo], lines: list[str], place: Position) -> _Fix | None:
+def _quote_fix(partial: list[TokenInfo], lines: list[str], place: Position) -> _LineFix | None:
     """The quote closing a string left open at its line's end, before the brackets and header
     ``:`` the line ends with."""
     row, column = place
@@ -253,10 +369,12 @@ def _quote_fix(partial: list[TokenInfo], lines: list[str], place: Position) -> _
         if line[:end].endswith(closing[:size]) and end - size > start
     )
     quote = line[start]
-    return _Fix((row, end), (row, end), quote, f"line {row}, closed {quoted(quote)}")
+    return _Edit((row, end), (row, end), quote), Fix(
+        "brackets", f"line {row}, closed {quoted(quote)}"
+    )
 
 
-def _keyword_fix(statement: list[TokenInfo]) -> _Fix | None:
+def _keyword_fix(statement: list[TokenInfo]) -> _LineFix | None:
     """A statement's first word as the keyword it misspells or capitalises, when the statement
     can't stand as written."""
     first = statement[0]
@@ -289,10 +407,11 @@ def _keyword_fix(statement: list[TokenInfo]) -> _Fix | None:
         )
     if stands:
         return None
-    return _Fix(first.start, first.end, match, f"line {first.start[0]}, {_read_as(word, match)}")
+    phrase = f"line {first.start[0]}, {_read_as(word, match)}"
+    return _Edit(first.start, first.end, match), Fix("keywords", phrase)
 
 
-def _condition_fix(statement: list[TokenInfo]) -> _Fix | None:
+def _condition_fix(statement: list[TokenInfo]) -> _LineFix | None:
     """The one ``=`` in an ``if``, ``elif`` or ``while`` condition, as ``==``."""
     if statement[0].string not in CONDITION_KEYWORDS:
         return None
@@ -300,10 +419,11 @@ def _condition_fix(statement: list[TokenInfo]) -> _Fix | None:
     if len(equals) != 1:
         return None
     [token] = equals
-    return _Fix(token.start, token.end, "==", f"line {token.start[0]}, {_read_as('=', '==')}")
+    phrase = f"line {token.start[0]}, {_read_as('=', '==')}"
+    return _Edit(token.start, token.end, "=="), Fix("equals", phrase)
 
 
-def _colon_fix(statement: list[TokenInfo], lines: list[str]) -> _Fix | None:
+def _colon_fix(statement: list[TokenInfo], lines: list[str]) -> _LineFix | None:
     """The ``:`` a block header ends with."""
     if statement[0].string not in HEADER_KEYWORDS or any(
         token.string == ":" for token in _outside_brackets(statement)
@@ -311,7 +431,8 @@ def _colon_fix(statement: list[TokenInfo], lines: list[str]) -> _Fix | None:
         return None
     end = statement[-1].end
     header = lines[end[0] - 1][: end[1]].strip()
-    return _Fix(end, end, ":", f"line {end[0]}, added {quoted(':')} after {quoted(header)}")
+    phrase = f"line {end[0]}, added {quoted(':')} after {quoted(header)}"
+    return _Edit(end, end, ":"), Fix("colons", phrase)
 
 
 def _outside_brackets(statement: list[TokenInfo]) -> Iterator[TokenInfo]:
@@ -323,7 +444,7 @@ def _outside_brackets(statement: list[TokenInfo]) -> Iterator[TokenInfo]:
         depth += token.string in OPENERS
 
 
-def _fixed_names(code: str, defined: Collection[str]) -> tuple[str, list[str]]:
+def _fixed_names(code: str, defined: Collection[str]) -> tuple[str, list[Fix]]:
     """``code`` with each name it uses but never defines read as the one defined name or builtin a
     single edit away, or as the constant it writes in lower case; and a phrase for each, in order
     of first use."""
@@ -333,8 +454,8 @@ def _fixed_names(code: str, defined: Collection[str]) -> tuple[str, list[str]]:
         if isinstance(node, ast.Name) and node.id not in known:
             uses.setdefault(node.id, []).append((node.lineno, node.col_offset))
     lines = code.split("\n")
-    edits: list[_Fix] = []
-    phrases: list[tuple[Position, str]] = []
+    edits: list[_Edit] = []
+    phrases: list[tuple[Position, Fix]] = []
     for name, places in uses.items():
         matches = (
             [CONSTANTS[name]]
@@ -343,10 +464,11 @@ def _fixed_names(code: str, defined: Collection[str]) -> tuple[str, list[str]]:
         )
         if len(matches) != 1:
             continue
-        phrases.append((min(places), f"line {min(places)[0]}, {_read_as(name, matches[0])}"))
+        phrase = f"line {min(places)[0]}, {_read_as(name, matches[0])}"
+        phrases.append((min(places), Fix("names", phrase)))
         for row, offset in places:
             column = len(lines[row - 1].encode()[:offset].decode())
-            edits.append(_Fix((row, column), (row, column + len(name)), matches[0]))
+            edits.append(_Edit((row, column), (row, column + len(name)), matches[0]))
     for edit in sorted(edits, reverse=True):
         code = _edit(code, edit)
     return code, [phrase for _, phrase in sorted(phrases)]
@@ -367,14 +489,14 @@ def _read_as(written: str, meant: str) -> str:
     return f"{quoted(written)} read as {quoted(meant)}"
 
 
-def _edit(code: str, fix: _Fix) -> str:
+def _edit(code: str, edit: _Edit) -> str:
     lines = code.split("\n")
 
     def index(position: Position) -> int:
         row, column = position
         return sum(len(line) + 1 for line in lines[: row - 1]) + column
 
-    return code[: index(fix.start)] + fix.text + code[index(fix.end) :]
+    return code[: index(edit.start)] + edit.text + code[index(edit.end) :]
 
 
 def _is_flat(code: str) -> bool:

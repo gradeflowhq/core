@@ -113,7 +113,6 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
     )
     level = "advanced"
     question_types = ALL_TYPES
-    answer_shape = "both"
     settings = CustomCodeSettings
     examples = examples_beside(__file__)
 

@@ -5,11 +5,9 @@ from pydantic import ConfigDict, Field
 from ...common.hints import ADVANCED, hint
 from ...common.text import (
     capitalised,
-    format_number,
     markdown_code,
     plain_join,
     plain_markdown,
-    plural,
     sentence,
 )
 from ...questions.base import Question
@@ -20,8 +18,8 @@ from ..logic.combination import COMBINE_LABELS, Combine, proportion_and_parts, w
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..settings import Settings
+from .code_fixes import CodeFixes, best_fixed_outcome, fixes_field
 from .code_test import Test, TestSetup, tested
-from .fixes import FixedCode, fixed_code
 
 
 class CodeTestsSettings(Settings):
@@ -39,6 +37,7 @@ class CodeTestsSettings(Settings):
         description="Code before and after the student's, and each test's time limit.",
         json_schema_extra=ADVANCED,
     )
+    fixes: CodeFixes = fixes_field()
     evaluate_expected: bool = Field(
         default=True,
         title="Work out expected values",
@@ -47,27 +46,6 @@ class CodeTestsSettings(Settings):
     )
     combine: Combine = Field(
         default="all", title="How tests count", json_schema_extra=hint(labels=COMBINE_LABELS)
-    )
-    fix_small_errors: bool = Field(
-        default=False,
-        title="Fix small errors",
-        description="Code that fails is tested again with slips like a missing colon corrected.",
-    )
-    fix_penalty: float = Field(
-        default=0,
-        ge=0,
-        le=1,
-        title="Marks off for fixes",
-        description="The share of the marks fixed code loses, from 0 to 1.",
-        json_schema_extra=hint(applies_when={"fix_small_errors": True}),
-    )
-    max_fixes: int = Field(
-        default=2,
-        ge=0,
-        le=10,
-        title="Most fixes",
-        description="Code that needs more fixes gets no second try.",
-        json_schema_extra=hint(advanced=True, applies_when={"fix_small_errors": True}),
     )
 
 
@@ -82,12 +60,11 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
         "**How it marks:** The student's code runs, then each test runs an expression and "
         "compares what it gives with the expected value, so `add(2, 3)` should give `5`. **How "
         "tests count** sets whether all tests are needed, any one is enough, or each earns its "
-        "share. With **Fix small errors**, code that fails is tested again with slips such as a "
-        "missing `:` fixed, and loses the share of the marks in **Marks off for fixes**.\n\n"
+        "share. **Fix code** also tests the code with small errors fixed, such as lost "
+        "indentation. Each fix can take off a **Penalty**.\n\n"
         "**Good to know:** Test an ordinary case and an edge case, such as an empty list or "
         "zero. Each test has a time limit, under **Test setup**.\n\n"
-        "**Related:** When the question guesses lost indentation, put Code Tests inside Best "
-        "Answer. To check how the code is written, not what it does, use Code Uses."
+        "**Related:** To check how the code is written, not what it does, use Code Uses."
     )
     level = "advanced"
     question_types = frozenset({"code"})
@@ -110,20 +87,16 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
     def _mark_answer(
         self, settings: CodeTestsSettings, answer: Answer, question: Question
     ) -> Outcome:
-        assert isinstance(answer, str)  # a code question reading one answer
-        written = _run(settings, answer, question.max_marks)
-        if not settings.fix_small_errors:
-            return written
-        fixed = fixed_code(answer, settings.setup.around("pass"), settings.max_fixes)
-        if fixed is None:
-            return written
-        run = _run(settings, fixed.code, question.max_marks, penalty=settings.fix_penalty)
-        if run.proportion <= written.proportion:
-            return written
-        return replace(run, feedback=f"{_fixed_line(fixed, settings.fix_penalty)}\n{run.feedback}")
+        assert isinstance(answer, str)  # a code question's answer
+        return best_fixed_outcome(
+            answer,
+            settings.fixes,
+            settings.setup.around("pass"),
+            lambda code, penalty: _run(settings, code, question.max_marks, penalty),
+        )
 
 
-def _run(settings: CodeTestsSettings, code: str, max_marks: float, penalty: float = 0) -> Outcome:
+def _run(settings: CodeTestsSettings, code: str, max_marks: float, penalty: float) -> Outcome:
     """The tests run on ``code``, each test's marks cut by ``penalty``, combined."""
     weighted = []
     for test in settings.tests:
@@ -182,13 +155,6 @@ def _error(test: Outcome) -> str | None:
 
 def _detail(test: Outcome, title: str) -> str:
     return next(detail.value for detail in test.details if detail.title == title)
-
-
-def _fixed_line(fixed: FixedCode, penalty: float) -> str:
-    count = len(fixed.fixes)
-    off = f", for {format_number(penalty * 100)}% off" if penalty else ""
-    fixes = " ".join(f"{capitalised(fix)}." for fix in fixed.fixes)
-    return f"Fixed {count} small {plural('error', count)} before testing{off}. {fixes}"
 
 
 def _test_title(test: Test, *, negated: bool = False) -> str:

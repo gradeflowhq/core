@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from gradeflow_core import BUILTINS
-from gradeflow_core.common.hints import hint_of
 from gradeflow_core.methods.code import code_test
 from gradeflow_core.methods.code import runner as code_runner
 
@@ -53,9 +51,9 @@ def test_feedback_counts_the_tests_passed_and_says_why_the_others_failed() -> No
     assert mark(code_tests(*three, combine="any"), "def f():\n    return 2", CODE).feedback == (
         "Passed 1 of 3 tests."
     ), "with Any, failures cost nothing"
-    fixed = code_tests(*three[::2], fix_small_errors=True, fix_penalty=0.5)
+    fixed = code_tests(*three[::2], fixes={"colons": True, "colons_penalty": 0.5})
     feedback = mark(fixed, "def f()\n    return 1", CODE).feedback
-    assert feedback.endswith("50% off. Line 1, added “:” after “def f()”.\nPassed both tests.")
+    assert feedback.endswith("after “def f()” (-50%).\nPassed both tests.")
 
 
 def test_an_error_that_stops_several_tests_is_said_once() -> None:
@@ -223,48 +221,52 @@ def test_tests_found_where_they_are_not_allowed_are_listed_in_the_feedback() -> 
 
 ADD = {"expression": "add(2, 3)", "expected": "5"}
 SLIPS = "def add(a, b)\n    retrun a + b"
+SLIP_FIXES = {"colons": True, "keywords": True}
 
 
-def test_small_errors_fixed_earn_the_marks_less_the_penalty_and_say_what_was_fixed() -> None:
-    result = mark(code_tests(ADD, fix_small_errors=True, fix_penalty=0.25), SLIPS, CODE)
-    assert result.proportion == 0.75
+def test_each_fix_is_listed_with_its_penalty() -> None:
+    fixes = {**SLIP_FIXES, "colons_penalty": 0.25, "keywords_penalty": 0.5}
+    result = mark(code_tests(ADD, fixes=fixes), SLIPS, CODE)
+    assert result.proportion == 0.25
     assert result.feedback == (
-        "Fixed 2 small errors before testing, for 25% off. "
-        "Line 1, added “:” after “def add(a, b)”. Line 2, “retrun” read as “return”.\n"
+        "Fixed before marking:\n"
+        "- Line 1, added “:” after “def add(a, b)” (-25%).\n"
+        "- Line 2, “retrun” read as “return” (-50%).\n"
         "add(2, 3) gave 5, as expected."
     )
 
 
 def test_fixes_cost_nothing_unless_a_penalty_is_set() -> None:
-    result = mark(code_tests(ADD, fix_small_errors=True), SLIPS, CODE)
+    result = mark(code_tests(ADD, fixes=SLIP_FIXES), SLIPS, CODE)
     assert result.proportion == 1
-    assert result.feedback.startswith("Fixed 2 small errors before testing. Line 1, added")
+    assert result.feedback.startswith(
+        "Fixed before marking:\n- Line 1, added “:” after “def add(a, b)”.\n"
+    )
 
 
-def test_code_is_fixed_only_when_asked_and_within_the_limit() -> None:
+def test_code_is_fixed_only_as_asked() -> None:
     assert mark(code_tests(ADD), SLIPS, CODE).proportion == 0
-    assert mark(code_tests(ADD, fix_small_errors=True, max_fixes=1), SLIPS, CODE).proportion == 0
-    half = mark(code_tests(ADD, fix_small_errors=True, fix_penalty=0.5), SLIPS, CODE)
-    assert half.proportion == 0.5
+    assert mark(code_tests(ADD, fixes={"colons": True}), SLIPS, CODE).proportion == 0
 
 
 def test_code_that_passes_as_written_keeps_its_marks_and_feedback() -> None:
-    result = mark(code_tests(ADD, fix_small_errors=True), "def add(a, b):\n    return a + b", CODE)
+    result = mark(code_tests(ADD, fixes=SLIP_FIXES), "def add(a, b):\n    return a + b", CODE)
     assert (result.proportion, result.feedback) == (1, "add(2, 3) gave 5, as expected.")
 
 
 def test_names_the_setup_defines_count_as_defined() -> None:
     setup = {"code_before": "import math\ndef double(x):\n    return 2 * x"}
-    check = code_tests({"expression": "f(2)", "expected": "4"}, fix_small_errors=True, setup=setup)
+    check = code_tests({"expression": "f(2)", "expected": "4"}, fixes={"names": True}, setup=setup)
     result = mark(check, "def f(x):\n    return doubel(x)", CODE)
     assert result.proportion == 1
     assert "“doubel” read as “double”" in result.feedback
 
 
-def test_the_fix_settings_apply_only_when_fixing() -> None:
-    [method] = [method for method in BUILTINS if method.name == "gradeflow/code-tests"]
-    fields = method.settings.model_fields
-    for name in ("fix_penalty", "max_fixes"):
-        assert hint_of(fields[name]).applies_when == {"fix_small_errors": True}, name
-    assert not hint_of(fields["fix_penalty"]).advanced
-    assert fields["fix_penalty"].default == 0
+def test_flat_code_gets_the_marks_of_its_best_layout() -> None:
+    flat = "def count(xs):\nn = 0\nfor x in xs:\nif x:\nn += 1\nreturn n"
+    tests = [{"expression": "count([1, 0, 1])", "expected": "2"}]
+    assert mark(code_tests(*tests), flat, CODE).proportion == 0
+    fixes = {"indentation": True, "indentation_penalty": 0.1}
+    result = mark(code_tests(*tests, fixes=fixes), flat, CODE)
+    assert result.proportion == 0.9
+    assert result.feedback.startswith("Fixed before marking:\n- Rebuilt the indentation (-10%).\n")

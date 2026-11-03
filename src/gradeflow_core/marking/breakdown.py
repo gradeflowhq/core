@@ -10,7 +10,8 @@ def breakdown_of(outcome: Outcome, max_marks: float) -> CheckResult | None:
     if not outcome.children:
         return None
     children = tuple(_check_result(child, _marks(child, max_marks)) for child in outcome.children)
-    return _check_result(outcome, None, children)
+    # The result's own feedback says why it is unmarked.
+    return _check_result(outcome, None, children).model_copy(update={"details": outcome.details})
 
 
 def _check_result(

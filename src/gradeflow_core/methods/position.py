@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from ..questions.base import Question
 from ..questions.question_set import QuestionSet, value_of
 from ..questions.reading import write_answer
-from ..questions.types import AnswerShape, QuestionId, QuestionType
+from ..questions.types import QuestionId, QuestionType
 
 
 @dataclass(frozen=True)
@@ -19,8 +19,6 @@ class Position:
     """In a marking of a question group, where checks choose their questions."""
     value_fixed: bool = False
     """At the value its place gives it, where checks don't choose their values."""
-    one_answer: bool = False
-    """Reading one of the answers its question reads each answer as."""
 
     @property
     def question_model(self) -> Question | None:
@@ -28,15 +26,7 @@ class Position:
         question = self.questions.get(self.question) if self.question else None
         if question is not None and self.value is not None:
             return question.value_question(self.value)
-        if question is not None and self.one_answer:
-            return question.single()
         return question
-
-    @property
-    def answer_shape(self) -> AnswerShape:
-        """Whether what it reads is one answer or several possible answers."""
-        question = self.question_model
-        return question.answer_shape if question else "single"
 
     @property
     def answer_type(self) -> QuestionType | None:
@@ -54,7 +44,7 @@ class Position:
             read = value_of(question.read(answer), self.value)
         except ValueError:
             return ""
-        return write_answer(question.first(read))
+        return write_answer(read)
 
     def at(self, question: QuestionId | None, value: int | None) -> Position:
         """The position of what a check naming ``question`` and ``value`` reads."""

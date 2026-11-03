@@ -11,9 +11,8 @@ from typing import Any
 from natsort import natsorted
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..common.hints import ADVANCED, hint
+from ..common.hints import ADVANCED
 from ..common.text import as_text, quoted
-from .layouts import guess_layouts
 from .types import Answer
 
 
@@ -68,23 +67,6 @@ class ListReading(TextReading):
     )
 
 
-class CodeReading(Reading):
-    guess_indentation: bool = Field(
-        default=False,
-        title="Guess lost indentation",
-        description="Code whose indentation was lost reads as the layouts it most likely had.",
-        json_schema_extra=ADVANCED,
-    )
-    most_guesses: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        title="Most guesses",
-        description="How many layouts an answer reads as, at most.",
-        json_schema_extra=hint(advanced=True, applies_when={"guess_indentation": True}),
-    )
-
-
 def reading_field(factory: Callable[[], Reading]) -> Any:
     """A question's ``reading`` field, made by ``factory`` unless set."""
     return Field(
@@ -105,15 +87,10 @@ def read_text(raw: str, reading: TextReading) -> str | None:
     return None if is_blank(raw, reading) else reading.option(raw)
 
 
-def read_code(raw: str, reading: CodeReading) -> str | list[str] | None:
-    """The code as typed, without indentation every line shares; with guessing, its likeliest
-    layouts, or the code alone when none compiles."""
+def read_code(raw: str, reading: Reading) -> str | None:
+    """The code as typed, without indentation every line shares."""
     code = textwrap.dedent("\n".join(line.rstrip() for line in raw.splitlines()).strip("\n"))
-    if is_blank(code, reading):
-        return None
-    if not reading.guess_indentation:
-        return code
-    return guess_layouts(code, reading.most_guesses) or [code]
+    return None if is_blank(code, reading) else code
 
 
 def read_list(raw: str, reading: ListReading) -> list[str] | None:

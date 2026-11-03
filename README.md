@@ -126,8 +126,8 @@ A `QuestionSet` maps question IDs to questions, in natural order (`Q2` before `Q
 | `code` | `CodeQuestion` | Code, as written |
 
 `updated_from(sheets)` adds questions for new answers, adds the options students chose, and drops
-questions nobody answered. A code question with `guess_indentation` reads code exported without its
-indentation as its likeliest layouts, and Best Answer marks the best of them.
+questions nobody answered. Code Tests and Code Uses can fix small errors before marking, such as
+lost indentation, with `fixes`.
 
 Answers are always strings. A values question converts to and from its values:
 

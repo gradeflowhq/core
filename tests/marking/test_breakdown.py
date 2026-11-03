@@ -1,17 +1,15 @@
 from typing import Any
 
-from gradeflow_core import BUILTINS, CheckResult, QuestionResult
+from gradeflow_core import BUILTINS, CheckResult, Detail, QuestionResult
 from gradeflow_core.editing import dump_yaml
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
-from gradeflow_core.questions.reading import CodeReading
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 from tests.fake_models import ENDPOINT
 
 from ..methods.helpers import CODE, accepted, code_tests, key_point, mark, mark_all, mark_group
-from ..methods.test_best_answer import GUESSING, LONGEST_RUN
 
 DECODE = "def decode(pairs):\n    return ''.join(c * n for c, n in zip(pairs[::2], pairs[1::2]))"
 
@@ -147,21 +145,15 @@ def test_a_conditional_says_what_its_condition_decided() -> None:
     ]
 
 
-def test_fixed_code_shows_the_tests_of_the_fixed_code() -> None:
-    tests = code_tests(case("f()", "1"), case("f() + 1", "2"), fix_small_errors=True)
-    assert rows(mark(tests, "def f()\n    return 1", CODE)) == [
+def test_fixed_code_shows_in_the_breakdown() -> None:
+    tests = code_tests(case("f()", "1"), case("f() + 1", "2"), fixes={"colons": True})
+    result = mark(tests, "def f()\n    return 1", CODE)
+    assert result.breakdown is not None
+    assert result.breakdown.details == (Detail("Marked as", "def f():\n    return 1", "code"),)
+    assert rows(result) == [
         ("Makes `f()` give `1`.", "earned", None),
         ("Makes `f() + 1` give `2`.", "earned", None),
     ]
-
-
-def test_best_answer_shows_the_possible_answer_that_counted() -> None:
-    both = code_tests(case("longest_run([1, 1, 1, 2])", "3"), case("longest_run([])", "0"))
-    best = {"uses": "gradeflow/best-answer@1", "with": {"check": both}}
-    result = mark(best, LONGEST_RUN, GUESSING)
-    assert result.breakdown is not None
-    assert result.breakdown.title == "**Best possible answer:** Passes both tests"
-    assert [child.effect for child in result.breakdown.children] == ["earned", "earned"]
 
 
 def test_multiple_values_name_each_value() -> None:
@@ -217,50 +209,40 @@ def tree(result: QuestionResult) -> Tree:
     return of(result.breakdown)
 
 
-GUESSED = CodeQuestion(max_marks=4, reading=CodeReading(guess_indentation=True))
-RUBRIC = {
-    "uses": "gradeflow/best-answer@1",
-    "with": {
-        "check": {
-            "uses": "gradeflow/combination@1",
-            "with": {
-                "combine": "total",
-                "checks": [
-                    {
-                        "weight": 2,
-                        **code_tests(
-                            case("count([1, 2])", "2"),
-                            case("count([])", "0"),
-                            case("count([5])", "1"),
-                            combine="proportional",
-                            fix_small_errors=True,
-                            fix_penalty=0.25,
-                        ),
-                    },
-                    {"uses": "gradeflow/code-uses@1", "with": {"looks_for": "recursion"}},
-                    {
-                        "uses": "gradeflow/not-allowed@1",
-                        "with": {
-                            "check": {
-                                "uses": "gradeflow/code-uses@1",
-                                "with": {"looks_for": "loop"},
-                            }
-                        },
-                    },
-                ],
-            },
-        }
+INDENTATION = {"indentation": True}
+RUBRIC = combination(
+    "total",
+    {
+        "weight": 2,
+        **code_tests(
+            case("count([1, 2])", "2"),
+            case("count([])", "0"),
+            case("count([5])", "1"),
+            combine="proportional",
+            fixes={**INDENTATION, "colons": True, "colons_penalty": 0.25},
+        ),
     },
-}
+    {"uses": "gradeflow/code-uses@1", "with": {"looks_for": "recursion", "fixes": INDENTATION}},
+    {
+        "uses": "gradeflow/not-allowed@1",
+        "with": {
+            "check": {
+                "uses": "gradeflow/code-uses@1",
+                "with": {"looks_for": "loop", "fixes": INDENTATION},
+            }
+        },
+    },
+)
 """A rubric for a recursive function, its indentation lost: tests worth 2 marks, recursion 1 and
 no loop 1."""
+COUNT_QUESTION = CodeQuestion(max_marks=4)
 
 
-def test_a_rubric_inside_best_answer_says_the_marks_of_its_own_checks() -> None:
+def test_a_rubric_on_flat_code_gives_each_checks_marks() -> None:
     flat = "def count(xs):\nif not xs:\nreturn 0\nreturn 1 + count(xs[1:])"
-    result = mark(RUBRIC, flat, GUESSED)
+    result = mark(RUBRIC, flat, COUNT_QUESTION)
     assert result.breakdown is not None
-    assert result.breakdown.title == "**Best possible answer:** Marks added up"
+    assert result.breakdown.title == "Marks added up"
     [(title, effect, marks, tests), *others] = tree(result)
     assert (title, effect, marks) == ("Passes these tests, each counting", "earned", 2.0)
     assert tests[0] == ("Makes `count([1, 2])` give `2`.", "earned", None, []), "only the top"
@@ -268,11 +250,13 @@ def test_a_rubric_inside_best_answer_says_the_marks_of_its_own_checks() -> None:
         ("Uses recursion.", "earned", 1.0, []),
         ("**Not allowed:** Uses a loop.", "earned", 1.0, []),
     ]
+    [marked_as] = result.breakdown.children[0].details
+    assert marked_as.value.splitlines()[1] == "    if not xs:"
 
 
 def test_a_rubric_shows_the_code_as_written_when_fixing_it_gives_no_more() -> None:
     colon = "def count(xs)\n    if xs == []:\n        return None\n    return 1 + count(xs[1:])"
-    result = mark(RUBRIC, colon, GUESSED)
+    result = mark(RUBRIC, colon, COUNT_QUESTION)
     [(_, _, _, tests), recursion, loop] = tree(result)
     assert {effect for _, effect, _, _ in tests} == {"lost"}
     assert result.breakdown is not None
@@ -282,6 +266,7 @@ def test_a_rubric_shows_the_code_as_written_when_fixing_it_gives_no_more() -> No
         "Reason": "Couldn't read the code: expected ':' on line 1."
     }
     assert loop[:3] == ("**Not allowed:** Uses a loop.", "unmarked", None)
+    assert result.breakdown.details == (), "the result's feedback says why"
 
 
 def number(key: str, low: float, high: float) -> dict[str, Any]:

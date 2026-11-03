@@ -9,7 +9,7 @@ from ..common.hints import hint
 from ..common.problems import as_invalid
 from ..common.schemas import JsonDict
 from .reading import write_answer
-from .types import Answer, AnswerShape, QuestionType
+from .types import Answer, QuestionType
 
 
 class Question(BaseModel, ABC):
@@ -75,19 +75,6 @@ class Question(BaseModel, ABC):
         they have no such value."""
         return None
 
-    @property
-    def answer_shape(self) -> AnswerShape:
-        return "single"
-
-    def single(self) -> Self:
-        """This question reading each answer as one, for a check marking one of several."""
-        return self
-
-    def first(self, answer: Answer) -> Answer:
-        """The likeliest of the possible answers ``answer`` is; the answer itself unless it
-        reads answers as several."""
-        return answer
-
     @abstractmethod
     def python_type(self) -> str:
         """The type custom code gets an answer as, in Python."""
@@ -104,7 +91,7 @@ class Question(BaseModel, ABC):
         question can't read stays as it is.
         """
         try:
-            return write_answer(self.first(self.read(answer)))
+            return write_answer(self.read(answer))
         except ValueError:
             return answer
 

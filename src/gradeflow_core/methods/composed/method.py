@@ -2,12 +2,12 @@
 
 from collections.abc import Iterator, Mapping
 from dataclasses import replace
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import JsonValue, PrivateAttr
+from pydantic import PrivateAttr
 
 from ...common.paths import Loc
-from ...questions.types import ALL_TYPES, AnswerShape, QuestionId
+from ...questions.types import ALL_TYPES, QuestionId
 from ..check import Check, Context, rendered_feedback
 from ..method import Method
 from ..outcome import Outcome
@@ -46,10 +46,6 @@ class ComposedMethod(Method[Settings]):
         self.level = file.level
         self.question_types = (
             ALL_TYPES if file.question_types == "all" else frozenset(file.question_types)
-        )
-        # A method for every type passes answers on as they are read; its checks say if they fit.
-        self.answer_shape = (
-            "both" if file.question_types == "all" else _shared_shape(file.checks, lookup)
         )
         self.group = file.group
         self.examples = tuple(file.examples)
@@ -113,19 +109,3 @@ class ComposedMethod(Method[Settings]):
 
     def expanded_checks(self, check: Check) -> Iterator[tuple[Loc, Check, bool]]:
         yield ("generated", self.name), self._expanded(check), False
-
-
-def _shared_shape(
-    checks: list[JsonValue] | str, lookup: Mapping[str, Method[Any]]
-) -> AnswerShape | Literal["both"]:
-    """What the checks a method file is written as all mark: answers read as several when one
-    of them marks only those, as Best Answer does; one answer otherwise."""
-    written = checks if isinstance(checks, list) else []
-    shapes = {
-        lookup[ref].answer_shape
-        for check in written
-        if isinstance(check, dict) and isinstance(ref := check.get("uses"), str) and ref in lookup
-    }
-    if shapes == {"both"}:
-        return "both"
-    return "multiple" if "multiple" in shapes and "single" not in shapes else "single"

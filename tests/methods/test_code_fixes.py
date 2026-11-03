@@ -1,10 +1,28 @@
+from typing import get_args
+
 import pytest
 
-from gradeflow_core.methods.code.fixes import FixedCode, fix_small_errors, fixed_code
+from gradeflow_core.common.hints import hint_of
+from gradeflow_core.methods.code.code_fixes import (
+    LAYOUTS,
+    CodeFixes,
+    Fix,
+    FixedCode,
+    FixKind,
+    fixed_versions,
+)
+
+ALL_KINDS: frozenset[FixKind] = frozenset(get_args(FixKind))
 
 
-def fixed(code: str, defined: tuple[str, ...] = (), limit: int = 5) -> FixedCode | None:
-    return fix_small_errors(code, defined, limit)
+def fixed(code: str, setup: str = "", kinds: frozenset[FixKind] = ALL_KINDS) -> FixedCode | None:
+    versions = fixed_versions(code, kinds, setup)
+    return versions[0] if versions else None
+
+
+def phrases(result: FixedCode | None) -> tuple[str, ...]:
+    assert result is not None
+    return tuple(fix.phrase for fix in result.fixes)
 
 
 @pytest.mark.parametrize(
@@ -84,25 +102,19 @@ def test_fixes_each_small_error(code: str, expected: str, fix: str | None) -> No
     assert result is not None
     assert result.code == expected
     if fix is not None:
-        assert result.fixes == (fix,)
+        assert phrases(result) == (fix,)
 
 
-def test_fixes_several_errors_within_the_limit() -> None:
+def test_fixes_several_errors() -> None:
     code = "def add(a, b)\n    retrun a + b\nprint(add(1, 2)\n"
-    assert fixed(code, limit=3) == FixedCode(
+    assert fixed(code) == FixedCode(
         "def add(a, b):\n    return a + b\nprint(add(1, 2))\n",
         (
-            "line 1, added “:” after “def add(a, b)”",
-            "line 2, “retrun” read as “return”",
-            "line 3, closed “(”",
+            Fix("colons", "line 1, added “:” after “def add(a, b)”"),
+            Fix("keywords", "line 2, “retrun” read as “return”"),
+            Fix("brackets", "line 3, closed “(”"),
         ),
     )
-
-
-def test_gives_nothing_over_the_limit() -> None:
-    code = "def add(a, b)\n    retrun a + b\nprint(add(1, 2)\n"
-    assert fixed(code, limit=2) is None
-    assert fixed("x = true\n", limit=0) is None
 
 
 @pytest.mark.parametrize(
@@ -135,7 +147,7 @@ def test_leaves_strings_and_comments_alone() -> None:
     code = 'length = 1\ns = "if x = 1 retrun lenght true"  # whlie lenght true\nprint(lenght, s)\n'
     assert fixed(code) == FixedCode(
         'length = 1\ns = "if x = 1 retrun lenght true"  # whlie lenght true\nprint(length, s)\n',
-        ("line 3, “lenght” read as “length”",),
+        (Fix("names", "line 3, “lenght” read as “length”"),),
     )
 
 
@@ -147,7 +159,7 @@ def test_leaves_comparisons_walrus_and_keyword_arguments(condition: str) -> None
     code = f"def f(key=0):\n    return key\nx = 1\nif {condition}\n    pass\n"
     result = fixed(code)
     assert result is not None
-    assert result.fixes == (f"line 4, added “:” after “if {condition}”",)
+    assert phrases(result) == (f"line 4, added “:” after “if {condition}”",)
 
 
 def test_leaves_a_name_close_to_two_names() -> None:
@@ -159,16 +171,16 @@ def test_leaves_short_names() -> None:
 
 
 def test_counts_names_the_setup_defines() -> None:
-    assert fixed("print(answer)\n", defined=("answer",)) is None
-    result = fixed("print(anwser)\n", defined=("answer",))
+    assert fixed("print(answer)\n", setup="answer = 42") is None
+    result = fixed("print(anwser)\n", setup="answer = 42")
     assert result is not None
     assert result.code == "print(answer)\n"
 
 
 def test_counts_names_the_setup_binds_but_not_those_it_only_reads() -> None:
     setup = "try:\n    pass\nexcept ValueError as error:\n    pass\nprint(data)"
-    assert fixed_code("print(dta)\n", setup, 1) is None
-    result = fixed_code("print(eror)\n", setup, 1)
+    assert fixed("print(dta)\n", setup) is None
+    result = fixed("print(eror)\n", setup)
     assert result is not None
     assert result.code == "print(error)\n"
 
@@ -185,7 +197,8 @@ def test_fixes_flat_code_then_lays_it_out() -> None:
     code = "def total(items)\nresult = 0\nfor item in items:\nresult += item\nretrun result\n"
     result = fixed(code)
     assert result is not None
-    assert result.fixes == (
+    assert phrases(result) == (
+        "rebuilt the indentation",
         "line 1, added “:” after “def total(items)”",
         "line 5, “retrun” read as “return”",
     )
@@ -198,5 +211,38 @@ def test_fixes_names_in_flat_code_after_the_layout() -> None:
     code = "def f(length):\nreturn lenght\n"
     result = fixed(code)
     assert result is not None
-    assert result.fixes == ("line 2, “lenght” read as “length”",)
+    assert phrases(result) == ("rebuilt the indentation", "line 2, “lenght” read as “length”")
     assert result.code.splitlines()[1].strip() == "return length"
+
+
+def test_fixes_only_the_kinds_asked_for() -> None:
+    code = "def add(a, b)\n    retrun a + b\n"
+    assert fixed(code, kinds=frozenset({"colons"})) is None
+    assert phrases(fixed(code, kinds=frozenset({"colons", "keywords"}))) == (
+        "line 1, added “:” after “def add(a, b)”",
+        "line 2, “retrun” read as “return”",
+    )
+
+
+def test_indentation_tries_the_likely_layouts() -> None:
+    code = "def count(xs):\nn = 0\nfor x in xs:\nif x:\nn += 1\nreturn n\n"
+    versions = fixed_versions(code, frozenset({"indentation"}), "")
+    assert 1 < len(versions) <= LAYOUTS
+    assert {fix for version in versions for fix in version.fixes} == {
+        Fix("indentation", "rebuilt the indentation")
+    }
+    assert fixed(code, kinds=ALL_KINDS - {"indentation"}) is None
+
+
+def test_code_that_compiles_needs_no_indentation() -> None:
+    assert fixed("x = 1\nprint(x)\n", kinds=frozenset({"indentation"})) is None
+
+
+def test_fixes_start_off_with_no_penalty() -> None:
+    fields = CodeFixes.model_fields
+    for kind in get_args(FixKind):
+        assert fields[kind].default is False, kind
+        penalty = fields[f"{kind}_penalty"]
+        assert penalty.default == 0, kind
+        assert hint_of(penalty).applies_when == {kind: True}, kind
+    assert CodeFixes().kinds == frozenset()

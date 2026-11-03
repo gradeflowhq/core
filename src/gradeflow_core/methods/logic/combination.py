@@ -374,7 +374,6 @@ class Combination(Method[CombinationSettings]):
     )
     level = "advanced"
     question_types = ALL_TYPES
-    answer_shape = "both"
     group = True
     settings = CombinationSettings
     examples = examples_beside(__file__)

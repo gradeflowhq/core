@@ -30,7 +30,6 @@ BASIC = {
     "gradeflow/order",
     "gradeflow/length",
     "gradeflow/full-marks",
-    "gradeflow/best-answer",
 }
 GUIDE = re.compile(
     r"^\*\*Use it when:\*\* [A-Z].+"
@@ -73,7 +72,6 @@ def test_example_feedback_is_never_empty() -> None:
 
 
 MARKS = {
-    "gradeflow/best-answer": [[1, 0], [1, 0]],
     "gradeflow/accepted-answers": [[1, 1, 0, 0], [1, 1, 0, 0], [1, 0, 0]],
     "gradeflow/key-points": [[3, 2, 1], [1, 1, 0], [2, 1, 0]],
     "gradeflow/answer-criteria": [[3, 0, 2], [2, 1, 0], [2, 1, 0]],
