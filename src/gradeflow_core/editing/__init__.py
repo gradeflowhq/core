@@ -6,7 +6,7 @@ from ..common.exceptions import EditingError
 from ..common.hints import HINT_KEY
 from ..common.model_service import list_models
 from ..marking.examples import RowResult, mark_rows
-from ..marking.model_choice import ModelTrial, try_model
+from ..marking.model_choice import try_model
 from ..methods.check import Marking
 from ..methods.collection import FailedFile, LoadedFiles, load_method_files, rewrite_references
 from ..methods.composed.file import methods_used
@@ -37,7 +37,6 @@ __all__ = [
     "Marking",
     "MarkingDraft",
     "MethodDraft",
-    "ModelTrial",
     "Position",
     "QuestionType",
     "RowResult",

@@ -46,8 +46,8 @@ def test_scripting_needs_only_these_names() -> None:
         "Method",
         "MethodFileError",
         "Methods",
-        "ModelChoice",
         "ModelEndpoint",
+        "ModelTrial",
         "NumberQuestion",
         "Problem",
         "Progress",
@@ -59,12 +59,13 @@ def test_scripting_needs_only_these_names() -> None:
         "Submission",
         "TextQuestion",
         "ValuesQuestion",
-        "choose_models",
+        "best_models",
         "compare_answers",
         "mark",
         "mark_examples",
         "read_answer_key",
         "read_question_document",
+        "try_models",
     ]
     assert not set(gradeflow_core.__all__) & set(editing.__all__)
 

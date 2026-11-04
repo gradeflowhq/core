@@ -3,8 +3,18 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core import GradeFlowError, MarkScheme, QuestionSet, Submission, choose_models, mark
+from gradeflow_core import (
+    GradeFlowError,
+    MarkScheme,
+    ModelTrial,
+    QuestionSet,
+    Submission,
+    best_models,
+    mark,
+    try_models,
+)
 from gradeflow_core.editing import list_models, try_model
+from gradeflow_core.methods.text.answer_criterion import Role
 from gradeflow_core.questions.text import TextQuestion
 from tests.fake_models import (
     ENDPOINT,
@@ -106,7 +116,7 @@ def test_a_mark_scheme_says_whether_it_needs_a_model_endpoint() -> None:
     assert not scheme_without_models.markings[0].needs_model_endpoint()
 
 
-def test_choosing_models_keeps_those_that_mark_the_examples_as_expected(
+def test_trying_models_tries_each_as_the_fast_model_then_the_careful_one(
     fake_models: InstallFakeModels,
 ) -> None:
     def verdicts(model: str, answer: str, criterion: str) -> Verdict:
@@ -115,14 +125,11 @@ def test_choosing_models_keeps_those_that_mark_the_examples_as_expected(
     fake = fake_models(verdicts)
     fake.models = ["careless", "decider", "reasoner"]
     fake.without_logprobs = {"reasoner"}
-    choice = choose_models(ENDPOINT)
-    assert choice.endpoint.fast_model == "decider"
-    assert choice.endpoint.careful_model in {"decider", "reasoner"}
-    trials = [
+    trials = list(try_models(ENDPOINT))
+    assert [
         (trial.model, trial.role, trial.rows_matched, trial.rows_tried, trial.failure)
-        for trial in choice.trials
-    ]
-    assert trials == [
+        for trial in trials
+    ] == [
         ("careless", "fast", 0, 9, "Missed 9 of 9 example answers."),
         ("decider", "fast", 9, 9, None),
         ("reasoner", "fast", 0, 0, "Doesn't return token probabilities."),
@@ -130,23 +137,110 @@ def test_choosing_models_keeps_those_that_mark_the_examples_as_expected(
         ("decider", "careful", 9, 9, None),
         ("reasoner", "careful", 9, 9, None),
     ]
-    assert all(trial.seconds >= 0 for trial in choice.trials)
+    assert all(trial.seconds >= 0 for trial in trials)
 
 
-def test_choosing_models_says_why_a_model_fails(fake_models: InstallFakeModels) -> None:
+def test_trying_models_stops_once_two_pass_in_each_role(fake_models: InstallFakeModels) -> None:
+    fake = fake_models(example_verdicts)
+    fake.models = ["first", "second", "third"]
+    fake.without_logprobs = {"first"}
+    tried = [(trial.model, trial.role) for trial in try_models(ENDPOINT)]
+    assert tried == [
+        ("first", "fast"),
+        ("second", "fast"),
+        ("third", "fast"),
+        ("first", "careful"),
+        ("second", "careful"),
+    ]
+
+
+def test_trying_models_skips_those_tried_before_and_counts_their_passes(
+    fake_models: InstallFakeModels,
+) -> None:
+    fake = fake_models(example_verdicts)
+    fake.models = ["first", "second", "third"]
+    fake.without_logprobs = {"first"}
+    passes: list[tuple[str, Role]] = [("second", "fast"), ("first", "careful")]
+    tried = [
+        ModelTrial(model=name, role=role, rows_matched=9, rows_tried=9, seconds=1, failure=None)
+        for name, role in passes
+    ]
+    assert [(trial.model, trial.role) for trial in try_models(ENDPOINT, tried)] == [
+        ("first", "fast"),
+        ("third", "fast"),
+        ("second", "careful"),
+    ]
+
+
+def test_trying_models_tries_again_those_that_errored(fake_models: InstallFakeModels) -> None:
+    fake = fake_models(example_verdicts)
+    fake.models = ["decider"]
+    errored = ModelTrial(
+        model="decider",
+        role="fast",
+        rows_matched=0,
+        rows_tried=0,
+        seconds=0.1,
+        failure="The AI service answered 503.",
+    )
+    assert [(trial.model, trial.role) for trial in try_models(ENDPOINT, [errored])] == [
+        ("decider", "fast"),
+        ("decider", "careful"),
+    ]
+
+
+def test_trying_models_says_when_each_test_starts(fake_models: InstallFakeModels) -> None:
+    fake = fake_models(example_verdicts)
+    fake.models = ["decider"]
+    started: list[tuple[str, Role]] = []
+    trials = try_models(ENDPOINT, on_start=lambda model, role: started.append((model, role)))
+    assert next(trials).role == "fast"
+    assert started == [("decider", "fast")]
+    assert [trial.role for trial in trials] == ["careful"]
+    assert started == [("decider", "fast"), ("decider", "careful")]
+
+
+def test_trying_models_says_why_a_model_fails(fake_models: InstallFakeModels) -> None:
     fake = fake_models(example_verdicts)
     fake.models = ["decider"]
     fake.listed_models = ["gone", "decider"]
-    choice = choose_models(ENDPOINT)
-    assert [trial.failure for trial in choice.trials if trial.model == "gone"] == [
+    assert [trial.failure for trial in try_models(ENDPOINT) if trial.model == "gone"] == [
         "The AI service has no such model."
     ] * 2
 
 
-def test_choosing_models_at_an_address_with_none_says_so(fake_models: InstallFakeModels) -> None:
+def test_trying_models_at_an_address_with_none_says_so(fake_models: InstallFakeModels) -> None:
     fake_models(example_verdicts)
     with pytest.raises(GradeFlowError, match="No models were found at this address"):
-        choose_models(ENDPOINT.model_copy(update={"url": "https://models.test/wrong"}))
+        next(try_models(ENDPOINT.model_copy(update={"url": "https://models.test/wrong"})))
+
+
+def test_the_best_models_have_the_most_right_then_are_fastest() -> None:
+    def trial(model: str, role: Role, seconds: float, rows_matched: int = 9) -> ModelTrial:
+        rows_tried = 0 if rows_matched < 0 else 9
+        return ModelTrial(
+            model=model,
+            role=role,
+            rows_matched=max(rows_matched, 0),
+            rows_tried=rows_tried,
+            seconds=seconds,
+            failure=None if rows_matched == rows_tried else "Missed some.",
+        )
+
+    trials = [
+        trial("slow", "fast", 9),
+        trial("quick", "fast", 3),
+        trial("quicker", "fast", 1, rows_matched=8),
+        trial("slow", "careful", 30),
+    ]
+    assert best_models(trials) == ("quick", "slow")
+    assert best_models(trials[2:3]) == ("quicker", None), "the best so far needn't get them all"
+    partial = [trial("six", "fast", 5, rows_matched=6), trial("seven", "fast", 9, rows_matched=7)]
+    assert best_models(partial) == ("seven", None)
+    assert best_models([trial("broken", "fast", 0, rows_matched=-1)]) == (None, None), (
+        "one that never ran"
+    )
+    assert best_models([]) == (None, None)
 
 
 def test_listing_models_gives_the_endpoints_models(fake_models: InstallFakeModels) -> None:

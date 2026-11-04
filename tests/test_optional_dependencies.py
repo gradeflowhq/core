@@ -14,7 +14,7 @@ def test_marking_and_editing_without_the_llm_extra() -> None:
 
             from gradeflow_core import (
                 GradeFlowError, MarkScheme, ModelEndpoint, QuestionSet, Submission,
-                choose_models, mark,
+                mark, try_models,
             )
             from gradeflow_core.editing import MarkingDraft, list_models, try_model
 
@@ -33,7 +33,7 @@ def test_marking_and_editing_without_the_llm_extra() -> None:
                 url="https://models.test/v1", token="test",
                 fast_model="decider", careful_model="reasoner",
             )
-            for operation in (list_models, choose_models):
+            for operation in (list_models, lambda endpoint: next(try_models(endpoint))):
                 try:
                     operation(endpoint)
                 except GradeFlowError as error:

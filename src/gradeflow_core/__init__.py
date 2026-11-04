@@ -8,7 +8,7 @@ from .common.problems import Problem
 from .marking.examples import MarkedExample, mark_examples
 from .marking.mark import mark
 from .marking.mark_scheme import MarkScheme
-from .marking.model_choice import ModelChoice, choose_models
+from .marking.model_choice import ModelTrial, best_models, try_models
 from .marking.results import CheckResult, MarkedSheet, MarkedSubmission, QuestionResult, ReportLine
 from .methods.catalogue import BUILTINS
 from .methods.check import Check
@@ -44,8 +44,8 @@ __all__ = [
     "Method",
     "MethodFileError",
     "Methods",
-    "ModelChoice",
     "ModelEndpoint",
+    "ModelTrial",
     "NumberQuestion",
     "Problem",
     "Progress",
@@ -57,10 +57,11 @@ __all__ = [
     "Submission",
     "TextQuestion",
     "ValuesQuestion",
-    "choose_models",
+    "best_models",
     "compare_answers",
     "mark",
     "mark_examples",
     "read_answer_key",
     "read_question_document",
+    "try_models",
 ]

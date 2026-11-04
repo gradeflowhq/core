@@ -87,8 +87,9 @@ from gradeflow_core import (
     ModelEndpoint,
     QuestionSet,
     Submission,
-    choose_models,
+    best_models,
     mark,
+    try_models,
 )
 
 questions = QuestionSet.load({"Q1": {"type": "text", "max_marks": 2}})
@@ -99,15 +100,18 @@ criteria = [
 scheme = MarkScheme.load(
     [{"question": "Q1", "uses": "gradeflow/answer-criteria@1", "with": {"criteria": criteria}}]
 )
-choice = choose_models(ModelEndpoint(url="https://models.example.com/v1", token="your-token"))
+endpoint = ModelEndpoint(url="https://models.example.com/v1", token="your-token")
+fast_model, careful_model = best_models(try_models(endpoint))
+endpoint = endpoint.model_copy(update={"fast_model": fast_model, "careful_model": careful_model})
 students = [Submission(student_id="1", answers={"Q1": "Because ice is less dense than water."})]
-for marked in mark(questions, scheme, students, model_endpoint=choice.endpoint):
+for marked in mark(questions, scheme, students, model_endpoint=endpoint):
     assert marked.results["Q1"].proportion == 0.5
 ```
 
-`choose_models` tries the endpoint's newest models on Answer Criteria's own examples and keeps the
-faster of the first two that mark them all correctly, for each of its two roles. `choice.trials`
-shows how each model did.
+`try_models` tries the endpoint's newest models on Answer Criteria's own examples, as the fast model
+and then as the careful one, until two in each role mark them all correctly. It yields each
+`ModelTrial` as it ends, skips those passed as `tried`, and calls `on_start` as each starts.
+`best_models` picks, in each role, the one with the most answers right, then the fastest.
 
 Answers go 12 to a request (`answers_per_request`) and sheets 60 at a time (`chunk_size`), with
 progress reported to `on_progress`. Without an endpoint, these answers are left unmarked.

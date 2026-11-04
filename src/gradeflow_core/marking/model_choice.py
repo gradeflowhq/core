@@ -1,6 +1,8 @@
-"""Choosing an endpoint's models: those that mark Answer Criteria's own examples as declared."""
+"""Trying an endpoint's models on Answer Criteria's own examples, and the best of them so far."""
 
 import time
+from collections.abc import Callable, Iterable, Iterator
+from typing import get_args
 
 from pydantic import BaseModel
 
@@ -11,8 +13,9 @@ from ..questions.question_set import QuestionSet
 from .examples import mark_rows
 
 ANSWER_CRITERIA = "gradeflow/answer-criteria@1"
-PASSING_MODELS_TO_COMPARE = 2
-"""Models to try past the first that passes, for the faster of them."""
+ROLES: tuple[Role, ...] = get_args(Role)
+PASSING_MODELS_PER_ROLE = 2
+"""Models that must pass in a role before trying stops."""
 
 
 class ModelTrial(BaseModel):
@@ -27,37 +30,42 @@ class ModelTrial(BaseModel):
     failure: str | None
 
 
-class ModelChoice(BaseModel):
-    endpoint: model_service.ModelEndpoint
-    """The endpoint with its chosen models; a role no model passed stays None."""
-    trials: list[ModelTrial]
-    """Every model tried, in each role it was tried for, in order."""
-
-
-def choose_models(endpoint: model_service.ModelEndpoint) -> ModelChoice:
-    """For each role, the faster of the first models the endpoint lists, newest first, that mark
-    every row of Answer Criteria's examples as they declare. Raises ``GradeFlowError`` when the
-    endpoint lists no models."""
+def try_models(
+    endpoint: model_service.ModelEndpoint,
+    tried: Iterable[ModelTrial] = (),
+    on_start: Callable[[str, Role], None] | None = None,
+) -> Iterator[ModelTrial]:
+    """Each trial as it ends: the endpoint's models, newest first, as the fast model until two
+    pass, then as the careful model until two pass. A model already ``tried`` in a role counts
+    without being tried again, unless the service failed on it. ``on_start`` hears of each trial as
+    it starts. Raises ``GradeFlowError`` when the endpoint lists no models."""
+    earlier = {(trial.model, trial.role): trial for trial in tried if trial.rows_tried}
     model_names = model_service.list_models(endpoint)
-    trials: list[ModelTrial] = []
-    chosen_models: dict[Role, str | None] = {}
-    for role in ("fast", "careful"):
-        passing_trials: list[ModelTrial] = []
+    for role in ROLES:
+        passed = 0
         for name in model_names:
-            if len(passing_trials) == PASSING_MODELS_TO_COMPARE:
+            if passed == PASSING_MODELS_PER_ROLE:
                 break
-            trials.append(trial := try_model(endpoint, role, name))
-            if trial.failure is None:
-                passing_trials.append(trial)
-        chosen_models[role] = (
-            min(passing_trials, key=lambda trial: trial.seconds).model if passing_trials else None
-        )
-    return ModelChoice(
-        endpoint=endpoint.model_copy(
-            update={"fast_model": chosen_models["fast"], "careful_model": chosen_models["careful"]}
-        ),
-        trials=trials,
-    )
+            trial = earlier.get((name, role))
+            if trial is None:
+                if on_start is not None:
+                    on_start(name, role)
+                trial = try_model(endpoint, role, name)
+                yield trial
+            passed += trial.failure is None
+
+
+def best_models(trials: Iterable[ModelTrial]) -> tuple[str | None, str | None]:
+    """The fast and the careful model: in each role, the one that marked the most example rows as
+    declared, then the fastest; None where none marked any."""
+    marked = [trial for trial in trials if trial.rows_tried]
+
+    def best(role: Role) -> str | None:
+        in_role = [trial for trial in marked if trial.role == role]
+        top = min(in_role, key=lambda trial: (-trial.rows_matched, trial.seconds), default=None)
+        return top.model if top else None
+
+    return best("fast"), best("careful")
 
 
 def try_model(endpoint: model_service.ModelEndpoint, role: Role, name: str) -> ModelTrial:
