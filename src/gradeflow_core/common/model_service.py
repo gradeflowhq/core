@@ -16,11 +16,19 @@ if TYPE_CHECKING:
 TIMEOUT_SECONDS = 600
 MAX_RETRIES = 5
 """Rate limits are the usual failure; the client waits as the service says before retrying."""
+LIST_TIMEOUT_SECONDS = 15
+LIST_RETRIES = 1
+"""A person waits while the models are listed."""
 _THINKING_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 class ServiceError(GradeFlowError):
     """A model service is unavailable or refused a request."""
+
+    def __init__(self, message: str, *, fails_every_request: bool = False) -> None:
+        super().__init__(message)
+        self.fails_every_request = fails_every_request
+        """Whether asking the model again would fail the same way, as with a wrong token."""
 
 
 class ModelEndpoint(BaseModel):
@@ -36,8 +44,9 @@ class ModelEndpoint(BaseModel):
     answers_per_request: int = Field(default=12, ge=1, le=40)
 
 
-@lru_cache(maxsize=8)
-def _client(endpoint: ModelEndpoint) -> openai.OpenAI:
+def _client(
+    endpoint: ModelEndpoint, *, timeout: float = TIMEOUT_SECONDS, max_retries: int = MAX_RETRIES
+) -> openai.OpenAI:
     try:
         import openai
     except ImportError as error:
@@ -50,10 +59,13 @@ def _client(endpoint: ModelEndpoint) -> openai.OpenAI:
     return openai.OpenAI(
         base_url=endpoint.url,
         api_key=endpoint.token.get_secret_value(),
-        timeout=TIMEOUT_SECONDS,
-        max_retries=MAX_RETRIES,
+        timeout=timeout,
+        max_retries=max_retries,
         http_client=openai.DefaultHttpxClient(follow_redirects=False),
     )
+
+
+_chat_client = lru_cache(maxsize=8)(_client)
 
 
 Effort = Literal["none", "low", "medium", "high"]
@@ -72,7 +84,7 @@ def ask(
     max_tokens: int,
 ) -> ChatCompletion:
     """One reply from ``model``, at temperature 0."""
-    client = _client(endpoint)
+    client = _chat_client(endpoint)
     import openai
 
     effort = None if (endpoint.url, model) in _REFUSES_EFFORT else effort
@@ -103,7 +115,16 @@ def ask(
             max_tokens=max_tokens,
         )
     except openai.OpenAIError as error:
-        raise ServiceError(failure_message(error)) from None
+        fails_every_request = isinstance(
+            error,
+            openai.APIConnectionError
+            | openai.AuthenticationError
+            | openai.PermissionDeniedError
+            | openai.NotFoundError,
+        )
+        raise ServiceError(
+            failure_message(error), fails_every_request=fails_every_request
+        ) from None
 
 
 def yes_probabilities(reply: ChatCompletion) -> list[float]:
@@ -133,11 +154,12 @@ def reply_text(reply: ChatCompletion) -> str:
 
 def list_models(endpoint: ModelEndpoint) -> list[str]:
     """The endpoint's models, newest first when it says when each was made."""
-    client = _client(endpoint)
+    client = _client(endpoint, timeout=LIST_TIMEOUT_SECONDS, max_retries=LIST_RETRIES)
     import openai
 
     try:
-        models = list(client.models.list())
+        with client:
+            models = list(client.models.list())
     except openai.NotFoundError:
         raise ServiceError(
             "No models were found at this address. Check it: it often ends in /v1."

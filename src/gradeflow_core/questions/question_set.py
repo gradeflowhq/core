@@ -1,8 +1,7 @@
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-from natsort import natsorted
-from pydantic import Field, RootModel, field_validator
+from pydantic import Field, RootModel
 
 from ..common.documents import dump_yaml, load_yaml
 from ..common.problems import invalid_errors
@@ -29,16 +28,9 @@ def value_of[A: Answer | Unreadable](answer: A, number: int | None) -> A | Value
 
 
 class QuestionSet(RootModel[dict[QuestionId, AnyQuestion]], Mapping[QuestionId, Question]):
-    """Questions by ID, in natural ID order: Q2 before Q10."""
+    """Questions by ID, in the order they are given."""
 
     root: dict[QuestionId, AnyQuestion] = Field(default_factory=dict)
-
-    @field_validator("root")
-    @classmethod
-    def _natural_order(
-        cls, questions: dict[QuestionId, AnyQuestion]
-    ) -> dict[QuestionId, AnyQuestion]:
-        return {key: questions[key] for key in natsorted(questions)}
 
     @classmethod
     def load(cls, data: object) -> QuestionSet:
@@ -87,7 +79,7 @@ class QuestionSet(RootModel[dict[QuestionId, AnyQuestion]], Mapping[QuestionId, 
         """Only answered questions, with existing ones changed to accept their answers and new ones
         worked out, out of the highest marks a sheet was given for them."""
         questions: dict[QuestionId, Question] = {}
-        for key in {key for sheet in sheets for key in sheet.answers}:
+        for key in dict.fromkeys(key for sheet in sheets for key in sheet.answers):
             answers = [sheet.answers[key] for sheet in sheets if key in sheet.answers]
             if (question := self.get(key)) is not None:
                 questions[key] = question.accepting(answers)

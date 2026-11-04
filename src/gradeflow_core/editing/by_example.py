@@ -7,18 +7,18 @@ from typing import Any, Literal
 
 from ..common.exceptions import EditingError
 from ..methods.answers.accepted_answers import AcceptedAnswers
-from ..methods.catalogue import BUILTINS
+from ..methods.check import Check
 from ..methods.collection import Methods
-from ..methods.logic.combination import Combination, combined_proportion
+from ..methods.logic.combination import Combination, CombinationSettings, combined_proportion
 from ..methods.logic.full_marks import FullMarks
 from ..methods.method import Method
 from ..methods.outcome import FULL_MARKS_PROPORTION, clamped
 from ..questions.base import Question
 
-type Decision = Literal["full_marks", "part_marks", "not_allowed"]
+type Decision = Literal["full_marks", "partial_marks", "not_allowed"]
 DECISIONS: dict[Decision, str] = {
     "full_marks": "Full marks",
-    "part_marks": "Part marks",
+    "partial_marks": "Partial marks",
     "not_allowed": "Not allowed",
 }
 """What marking by example may give answers, with how each reads; ``"cancel"`` takes it back."""
@@ -26,6 +26,14 @@ CANCEL = "cancel"
 
 NOT_ALLOWED = "gradeflow/not-allowed"
 """The composed method that reverses a check."""
+
+_DEFAULT_COMBINE = CombinationSettings.model_fields["combine"].default
+_DEFAULT_WEIGHT = Check.model_fields["weight"].default
+_METHOD_KEYS = frozenset({"uses", "with"})
+"""What a check has of its method."""
+_METHOD_AND_WEIGHT_KEYS = _METHOD_KEYS | {"weight"}
+_LIMIT_KEYS = frozenset({"if", "read_only", "question", "value"})
+"""What limits when a check runs or which answer it reads."""
 
 
 @dataclass(frozen=True)
@@ -82,22 +90,13 @@ def _decision_for(proportion: float) -> Decision:
         if proportion >= FULL_MARKS_PROPORTION
         else "not_allowed"
         if proportion <= 0
-        else "part_marks"
+        else "partial_marks"
     )
 
 
 def answer_decisions(
-    marking: Mapping[str, Any],
-    *,
-    methods: Methods = BUILTINS,
-    question: Question | None = None,
+    marking: Mapping[str, Any], methods: Methods, question: Question | None
 ) -> dict[str, Decision]:
-    """The answers given marks by example, as in accepted-answer, Not and Combination checks,
-    with what each gets.
-
-    Keys use the question's spelling. Other methods' matches are not decisions. A decision
-    describes the explicit rule, independently of conditions and other methods' results.
-    """
     proportions = _decided_proportions(
         marking, _ExampleMethods.for_methods(methods, question), marking.get("question")
     )
@@ -131,12 +130,14 @@ def _decided_proportions(
     inner_checks = [
         inner for inner in settings.get("checks") or [] if _reads_same_question(inner, key)
     ]
-    combine = settings.get("combine", "all")
-    weights = [inner.get("weight", 1) for inner in inner_checks]
+    combine = settings.get("combine", _DEFAULT_COMBINE)
+    weights = [inner.get("weight", _DEFAULT_WEIGHT) for inner in inner_checks]
     weighted_proportions: dict[str, list[tuple[float, float]]] = {}
     for inner in inner_checks:
         for answer, proportion in _decided_proportions(inner, rules, key).items():
-            weighted_proportions.setdefault(answer, []).append((inner.get("weight", 1), proportion))
+            weighted_proportions.setdefault(answer, []).append(
+                (inner.get("weight", _DEFAULT_WEIGHT), proportion)
+            )
     return {
         answer: clamped(combined_proportion(combine, pairs, weights, rules.max_marks))
         for answer, pairs in weighted_proportions.items()
@@ -147,33 +148,20 @@ def mark_by_example(
     marking: Mapping[str, Any],
     answers: Sequence[str],
     decision: Decision | Literal["cancel"],
-    proportion: float = 0.5,
-    *,
-    methods: Methods = BUILTINS,
-    question: Question | None = None,
+    proportion: float,
+    methods: Methods,
+    question: Question | None,
 ) -> dict[str, Any]:
-    """Gives these answers one of the ``DECISIONS``, ``proportion`` of the marks for
-    ``"part_marks"``, or takes their decision back with ``"cancel"``. Other answers keep theirs.
-
-    A decision overrides the existing marking. Cancelling leaves the remaining methods to mark
-    the answers; an answer must be cancelled before it gets another decision, and giving one
-    the decision it has changes nothing. Equivalent
-    spellings are treated as one answer when ``question`` is supplied, which must be of a type
-    that can be marked by example. New checks use the highest version of each method in
-    ``methods``.
-    """
     _check_decision(decision, question)
+    if not 0 <= proportion <= 1:
+        raise EditingError("The proportion of the marks must be between 0 and 1.")
     rules = _ExampleMethods.for_methods(methods, question)
     chosen_answers = set(map(rules.normalize, answers))
     marking_copy = deepcopy(dict(marking))
     if not chosen_answers:
         return marking_copy
-    if not 0 <= proportion <= 1:
-        raise EditingError("The proportion of the marks must be between 0 and 1.")
-    position_fields = {
-        key: value for key, value in marking_copy.items() if key not in ("uses", "with")
-    }
-    check = {key: value for key, value in marking_copy.items() if key in ("uses", "with")}
+    position_fields = {key: value for key, value in marking_copy.items() if key not in _METHOD_KEYS}
+    check = {key: value for key, value in marking_copy.items() if key in _METHOD_KEYS}
     question_key = position_fields.get("question")
     decided_proportions = _decided_proportions(marking, rules, question_key)
     if decision == CANCEL:
@@ -201,7 +189,7 @@ def mark_by_example(
         if decision == "not_allowed" or not _excludes(check, chosen_answers, rules):
             not_accepted = {"uses": rules.not_allowed_reference, "with": {"check": accepted}}
             check = _combine("all", [check, not_accepted], rules)
-        if decision == "part_marks":
+        if decision == "partial_marks":
             check = _combine("any", [check, {"weight": proportion, **accepted}], rules)
     return {**position_fields, **check}
 
@@ -226,7 +214,7 @@ def _excludes(check: dict[str, Any], chosen: set[str], rules: _ExampleMethods) -
     """Whether ordinary exact checks already give these answers no marks."""
     if check == rules.no_marks_check:
         return True
-    if set(check) & {"if", "read_only", "question", "value"}:
+    if set(check) & _LIMIT_KEYS:
         return False
     settings = check.get("with", {})
     if rules.uses_method(check, AcceptedAnswers.name):
@@ -235,7 +223,7 @@ def _excludes(check: dict[str, Any], chosen: set[str], rules: _ExampleMethods) -
         )
     if _is_boolean_combination(check, rules):
         inner_checks = settings.get("checks", [])
-        match settings.get("combine", "all"):
+        match settings.get("combine", _DEFAULT_COMBINE):
             case "any":
                 return all(_excludes(inner, chosen, rules) for inner in inner_checks)
             case "all":
@@ -267,7 +255,7 @@ def _without_answers(
         ]
         if remaining:
             return {**check, "with": {**settings, "answers": remaining}}
-        if set(check) <= {"uses", "with", "weight"}:
+        if set(check) <= _METHOD_AND_WEIGHT_KEYS:
             return deepcopy(rules.no_marks_check)
         return {**check, **deepcopy(rules.no_marks_check)}
     if rules.uses_method(check, NOT_ALLOWED):
@@ -286,29 +274,30 @@ def _without_answers(
         ]
         if not inner_checks:
             return {**check, **deepcopy(rules.no_marks_check)}
-        if (
-            _is_plain_check(check)
-            and _is_boolean_combination(check, rules)
-            and set(settings) <= {"combine", "checks"}
-        ):
-            return _combine(settings.get("combine", "all"), inner_checks, rules)
+        if _is_plain_boolean_combination(check, rules):
+            return _combine(settings.get("combine", _DEFAULT_COMBINE), inner_checks, rules)
         return {**check, "with": {**settings, "checks": inner_checks}}
     return check
 
 
 def _is_plain_check(check: dict[str, Any]) -> bool:
-    return set(check) <= {"uses", "with"}
+    return set(check) <= _METHOD_KEYS
 
 
 def _is_boolean_combination(check: dict[str, Any], rules: _ExampleMethods) -> bool:
     settings = check.get("with", {})
     return (
         rules.uses_method(check, Combination.name)
-        and settings.get("combine", "all") in ("all", "any")
-        and not any(
-            set(inner) & {"id", "if", "read_only", "question", "value"}
-            for inner in settings.get("checks", [])
-        )
+        and settings.get("combine", _DEFAULT_COMBINE) in ("all", "any")
+        and not any(set(inner) & {"id", *_LIMIT_KEYS} for inner in settings.get("checks", []))
+    )
+
+
+def _is_plain_boolean_combination(check: dict[str, Any], rules: _ExampleMethods) -> bool:
+    return (
+        _is_plain_check(check)
+        and _is_boolean_combination(check, rules)
+        and set(check.get("with", {})) <= {"combine", "checks"}
     )
 
 
@@ -317,10 +306,8 @@ def _flattened_checks(
 ) -> list[dict[str, Any]]:
     settings = check.get("with", {})
     if (
-        _is_plain_check(check)
-        and _is_boolean_combination(check, rules)
-        and settings.get("combine", "all") == mode
-        and set(settings) <= {"combine", "checks"}
+        _is_plain_boolean_combination(check, rules)
+        and settings.get("combine", _DEFAULT_COMBINE) == mode
     ):
         return list(settings.get("checks", []))
     return [check]
@@ -352,7 +339,7 @@ def _combine(
         return deepcopy(neutral_check)
     if (
         len(flattened) == 1
-        and flattened[0].get("weight", 1) == 1
+        and flattened[0].get("weight", _DEFAULT_WEIGHT) == 1
         and not set(flattened[0]) & {"if", "read_only"}
     ):
         return flattened[0]
@@ -401,11 +388,9 @@ def _merged_answer_lists(
     """Alternative answer lists with the matching settings and weight are one list."""
 
     def is_plain_list(check: dict[str, Any]) -> bool:
-        return rules.uses_method(check, AcceptedAnswers.name) and set(check) <= {
-            "uses",
-            "with",
-            "weight",
-        }
+        return (
+            rules.uses_method(check, AcceptedAnswers.name) and set(check) <= _METHOD_AND_WEIGHT_KEYS
+        )
 
     def settings(check: dict[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in check.get("with", {}).items() if key != "answers"}
@@ -419,7 +404,7 @@ def _merged_answer_lists(
                 if is_plain_list(inner)
                 and is_plain_list(other)
                 and other["uses"] == inner["uses"]
-                and other.get("weight", 1) == inner.get("weight", 1)
+                and other.get("weight", _DEFAULT_WEIGHT) == inner.get("weight", _DEFAULT_WEIGHT)
                 and settings(other) == settings(inner)
             ),
             None,

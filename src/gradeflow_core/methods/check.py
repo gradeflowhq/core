@@ -134,6 +134,8 @@ class Check(BaseModel):
     )
 
     _scope: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _from_method_file: bool = PrivateAttr(default=False)
+    """Whether a method file made it, whose templates and lists were checked when it loaded."""
     _methods: Mapping[str, Method[Any]] = PrivateAttr(default_factory=dict)
 
     @classmethod
@@ -145,15 +147,11 @@ class Check(BaseModel):
         with invalid_errors(data):
             return check_of(data, (BUILTINS if methods is None else methods).by_ref)
 
-    @property
-    def scope(self) -> Mapping[str, Any]:
-        """The inputs and item of the method file that made this check, for its templates."""
-        return self._scope
-
     def scoped(self, scope: Mapping[str, Any]) -> Self:
-        """This check, its templates also seeing ``scope``."""
+        """This check as a method file makes it, its templates also seeing the file's inputs and
+        item in ``scope``."""
         check = self.model_copy()
-        check._scope = dict(scope)
+        check._scope, check._from_method_file = dict(scope), True
         return check
 
     def describe(self) -> str:

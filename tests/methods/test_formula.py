@@ -128,4 +128,4 @@ def test_offered_only_with_two_number_questions_to_choose() -> None:
 def test_settings_offer_the_number_questions() -> None:
     position = Position(QuestionSet(QUESTIONS), in_group=True)
     schema = FORMULA_OF_ANSWERS.settings_schema(position)
-    assert schema["properties"]["question_to_mark"]["enum"] == ["1a", "Q1", "Q2", "Q10"]
+    assert schema["properties"]["question_to_mark"]["enum"] == ["Q1", "Q2", "Q10", "1a"]

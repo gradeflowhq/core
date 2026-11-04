@@ -9,7 +9,7 @@ from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.reading import ListReading
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import BLANK_SEPARATOR, ValuesQuestion
+from gradeflow_core.questions.values import EXAMSOFT_SEPARATOR, ValuesQuestion
 
 HEADER = (
     r"{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\froman Times New Roman;}{\f3 ZapfDingbats;}}"
@@ -164,7 +164,7 @@ def test_blanks_make_a_question_of_their_values_and_hide_the_accepted_answers() 
     questions_read = read_question_document(DOCUMENT, QUESTIONS)
 
     assert questions_read["Q2"] == ValuesQuestion(
-        reading=ListReading(separator=BLANK_SEPARATOR),
+        reading=ListReading(separator=EXAMSOFT_SEPARATOR),
         value_types=["number", "text"],
         max_marks=3,
         description=r"2\. The cost of $h^{*}(s_{0})$ is (1) and its name is (2).",

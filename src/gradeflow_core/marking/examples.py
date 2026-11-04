@@ -81,9 +81,8 @@ def _marked_example(
     model_endpoint: ModelEndpoint | None,
 ) -> MarkedExample:
     questions = QuestionSet(example.questions)
-    marks_one_question = len(questions) == 1 and not (
-        method.marks_question_group and not method.question_types
-    )
+    marks_only_groups = method.marks_question_group and not method.question_types
+    marks_one_question = len(questions) == 1 and not marks_only_groups
     question = next(iter(questions)) if marks_one_question else None
     try:
         scheme = _single_marking_scheme(method.ref, methods, questions, question, example.with_)

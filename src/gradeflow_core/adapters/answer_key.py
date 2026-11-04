@@ -4,7 +4,7 @@ from collections.abc import Mapping
 
 from ..questions.submissions import AnswerSheet
 from ..questions.types import QuestionId
-from ..questions.values import BLANK_SEPARATOR
+from ..questions.values import EXAMSOFT_SEPARATOR
 
 
 def read_answer_key(row: Mapping[QuestionId, str]) -> AnswerSheet:
@@ -13,8 +13,8 @@ def read_answer_key(row: Mapping[QuestionId, str]) -> AnswerSheet:
     ``|``; each blank's first accepted answer stands for it, so ``0.63|0.625|~Terminal|terminal|``
     is ``0.63~Terminal``. Empty cells answer nothing."""
     answers = {
-        key: BLANK_SEPARATOR.join(
-            _first_accepted_answer(blank) for blank in cell.split(BLANK_SEPARATOR)
+        key: EXAMSOFT_SEPARATOR.join(
+            _first_accepted_answer(blank) for blank in cell.split(EXAMSOFT_SEPARATOR)
         )
         for key, cell in row.items()
         if cell.strip()

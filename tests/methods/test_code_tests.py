@@ -144,17 +144,15 @@ def test_a_value_json_cannot_carry_still_compares() -> None:
 
 
 def test_expected_values_fall_back_to_as_written() -> None:
-    assert (
-        code_tests_module._evaluated_expected("undefined_name", code_tests_module.TestSetup())
-        == "undefined_name"
-    )
+    check = code_tests({"expression": "f()", "expected": "undefined_name"})
+    result = mark(check, "undefined_name = 5\ndef f():\n    return 4", CODE_QUESTION)
+    assert result.feedback == "f() gave 4. Expected undefined_name."
 
 
 def test_expected_values_are_worked_out_inside_indented_setup_code() -> None:
-    setup = code_tests_module.TestSetup(
-        code_before="def f():", code_after="TWO = 2", indent_spaces=4
-    )
-    assert code_tests_module._evaluated_expected("TWO * 2", setup) == "4"
+    setup = {"code_before": "def f():", "code_after": "TWO = 2", "indent_spaces": 4}
+    check = code_tests({"expression": "f()", "expected": "TWO * 2"}, setup=setup)
+    assert mark(check, "return 3", CODE_QUESTION).feedback == "f() gave 3. Expected 4."
 
 
 def test_a_test_runs_within_its_memory_limit() -> None:
@@ -183,8 +181,8 @@ def test_setup_is_bounded(setup: dict[str, int]) -> None:
 
 
 def record_expected_value_runs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """The code run to work out expected values, from now on."""
-    code_tests_module._evaluated_expected.cache_clear()
+    """The code run to work out expected values, from now on. Worked-out values are cached, so
+    the tests using this expect values no other test does."""
     runs: list[str] = []
     original_run = runner.run
 
@@ -200,12 +198,13 @@ def record_expected_value_runs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def test_expected_values_are_worked_out_once_per_test(monkeypatch: pytest.MonkeyPatch) -> None:
     runs = record_expected_value_runs(monkeypatch)
     check = code_tests(
-        {"expression": "f()", "expected": "1 + 1"}, {"expression": "f() * 2", "expected": "2 * 2"}
+        {"expression": "f()", "expected": "11 - 9"},
+        {"expression": "f() * 2", "expected": "16 // 4"},
     )
     results = mark_all(
         check, [f"def f():\n    return {returned}" for returned in (2, 3, 4)], CODE_QUESTION
     )
-    assert runs == ["1 + 1", "2 * 2"]
+    assert runs == ["11 - 9", "16 // 4"]
     assert proportions(results) == [1, 0, 0]
     assert results[1].feedback == (
         "Passed 0 of 2 tests.\nf() gave 3. Expected 2.\nf() * 2 gave 6. Expected 4."

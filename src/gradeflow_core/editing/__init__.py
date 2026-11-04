@@ -16,7 +16,7 @@ from ..methods.position import Position
 from ..questions import QUESTION_TYPES, new_question
 from ..questions.inference import converted_question
 from ..questions.types import QuestionType
-from .by_example import DECISIONS, Decision, answer_decisions, can_mark_by_example, mark_by_example
+from .by_example import DECISIONS, Decision, can_mark_by_example
 from .conditions import Condition, ConditionRow
 from .drafts import ChecksSetting, MarkingDraft, compatible_methods
 from .method_drafts import MethodDraft
@@ -41,7 +41,6 @@ __all__ = [
     "Position",
     "QuestionType",
     "RowResult",
-    "answer_decisions",
     "can_mark_by_example",
     "compatible_methods",
     "converted_question",
@@ -49,7 +48,6 @@ __all__ = [
     "list_models",
     "load_method_files",
     "load_yaml",
-    "mark_by_example",
     "mark_rows",
     "method_name",
     "method_ref",

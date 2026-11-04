@@ -210,10 +210,10 @@ def reply(content: str, tokens: list[dict[str, Any]]) -> httpx2.Response:
 
 def fake_client(
     respond: Callable[[httpx2.Request], httpx2.Response],
-) -> Callable[[ModelEndpoint], openai.OpenAI]:
+) -> Callable[..., openai.OpenAI]:
     """A client for every endpoint, served by ``respond``."""
 
-    def client(endpoint: ModelEndpoint) -> openai.OpenAI:
+    def client(endpoint: ModelEndpoint, **_: object) -> openai.OpenAI:
         return openai.OpenAI(
             base_url=endpoint.url,
             api_key=endpoint.token.get_secret_value(),
@@ -224,13 +224,19 @@ def fake_client(
     return client
 
 
+def install_client(monkeypatch: pytest.MonkeyPatch, client: Callable[..., openai.OpenAI]) -> None:
+    """Every request to a model service made by ``client``."""
+    monkeypatch.setattr(model_service, "_client", client)
+    monkeypatch.setattr(model_service, "_chat_client", client)
+
+
 @pytest.fixture
 def fake_models(monkeypatch: pytest.MonkeyPatch) -> InstallFakeModels:
     """Point every model endpoint at a fake service answering from the given verdicts."""
 
     def install(verdicts: VerdictFunction) -> FakeModels:
         fake = FakeModels(verdicts)
-        monkeypatch.setattr(model_service, "_client", fake_client(fake.respond))
+        install_client(monkeypatch, fake_client(fake.respond))
         return fake
 
     return install

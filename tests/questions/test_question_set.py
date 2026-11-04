@@ -35,9 +35,12 @@ def test_an_answer_a_question_cant_read_says_why_and_answers_to_other_questions_
     assert answers == {"Q1": Unreadable("approx 9", "Couldn't read “approx 9” as a number.")}
 
 
-def test_questions_are_in_natural_order() -> None:
+def test_questions_keep_the_order_they_are_given_in() -> None:
     questions = QuestionSet({"Q10": TextQuestion(), "Q2": TextQuestion()})
-    assert list(questions) == ["Q2", "Q10"]
+    assert list(questions) == ["Q10", "Q2"]
+    assert list(QuestionSet.load(questions.dump())) == ["Q10", "Q2"]
+    sheets = [submission({"Q2": "a", "Q10": "b"}), submission({"Q1": "c"})]
+    assert list(questions.updated_from(sheets)) == ["Q2", "Q10", "Q1"]
 
 
 def test_updating_keeps_answered_questions_extends_choices_and_works_out_new_ones() -> None:

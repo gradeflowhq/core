@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-from natsort import natsorted
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from ..common.text import format_marks
@@ -84,7 +83,7 @@ class MarkedSheet(AnswerSheet):
         comment."""
         return [
             ReportLine(key, result.marks, result.max_marks, result.feedback.strip())
-            for key, result in natsorted(self.results.items(), key=lambda item: item[0])
+            for key, result in self.results.items()
         ]
 
 

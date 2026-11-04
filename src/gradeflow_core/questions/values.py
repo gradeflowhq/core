@@ -13,8 +13,8 @@ from .text import TextQuestion
 from .types import Value, ValueType
 
 VALUE_TYPE_LABELS: dict[ValueType, str] = {"text": "Text", "number": "Number"}
-BLANK_SEPARATOR = "~"
-"""What separates the blanks of an ExamSoft answer key, and the values of answers to them."""
+EXAMSOFT_SEPARATOR = "~"
+"""ExamSoft's separator between an answer's values."""
 
 
 class ValuesQuestion(Question):

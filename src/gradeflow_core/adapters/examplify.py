@@ -22,7 +22,7 @@ from ..questions.question_set import QuestionSet
 from ..questions.reading import ListReading
 from ..questions.text import TextQuestion
 from ..questions.types import QuestionId, ValueType
-from ..questions.values import BLANK_SEPARATOR, ValuesQuestion
+from ..questions.values import EXAMSOFT_SEPARATOR, ValuesQuestion
 from .errors import file_read_errors
 from .mathml import mathml_to_latex
 from .rtf import ParagraphPart, paragraphs
@@ -94,7 +94,7 @@ def _question(item: _DocumentQuestion, existing: Question) -> Question:
         return ValuesQuestion.model_validate(
             {
                 **common_fields,
-                "reading": ListReading(separator=BLANK_SEPARATOR),
+                "reading": ListReading(separator=EXAMSOFT_SEPARATOR),
                 "value_types": value_types,
             }
         )

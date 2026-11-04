@@ -1,11 +1,11 @@
 """A marking being edited one check at a time, as YAML holds it, before it is a whole check."""
 
 import re
-from collections.abc import Container, Iterator, Mapping
+from collections.abc import Container, Iterator, Mapping, Sequence
 from copy import copy, deepcopy
 from dataclasses import dataclass, fields, replace
 from itertools import chain, count
-from typing import Any, TypeGuard
+from typing import Any, Literal, TypeGuard
 
 from pydantic import ConfigDict, ValidationError, create_model
 from pydantic_core import PydanticUndefined
@@ -24,8 +24,10 @@ from ..methods.position import Position
 from ..methods.problems import located_problems, misfit_reason, written_checks
 from ..methods.settings import literal
 from ..methods.templates import Shape, names_read, unknown_check_message
+from ..questions.base import Question
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
+from .by_example import Decision, answer_decisions, mark_by_example
 from .conditions import Condition, condition_template, read_condition
 
 POSITION_KEYS = ("id", "question", "value", "name", "weight", "if", "read_only")
@@ -503,6 +505,41 @@ class MarkingDraft:
             if _is_within(path, written_check.path)
             for sibling in written_check.siblings
         ]
+
+    def answer_decisions(self) -> dict[str, Decision]:
+        """The answers given marks by example, as in accepted-answer, Not and Combination checks,
+        with what each gets.
+
+        Keys use the question's spelling. Other methods' matches are not decisions. A decision
+        describes the explicit rule, independently of conditions and other methods' results.
+        """
+        return answer_decisions(self._data, self._methods, self._question)
+
+    def mark_by_example(
+        self,
+        answers: Sequence[str],
+        decision: Decision | Literal["cancel"],
+        proportion: float = 0.5,
+    ) -> None:
+        """Gives these answers one of the ``DECISIONS``, ``proportion`` of the marks for
+        ``"partial_marks"``, or takes their decision back with ``"cancel"``. Other answers keep
+        theirs.
+
+        A decision overrides the existing marking. Cancelling leaves the remaining methods to mark
+        the answers; an answer must be cancelled before it gets another decision, and giving one
+        the decision it has changes nothing. Equivalent spellings of the question's answers are
+        one answer; its type must be one that can be marked by example. New checks use the
+        highest version of each method.
+        """
+        self.replace(
+            mark_by_example(
+                self._data, answers, decision, proportion, self._methods, self._question
+            )
+        )
+
+    @property
+    def _question(self) -> Question | None:
+        return self.questions[self.question] if self.question else None
 
     def finalized(self) -> Marking:
         """The marking, once nothing is wrong with it. Raises ``EditingError`` with its first

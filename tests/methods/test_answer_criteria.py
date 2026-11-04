@@ -5,6 +5,7 @@ import pytest
 
 from gradeflow_core import BUILTINS, ModelEndpoint, Progress, QuestionResult, QuestionSet
 from gradeflow_core.editing import Position, compatible_methods
+from gradeflow_core.methods.text.answer_criterion import CONCURRENT_REQUESTS
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 from tests.fake_models import (
@@ -270,6 +271,22 @@ def test_a_failed_request_leaves_only_its_own_answers_undecided(
     assert (correct.is_marked, total_only.is_marked) == (True, True)
     assert not unsummed.is_marked
     assert "Couldn't decide (the AI service answered 500)." in unsummed.feedback
+
+
+def test_a_model_the_service_lacks_isnt_asked_again(
+    fake_models: InstallFakeModels,
+) -> None:
+    fake = fake_models(example_verdicts)
+    answers = [f"${total}" for total in range(4 * CONCURRENT_REQUESTS)]
+    endpoint = FAST_MODEL_ENDPOINT.model_copy(
+        update={"fast_model": "gone", "answers_per_request": 1}
+    )
+    results = mark_with_criteria(*answers, endpoint=endpoint, settings={"decide_with": "fast"})
+    assert len(fake.requests) <= CONCURRENT_REQUESTS
+    assert all(
+        "Couldn't decide (the AI service has no such model)." in result.feedback
+        for result in results
+    )
 
 
 def test_a_request_failing_one_answer_at_a_time_leaves_only_that_answer_undecided(

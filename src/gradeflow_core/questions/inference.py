@@ -13,7 +13,7 @@ from .number import NumberQuestion, reads_as_number
 from .reading import ListReading, Reading, read_code, read_list
 from .text import TextQuestion
 from .types import QuestionType, ValueType
-from .values import BLANK_SEPARATOR, ValuesQuestion
+from .values import EXAMSOFT_SEPARATOR, ValuesQuestion
 
 CHOICE_OPTION_LIMIT = 7
 """Most distinct values a question may have to be worked out as a choice."""
@@ -22,7 +22,7 @@ SEPARATORS = (",", ";", "|", "/")
 
 
 def infer_question(answers: list[str]) -> Question:
-    if values := _same_count_values_question(answers, (BLANK_SEPARATOR,)):
+    if values := _same_count_values_question(answers, (EXAMSOFT_SEPARATOR,)):
         return values
     if _mostly_numbers(answers):
         return NumberQuestion()

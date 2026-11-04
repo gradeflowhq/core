@@ -19,6 +19,8 @@ from .results import MarkedSheet, MarkedSubmission, QuestionResult
 
 _log = logging.getLogger(__name__)
 
+type _Results = dict[QuestionId, QuestionResult]
+
 
 @overload
 def mark(
@@ -62,16 +64,19 @@ def mark(
     marked once. Methods that work out something for many answers at once, such as asking a
     language model at ``model_endpoint``, do so for ``chunk_size`` sheets at a time, and say how
     far they got to ``on_progress``."""
-    problem_results = [_problem_results(marking, questions) for marking in scheme.markings]
     max_marks = sum(question.max_marks for question in questions.values())
-    questions_read = [
-        () if results is not None else tuple(sorted(marking.questions_read()))
-        for marking, results in zip(scheme.markings, problem_results, strict=True)
-    ]
-    caches: list[dict[tuple[str | None, ...], dict[QuestionId, QuestionResult]]] = [
-        {} for _ in scheme.markings
-    ]
-    precomputing_checks = _precomputing_checks(scheme, problem_results)
+    # Each marking with the questions it reads and its results by the answers to them.
+    cached_markings: list[
+        tuple[Check, tuple[QuestionId, ...], dict[tuple[str | None, ...], _Results]]
+    ] = []
+    markings_without_problems = []
+    for marking in scheme.markings:
+        if (problem_results := _problem_results(marking, questions)) is not None:
+            cached_markings.append((marking, (), {(): problem_results}))  # the same for every sheet
+        else:
+            cached_markings.append((marking, tuple(sorted(marking.questions_read())), {}))
+            markings_without_problems.append(marking)
+    precomputing_checks = _precomputing_checks(markings_without_problems)
     precomputed: dict[str, dict[QuestionId, dict[Any, Any]]] = {}
     precomputed_answers: set[tuple[str, QuestionId, str]] = set()
     # Without methods that precompute, sheets are read one at a time, as each is marked.
@@ -101,32 +106,26 @@ def mark(
             )
         for sheet, answers in zip(chunk, read_sheets, strict=True):
             results: dict[QuestionId, QuestionResult] = {}
-            for marking, marking_problem_results, marking_questions_read, cache in zip(
-                scheme.markings, problem_results, questions_read, caches, strict=True
-            ):
-                if marking_problem_results is not None:
-                    marking_results = marking_problem_results
-                else:
-                    cache_key = tuple(sheet.answers.get(key) for key in marking_questions_read)
-                    if cache_key not in cache:
-                        read_answers = {
-                            key: answers[key] for key in marking_questions_read if key in answers
-                        }
-                        written_answers = {
-                            key: sheet.answers[key]
-                            for key in marking_questions_read
-                            if key in sheet.answers
-                        }
-                        context = Context(
-                            read_answers,
-                            questions,
-                            written_answers=written_answers,
-                            precomputed=precomputed,
-                        )
-                        cache[cache_key] = _marking_results(marking, context)
-                    marking_results = cache[cache_key]
+            for marking, marking_questions_read, cache in cached_markings:
+                cache_key = tuple(sheet.answers.get(key) for key in marking_questions_read)
+                if cache_key not in cache:
+                    read_answers = {
+                        key: answers[key] for key in marking_questions_read if key in answers
+                    }
+                    written_answers = {
+                        key: sheet.answers[key]
+                        for key in marking_questions_read
+                        if key in sheet.answers
+                    }
+                    context = Context(
+                        read_answers,
+                        questions,
+                        written_answers=written_answers,
+                        precomputed=precomputed,
+                    )
+                    cache[cache_key] = _marking_results(marking, context)
                 results = {
-                    key: result.model_copy() for key, result in marking_results.items()
+                    key: result.model_copy() for key, result in cache[cache_key].items()
                 } | results
             results = _given_results(sheet, questions) | results
             result_class = MarkedSubmission if isinstance(sheet, Submission) else MarkedSheet
@@ -140,23 +139,19 @@ def mark(
 
 
 def _precomputing_checks(
-    scheme: MarkScheme, problem_results: list[dict[QuestionId, QuestionResult] | None]
+    markings: list[Check],
 ) -> dict[tuple[Method[Any], QuestionId], list[Check]]:
-    """The checks of methods that precompute, by method and the question they read, in the
-    markings without problems."""
+    """The checks of methods that precompute in ``markings``, by method and the question they
+    read."""
     precomputing_checks: dict[tuple[Method[Any], QuestionId], list[Check]] = {}
-    for marking, marking_problem_results in zip(scheme.markings, problem_results, strict=True):
-        if marking_problem_results is not None:
-            continue
+    for marking in markings:
         for check, question in checks_in(marking, marking.question):
             if question is not None and type(check.method).precompute is not Method.precompute:
                 precomputing_checks.setdefault((check.method, question), []).append(check)
     return precomputing_checks
 
 
-def _problem_results(
-    marking: Check, questions: QuestionSet
-) -> dict[QuestionId, QuestionResult] | None:
+def _problem_results(marking: Check, questions: QuestionSet) -> _Results | None:
     """The unmarked results of a marking with problems, which say what they are; None if it has
     none."""
     problems = marking.problems(questions)
@@ -173,7 +168,7 @@ def _problem_results(
     }
 
 
-def _marking_results(marking: Check, context: Context) -> dict[QuestionId, QuestionResult]:
+def _marking_results(marking: Check, context: Context) -> _Results:
     label = marking.method.label
     keys = marking.questions_marked() & context.questions.keys()
     try:

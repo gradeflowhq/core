@@ -115,7 +115,7 @@ progress reported to `on_progress`. Without an endpoint, these answers are left 
 
 ## Questions
 
-A `QuestionSet` maps question IDs to questions, in natural order (`Q2` before `Q10`).
+A `QuestionSet` maps question IDs to questions, in the order they are given.
 
 | Type | Class | An answer is |
 |---|---|---|
@@ -363,10 +363,22 @@ results = mark_rows(
 recorded = [result.as_example() for result in results]
 ```
 
-`mark_by_example` changes a marking so that given answers get full, part or no marks. The module
-also has functions for question types (`new_question`, `converted_question`), method references
-(`method_ref`, `split_ref`, `rewrite_references`), models (`list_models`, `try_model`) and YAML
-(`load_yaml`, `dump_yaml`).
+`MarkingDraft.mark_by_example` changes the marking so that chosen answers get a decision:
+
+```python
+from gradeflow_core import QuestionSet
+from gradeflow_core.editing import MarkingDraft
+
+questions = QuestionSet.load({"Q1": {"type": "text"}})
+draft = MarkingDraft.new("gradeflow/accepted-answers@1", questions, "Q1")
+draft.update("", {"answers": ["Paris"]})
+draft.mark_by_example(["Lyon"], "not_allowed")
+assert draft.answer_decisions() == {"paris": "full_marks", "lyon": "not_allowed"}
+```
+
+The module also has functions for question types (`new_question`, `converted_question`), method
+references (`method_ref`, `split_ref`, `rewrite_references`), models (`list_models`, `try_model`)
+and YAML (`load_yaml`, `dump_yaml`).
 
 ## Running code
 

@@ -25,6 +25,8 @@ from ..position import Position
 from ..settings import Settings
 
 Combine = Literal["all", "any", "none", "total", "proportional"]
+ADDITIVE_COMBINES: frozenset[Combine] = frozenset({"total", "proportional"})
+"""The ways of combining that add the parts' weighted marks up."""
 COMBINE_LABELS = {
     "all": "All must be correct",
     "any": "Any one must be correct",
@@ -163,16 +165,17 @@ def _children(
         if (part := _outcome_for_question(check, outcomes, key)) is not None and not part.skipped
     ]
     scoring_parts = [(check, part) for check, part in ran_parts if not check.read_only]
+    best = (
+        next(
+            (index for index, (check, _) in enumerate(scoring_parts) if check is best_check),
+            None,
+        )
+        if combined.proportion > 0
+        else None
+    )
     scoring_parts_with_effects = iter(
         parts_with_effects(
-            combine,
-            [(check.weight, part) for check, part in scoring_parts],
-            next(
-                (index for index, (check, _) in enumerate(scoring_parts) if check is best_check),
-                None,
-            ),
-            combined.proportion > 0,
-            max_marks,
+            combine, [(check.weight, part) for check, part in scoring_parts], best, max_marks
         )
     )
     return tuple(
@@ -191,10 +194,10 @@ def proportion_and_parts(
             range(len(weighted_parts)),
             key=lambda index: weighted_parts[index][0] * weighted_parts[index][1].proportion,
         )
-        if combine == "any"
+        if combine == "any" and proportion > 0
         else None
     )
-    return proportion, parts_with_effects(combine, weighted_parts, best, proportion > 0, max_marks)
+    return proportion, parts_with_effects(combine, weighted_parts, best, max_marks)
 
 
 def _proportion(
@@ -210,16 +213,15 @@ def parts_with_effects(
     combine: Combine,
     weighted_parts: Sequence[tuple[float, Outcome]],
     best: int | None,
-    gives_marks: bool,
     max_marks: float,
 ) -> tuple[Outcome, ...]:
     """Combined ``(weight, outcome)`` parts, each with what it did to the marks and, under "Total"
-    and "Proportional", the part of the combined proportion it gave. Under "Any" only the
-    ``best`` counts, unless none gives marks."""
+    and "Proportional", the part of the combined proportion it gave. Only the part at ``best``, if
+    there is one, counts."""
     positive_weight_total = sum(weight for weight, _ in weighted_parts if weight > 0) or 1
 
     def with_effect(index: int, weight: float, part: Outcome) -> Outcome:
-        if best is not None and index != best and gives_marks:
+        if best is not None and index != best:
             return replace(part, effect="uncounted")
         match combine:
             case "total":
@@ -257,8 +259,7 @@ def _outcome_for_question(
 def _effect(combine: Combine, weight: float, part: Outcome) -> Effect:
     """What ``part`` did to the marks. Under "None", or with a negative weight, a check that finds
     what it looks for is a penalty."""
-    is_additive = combine in ("total", "proportional")
-    if not part.marked or not (combine == "none" or (is_additive and weight <= 0)):
+    if not part.marked or not (combine == "none" or (combine in ADDITIVE_COMBINES and weight <= 0)):
         return effect_of(part)
     return "penalty" if part.proportion > 0 and weight != 0 else "uncounted"
 
@@ -275,7 +276,7 @@ def _explaining_parts(
         if not part.marked:  # says why the whole is left for a person
             explaining_parts.append(part)
             continue
-        is_additive = combine in ("total", "proportional")
+        is_additive = combine in ADDITIVE_COMBINES
         weight = check.weight if is_additive else 1
         match combine:
             case "all":
@@ -451,7 +452,7 @@ class Combination(Method[CombinationSettings]):
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         # Only a written list needs a check: a method file may fill one from an optional input.
-        if not self._settings_of(check).checks and not check.scope:
+        if not self._settings_of(check).checks and not check._from_method_file:  # noqa: SLF001
             yield Problem("Add at least one check.", field=("checks",), is_incomplete=True)
 
 
@@ -481,11 +482,11 @@ def _penalty_feedback(check: Check) -> str:
 def weight_notes(weight: float, combine: Combine) -> tuple[str, ...]:
     """What a weight, when it isn't 1, makes a check worth: under ``any`` the share of the marks
     it can give, and under ``total`` and ``proportional`` the weight itself."""
-    if weight == 1 or combine in ("all", "none"):
+    if weight == 1:
         return ()
-    if combine == "any":
-        return (f"{weight:.0%} of the marks",)
-    return (f"weight {format_number(weight)}",)
+    if combine in ADDITIVE_COMBINES:
+        return (f"weight {format_number(weight)}",)
+    return (f"{weight:.0%} of the marks",) if combine == "any" else ()
 
 
 def _earlier_result(outcomes: dict[QuestionId, Outcome]) -> EarlierResult:
