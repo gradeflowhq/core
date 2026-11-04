@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any, Literal
 
@@ -121,9 +121,20 @@ def as_file_checks(check: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class MethodFileFieldError(ValueError):
+    """What is wrong with a method file's fields. ``problems`` holds each message and path, its own
+    first."""
+
     def __init__(self, message: str, path: Location) -> None:
         super().__init__(message)
         self.path = path
+        self.problems = [(message, path)]
+
+    @classmethod
+    def combined(cls, errors: Sequence[MethodFileFieldError]) -> MethodFileFieldError:
+        """One error for all of ``errors``."""
+        combined = cls(str(errors[0]), errors[0].path)
+        combined.problems = [problem for error in errors for problem in error.problems]
+        return combined
 
 
 def methods_used(yaml_data: Any) -> set[str]:

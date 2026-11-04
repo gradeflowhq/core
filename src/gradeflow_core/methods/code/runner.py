@@ -195,8 +195,7 @@ def _serve() -> None:
 
 
 class _Worker:
-    """A process running sandboxes, started on first use and again after a sandbox aborts it.
-    Only the thread that made it uses it."""
+    """A process running sandboxes, started on first use and again after a sandbox aborts it."""
 
     def __init__(self) -> None:
         self._process: subprocess.Popen[bytes] | None = None
@@ -244,27 +243,9 @@ class _Worker:
         return self._process
 
 
-_local = threading.local()
-_workers: list[_Worker] = []
-_workers_lock = threading.Lock()
-
-
-def _worker() -> _Worker:
-    worker: _Worker | None = getattr(_local, "worker", None)
-    if worker is None:
-        worker = _local.worker = _Worker()
-        with _workers_lock:
-            _workers.append(worker)
-    return worker
-
-
-@atexit.register
-def _close_workers() -> None:
-    with _workers_lock:
-        workers = list(_workers)
-        _workers.clear()
-    for worker in workers:
-        worker.close()
+_worker = _Worker()
+_worker_lock = threading.Lock()
+atexit.register(_worker.close)
 
 
 def run(
@@ -278,7 +259,7 @@ def run(
     values and nested sets.
 
     Unsupported output values are omitted. Variables are updated only on success.
-    Sandboxes run in a worker process per thread, so one that aborts its process fails only
+    Sandboxes run one at a time in a worker process, so one that aborts its process fails only
     its own run.
     """
     request = {
@@ -287,7 +268,8 @@ def run(
         "time_limit_s": time_limit_s,
         "memory_limit_mb": memory_limit_mb,
     }
-    response = _worker().run(request, time_limit_s + _WORKER_GRACE_S)
+    with _worker_lock:
+        response = _worker.run(request, time_limit_s + _WORKER_GRACE_S)
     if "sandbox_error" in response:
         raise GradeFlowError(response["sandbox_error"])
     if "code_error" in response:

@@ -43,9 +43,8 @@ _OPERATORS = {"+": operator.add, "-": operator.sub, "*": operator.mul, "/": oper
 
 @dataclass(frozen=True)
 class Expression:
-    """An expression read from ``text``, and the variables it uses."""
+    """An expression, and the variables it uses."""
 
-    text: str
     variables: frozenset[str]
     _node: Evaluator = field(repr=False, compare=False)
 
@@ -77,7 +76,7 @@ def parse(text: str, *, names_as_written: bool = False) -> Expression:
             raise _ParseError
     except _ParseError:
         raise ValueError(f"Couldn't read {quoted(text)} as an expression.") from None
-    return Expression(text, frozenset(parser.variables), node)
+    return Expression(frozenset(parser.variables), node)
 
 
 class _ParseError(Exception):

@@ -98,11 +98,12 @@ class MethodDraft:
         if "examples" in self._file_fields:
             self._file_fields["examples"] = _without_results(self._file_fields["examples"])
         self._file_fields["inputs"] = self._inputs = deepcopy(inputs)
-        self.test_values = dict(test_values or {})
         question, body = _only_question(questions), as_combination(data)
         if question:
             body["question"] = question
-        self._checks = MethodChecksDraft(body, questions, question, self._methods, self._inputs)
+        self._checks = MethodChecksDraft(
+            body, questions, question, self._methods, self._inputs, test_values or {}
+        )
         self._fit_to_questions()
 
     @classmethod
@@ -167,6 +168,14 @@ class MethodDraft:
         return draft
 
     @property
+    def test_values(self) -> dict[str, Any]:
+        return self._checks.test_values
+
+    @test_values.setter
+    def test_values(self, values: Mapping[str, Any]) -> None:
+        self._checks.test_values = values
+
+    @property
     def questions(self) -> QuestionSet:
         return self._checks.questions
 
@@ -213,7 +222,9 @@ class MethodDraft:
                 if get(body, path).get("question") == question:
                     get(body, path).pop("question")
             body["question"] = question
-        self._checks = MethodChecksDraft(body, questions, question, self._methods, self._inputs)
+        self._checks = MethodChecksDraft(
+            body, questions, question, self._methods, self._inputs, self.test_values
+        )
         self._fit_to_questions()
 
     @property
@@ -426,14 +437,7 @@ class MethodDraft:
 
     def _configurable_field(self, path: str) -> ConfigurableField:
         """The setting at ``path`` an input can fill."""
-        segments = path_parts(path)
-        for end in range(len(segments), -1, -1):
-            check_path = join(*segments[:end])
-            if self._checks.is_check(check_path):
-                break
-        field = next(
-            (field for field in self._configurable_fields(check_path) if field.path == path), None
-        )
+        field = next((field for field in self.configurable_fields() if field.path == path), None)
         if field is None:
             raise EditingError(f"{path} isn't a setting an input can fill.")
         return field
@@ -456,8 +460,10 @@ class MethodDraft:
             default = self._checks.values(field.check).get(
                 field.key, self._schema_of(field).get("default")
             )
-        if has_default or not is_empty(default):
-            self._validate_default(field, default)
+        if (has_default or not is_empty(default)) and (
+            message := self._rejection_reason(field, default)
+        ):
+            raise EditingError(message)
         stem = str(path_parts(path)[-1])
         name = first_unused_name(f"{stem}_input" if stem in CHECK_FIELDS else stem, self._inputs)
         titles = {declaration.get("title") for declaration in self._inputs.values()}
@@ -485,10 +491,7 @@ class MethodDraft:
         for name, declaration in self._inputs.items():
             if name in types and types[name] != self._field_annotation(field)[0]:
                 continue
-            try:
-                if "default" in declaration:
-                    self._validate_default(field, declaration["default"])
-            except EditingError:
+            if "default" in declaration and self._rejection_reason(field, declaration["default"]):
                 continue
             compatible.append(name)
         return compatible
@@ -527,10 +530,6 @@ class MethodDraft:
         settings = method.settings_model_at(self._checks.position(field.check)).model_fields
         field_info = settings.get(field.key) or CHECK_FIELDS[field.key]
         return field_info.annotation, field_info
-
-    def _validate_default(self, field: ConfigurableField, value: Any) -> None:
-        if message := self._rejection_reason(field, value):
-            raise EditingError(message)
 
     def _rejection_reason(self, field: ConfigurableField, value: Any) -> str:
         """Why ``field`` doesn't take ``value``; ``""`` if it does."""
@@ -611,7 +610,7 @@ class MethodDraft:
         try:
             return self._problems(self._loaded_method())
         except MethodFileError as error:
-            return [Problem(str(error))]
+            return [Problem(message) for message in error.messages]
 
     def finalized(self) -> Method[Any]:
         """The method, once nothing is wrong with it. Raises ``EditingError`` with its first
@@ -635,6 +634,8 @@ class MethodDraft:
             return [Problem("Give the method a label.")]
         if not method.marks_question_group and not method.question_types:
             return [Problem("Choose at least one question type.")]
+        if not self.uneditable_reasons and (problems := self._checks.problems):
+            return problems
         test_check: dict[str, Any] = {"uses": method.ref, "with": self.test_values}
         if self.question:
             test_check["question"] = self.question

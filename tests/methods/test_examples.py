@@ -16,7 +16,7 @@ from gradeflow_core import (
     QuestionSet,
     mark_examples,
 )
-from gradeflow_core.editing import ExpectedResult, RowResult, mark_rows
+from gradeflow_core.editing import RowResult, mark_rows
 from tests.fake_models import (
     FAST_AND_CAREFUL_ENDPOINT,
     InstallFakeModels,
@@ -126,8 +126,8 @@ def test_every_public_method_has_its_marks_pinned() -> None:
 def test_examples_across_questions_declare_each_questions_result() -> None:
     follow_through_row = BY_NAME["gradeflow/answer-sets"].examples[0].rows[1]
     assert follow_through_row.answers == {"Q1": "10", "Q2": "6.25"}
-    half = ExpectedResult(marks=0.5, feedback="Perimeter as 6 + 4 (50% of the marks).")
-    assert follow_through_row.expected == {"Q1": half, "Q2": half}
+    half = {"marks": 0.5, "feedback": "Perimeter as 6 + 4 (50% of the marks)."}
+    assert follow_through_row.model_dump()["expected"] == {"Q1": half, "Q2": half}
 
 
 def test_a_row_matches_only_when_it_declares_every_question_marked() -> None:
@@ -198,8 +198,8 @@ def test_methods_hold_declared_content_without_marking(monkeypatch: pytest.Monke
     [example] = methods[-1].examples
     assert example.description == "A declared description."
     assert example.rows[0].answers == {"Q1": "sample"}
-    assert example.rows[0].expected == {
-        "Q1": ExpectedResult(marks=0, feedback="A declared expectation.")
+    assert example.rows[0].model_dump()["expected"] == {
+        "Q1": {"marks": 0, "feedback": "A declared expectation."}
     }
     assert BY_NAME["gradeflow/key-points"].examples
     mark.assert_not_called()
@@ -289,13 +289,13 @@ def test_built_in_examples_declare_what_evaluating_them_gives(
         example.description for example in method.examples
     ]
     assert [[as_expected(row) for row in example.rows] for example in actual] == [
-        [row.expected for row in example.rows] for example in method.examples
+        [row.model_dump()["expected"] for row in example.rows] for example in method.examples
     ]
     assert all(row.matches_expected for example in actual for row in example.rows)
 
 
-def as_expected(row: RowResult) -> dict[str, ExpectedResult]:
-    return row.as_example().expected
+def as_expected(row: RowResult) -> Any:
+    return row.as_example().model_dump()["expected"]
 
 
 def test_examples_use_supplied_nested_methods_without_fallback() -> None:

@@ -154,19 +154,9 @@ class AnswerCriterion(Method[AnswerCriterionSettings]):
         for request_key, request_settings in settings_by_request.items():
             criteria = list(dict.fromkeys(settings.criterion for settings in request_settings))
             requests = _CriterionRequests(endpoint, request_settings[0], question, criteria, report)
-            try:
-                request_verdicts = requests.decide(texts)
-            except ModelNotChosen as error:
-                request_verdicts = _undecided_verdicts(
-                    itertools.product(texts, criteria), (), _reason_from_error(error)
-                )
-            for (text, criterion), verdict in request_verdicts.items():
+            for (text, criterion), verdict in requests.decide(texts).items():
                 verdicts[request_key, text, criterion] = verdict
         return verdicts
-
-
-class ModelNotChosen(Exception):
-    """The endpoint names no model for a role the check needs."""
 
 
 def _reason_from_error(error: Exception) -> str:
@@ -218,7 +208,11 @@ class _CriterionRequests:
         if settings.decide_with == "careful":
             all_criteria = list(range(len(self.criteria)))
             return self._decide_carefully(dict.fromkeys(texts, all_criteria), ())
-        model = self._model_for("fast")
+        model = self.endpoint.fast_model
+        if model is None:
+            return _undecided_verdicts(
+                itertools.product(texts, self.criteria), (), "no fast model is chosen"
+            )
         confidence_needed = (
             settings.confidence_needed if settings.decide_with == "fast_then_careful" else 0.5
         )
@@ -233,13 +227,6 @@ class _CriterionRequests:
             key: verdict for key, verdict in verdicts.items() if verdict.is_met is not None
         }
         return sure_verdicts | self._decide_carefully(unsure_criteria, (model,))
-
-    def _model_for(self, role: Role) -> str:
-        endpoint = self.endpoint
-        model = endpoint.fast_model if role == "fast" else endpoint.careful_model
-        if model is None:
-            raise ModelNotChosen(f"No {role} model is chosen.")
-        return model
 
     def _decide_fast(
         self, model: str, texts: list[str], confidence_needed: float
@@ -310,11 +297,10 @@ class _CriterionRequests:
         def pairs_to_ask(texts: Iterable[str]) -> list[tuple[str, str]]:
             return [(text, self.criteria[i]) for text in texts for i in criteria_to_ask[text]]
 
-        try:
-            model = self._model_for("careful")
-        except ModelNotChosen as error:
+        model = self.endpoint.careful_model
+        if model is None:
             return _undecided_verdicts(
-                pairs_to_ask(criteria_to_ask), earlier_models, _reason_from_error(error)
+                pairs_to_ask(criteria_to_ask), earlier_models, "no careful model is chosen"
             )
         models = (*earlier_models, model)
 

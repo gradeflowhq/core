@@ -179,7 +179,7 @@ def test_an_input_without_a_default_must_be_filled_in() -> None:
             "combine: most\nchecks:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n",
             "Line 5: Choose 'all', 'any', 'none', 'total' or 'proportional'.",
         ),
-        ("checks:\n  - uses: gradeflow/nope@1\n", "There's no method gradeflow/nope@1."),
+        ("checks:\n  - uses: gradeflow/nope@1\n", "Line 6: There's no method gradeflow/nope@1."),
         (
             "checks:\n  - uses: gradeflow/key-point@1\n    colour: red\n    with: {point: a}\n",
             "Line 7: A check has no colour:.",
@@ -318,10 +318,3 @@ def test_a_composed_method_describes_itself_and_marks_like_a_built_in_one() -> N
     key_points = {"uses": "gradeflow/key-points@1", "with": {"points": ["a"]}}
     assert describe(key_points) == "Includes `a`."
     assert mark(key_points, "a").method_label == "Key Points"
-
-
-def test_a_method_lists_what_its_checks_are_set_up_with() -> None:
-    assert with_sample_files(terms=TERMS_METHOD_FILE)[-1].setting_titles == [
-        "Terms",
-        "limit_to_three_words",
-    ]

@@ -1,25 +1,91 @@
+import textwrap
 from dataclasses import replace
+from functools import lru_cache
+from typing import Any
 
 from pydantic import ConfigDict, Field
 
-from ...common.hints import ADVANCED_HINT, hint
+from ...common.hints import ADVANCED_HINT, PYTHON_CODE_HINT, hint
 from ...common.text import (
     as_sentence,
     capitalized,
     code_span,
     plain_join,
     plain_markdown,
+    quoted,
 )
 from ...questions.base import Question
 from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
-from ..logic.combination import COMBINE_LABELS, Combine, proportion_and_parts, weight_notes
+from ..logic.combination import (
+    COMBINE_LABELS,
+    Combine,
+    proportion_and_parts,
+    weight_notes,
+)
 from ..method import AnswerMethod
-from ..outcome import CORRECT, Outcome
+from ..outcome import CORRECT, Detail, Outcome
 from ..settings import Settings
+from . import runner
 from .code_fixes import CodeFixes, best_fixed_outcome, fixes_field
-from .code_test import Test, TestSetup, outcome_of_test
+from .custom_code import memory_limit_field, time_limit_field
+
+MAX_SHOWN_LENGTH = 200
+"""How many characters of a value feedback shows."""
+
+
+class Test(Settings):
+    model_config = ConfigDict(title="Test", str_strip_whitespace=True)
+
+    expression: str = Field(
+        min_length=1,
+        title="Expression",
+        description="Python code to run after the student's code.",
+        examples=["add(2, 3)"],
+    )
+    expected: str = Field(
+        min_length=1,
+        title="Expected value",
+        description="The Python value the expression should give.",
+        examples=["5"],
+    )
+    weight: float = Field(
+        default=1,
+        title="Weight",
+        description="How much the test counts, when each test earns its share.",
+        json_schema_extra=ADVANCED_HINT,
+    )
+
+
+class TestSetup(Settings):
+    model_config = ConfigDict(title="Test setup", frozen=True)
+
+    code_before: str = Field(
+        default="",
+        title="Code before",
+        description="Runs before the student's code, such as imports or helper functions.",
+        json_schema_extra=hint(**PYTHON_CODE_HINT, advanced=True),
+    )
+    code_after: str = Field(
+        default="",
+        title="Code after",
+        description="Runs after the student's code.",
+        json_schema_extra=hint(**PYTHON_CODE_HINT, advanced=True),
+    )
+    indent_spaces: int = Field(
+        default=0,
+        ge=0,
+        title="Indent student code (spaces)",
+        description="Spaces added to each line of the student's code, to fit it inside yours.",
+        json_schema_extra=ADVANCED_HINT,
+    )
+    time_limit: int = time_limit_field("Longest time each test may run before it fails.")
+    memory_limit: int = memory_limit_field("Most memory each test may use before it fails.")
+
+    def program_for(self, code: str) -> str:
+        indented = textwrap.indent(code, " " * self.indent_spaces)
+        return f"{self.code_before}\n{indented}\n{self.code_after}"
 
 
 class CodeTestsSettings(Settings):
@@ -38,12 +104,6 @@ class CodeTestsSettings(Settings):
         json_schema_extra=ADVANCED_HINT,
     )
     fixes: CodeFixes = fixes_field()
-    evaluate_expected: bool = Field(
-        default=True,
-        title="Work out expected values",
-        description="Feedback shows what an expected expression gives, such as 5 for 2 + 3.",
-        json_schema_extra=ADVANCED_HINT,
-    )
     combine: Combine = Field(
         default="all", title="How tests count", json_schema_extra=hint(labels=COMBINE_LABELS)
     )
@@ -100,22 +160,25 @@ def _tests_outcome(settings: CodeTestsSettings, code: str, max_marks: float) -> 
     """The tests run on ``code``, combined."""
     weighted = []
     for test in settings.tests:
-        outcome = outcome_of_test(
-            code, test, settings.setup, evaluate_expected=settings.evaluate_expected
-        )
+        outcome = _outcome_of_test(code, test, settings.setup)
         weighted.append((test.weight, replace(outcome, title=_test_title(test))))
     combine = settings.combine
     proportion, test_outcomes = proportion_and_parts(combine, weighted, max_marks)
-    feedback = _feedback(combine, test_outcomes, proportion)
-    if combine == "none" and (error := next(filter(None, map(_error_detail, test_outcomes)), None)):
+    feedback = _feedback(settings, test_outcomes, proportion)
+    if combine == "none" and (
+        error := next(filter(None, (outcome.first_error() for outcome in test_outcomes)), None)
+    ):
         proportion, feedback = 0.0, as_sentence(f"Couldn't test the code: {error}")
     if len(test_outcomes) == 1:  # one test is shown as the method itself
         return Outcome(proportion, feedback, parts=test_outcomes, details=test_outcomes[0].details)
     return Outcome(proportion, feedback, parts=test_outcomes, children=test_outcomes)
 
 
-def _feedback(combine: Combine, test_outcomes: tuple[Outcome, ...], proportion: float) -> str:
+def _feedback(
+    settings: CodeTestsSettings, test_outcomes: tuple[Outcome, ...], proportion: float
+) -> str:
     """How many tests passed, and why the others failed. A test passes when it gives marks."""
+    combine = settings.combine
     if combine == "none":
         passed_titles = [
             as_sentence(plain_markdown(outcome.title))
@@ -125,52 +188,42 @@ def _feedback(combine: Combine, test_outcomes: tuple[Outcome, ...], proportion: 
         return f"Not allowed. {' '.join(passed_titles)}" if passed_titles else CORRECT
     if len(test_outcomes) == 1:
         return test_outcomes[0].feedback
-    failed_outcomes = [outcome for outcome in test_outcomes if not outcome.proportion]
-    if not failed_outcomes:
+    failed = [
+        (test, outcome)
+        for test, outcome in zip(settings.tests, test_outcomes, strict=True)
+        if not outcome.proportion
+    ]
+    if not failed:
         return (
             "Passed both tests."
             if len(test_outcomes) == 2
             else f"Passed all {len(test_outcomes)} tests."
         )
-    if (
-        len(failed_outcomes) == len(test_outcomes)
-        and len({outcome.feedback for outcome in failed_outcomes}) == 1
-    ):
-        return failed_outcomes[0].feedback  # such as code that couldn't run
-    passed_summary = (
-        f"Passed {len(test_outcomes) - len(failed_outcomes)} of {len(test_outcomes)} tests."
-    )
+    if len(failed) == len(test_outcomes) and len({outcome.feedback for _, outcome in failed}) == 1:
+        return failed[0][1].feedback  # such as code that couldn't run
+    passed_summary = f"Passed {len(test_outcomes) - len(failed)} of {len(test_outcomes)} tests."
     if combine == "any" and proportion > 0:
         return passed_summary
-    return "\n".join([passed_summary, *_failures(failed_outcomes, len(test_outcomes))])
+    return "\n".join([passed_summary, *_failures(failed, len(test_outcomes))])
 
 
-def _failures(failed_outcomes: list[Outcome], count: int) -> list[str]:
+def _failures(failed: list[tuple[Test, Outcome]], count: int) -> list[str]:
     """Each failed test's feedback; tests the same error stopped share one line."""
-    by_error: dict[str, list[Outcome]] = {}
-    for outcome in failed_outcomes:
-        by_error.setdefault(_error_detail(outcome) or outcome.feedback, []).append(outcome)
+    by_error: dict[str, list[tuple[Test, Outcome]]] = {}
+    for test, outcome in failed:
+        by_error.setdefault(outcome.first_error() or outcome.feedback, []).append((test, outcome))
     lines = []
-    for error, outcomes_with_error in by_error.items():
-        if len(outcomes_with_error) == 1:
-            lines.append(outcomes_with_error[0].feedback)
-        elif len(outcomes_with_error) == count:
+    for error, failed_with_error in by_error.items():
+        if len(failed_with_error) == 1:
+            lines.append(failed_with_error[0][1].feedback)
+        elif len(failed_with_error) == count:
             lines.append(as_sentence(f"All {count} failed: {error}"))
         else:
             expressions = plain_join(
-                [_detail_value(outcome, "Expression") for outcome in outcomes_with_error],
-                conjunction="and",
+                [test.expression for test, _ in failed_with_error], conjunction="and"
             )
             lines.append(as_sentence(f"{expressions} failed: {error}"))
     return lines
-
-
-def _error_detail(outcome: Outcome) -> str | None:
-    return next((detail.value for detail in outcome.details if detail.kind == "error"), None)
-
-
-def _detail_value(outcome: Outcome, title: str) -> str:
-    return next(detail.value for detail in outcome.details if detail.title == title)
 
 
 def _test_title(test: Test, *, negated: bool = False) -> str:
@@ -195,3 +248,90 @@ def _which_tests(combine: Combine, count: int) -> str:
             return "these tests, marks added up"
         case "proportional":
             return "these tests, a share for each"
+
+
+@lru_cache(maxsize=4096)
+def _evaluated_expected(expected: str, setup: TestSetup) -> str:
+    """The expected value evaluated around no student code, or as written if that fails."""
+    variables: dict[str, Any] = {}
+    try:
+        runner.run(
+            f"{setup.program_for('pass')}\nexpected = {expected}",
+            variables,
+            time_limit_s=setup.time_limit,
+            memory_limit_mb=setup.memory_limit,
+        )
+    except runner.CodeError:
+        return expected
+    return repr(variables.get("expected"))
+
+
+def _outcome_of_test(code: str, test: Test, setup: TestSetup) -> Outcome:
+    """How ``code`` does on ``test``, run inside ``setup``."""
+    program = setup.program_for(code)
+    expected = _truncated(_evaluated_expected(test.expected, setup))
+    test_details = (
+        Detail("Expression", test.expression, "code"),
+        Detail("Expected", expected, "code"),
+    )
+    if (syntax_error := _syntax_error(program, setup)) is not None:
+        return Outcome(
+            0.0,
+            f"Couldn't run the code: {syntax_error}.",
+            details=(*test_details, Detail("Output", syntax_error, "error")),
+        )
+    test_code = (
+        "import contextlib as _contextlib, io as _io\n"
+        "_printed = _io.StringIO()\n"
+        "with _contextlib.redirect_stdout(_printed):\n"
+        f"    output = {test.expression}\n"
+        "printed = _printed.getvalue()\n"
+        f"expected = {test.expected}\n"
+        "passed = output == expected"
+    )
+    variables: dict[str, Any] = {}
+    try:
+        runner.run(
+            f"{program}\n{test_code}",
+            variables,
+            time_limit_s=setup.time_limit,
+            memory_limit_mb=setup.memory_limit,
+        )
+    except runner.CodeError as error:
+        failure = as_sentence(f"{test.expression} failed: {error.reason}")
+        return Outcome(
+            0.0,
+            f"{failure} Expected {expected}.",
+            details=(*test_details, Detail("Output", error.reason, "error")),
+        )
+    output = _truncated(repr(variables.get("output")))
+    output_details = (*test_details, Detail("Output", output, "code"))
+    if variables.get("passed"):
+        return Outcome(
+            1.0, f"{test.expression} gave {output}, as expected.", details=output_details
+        )
+    feedback = f"{test.expression} gave {output}. Expected {expected}."
+    if printed := _truncated(str(variables.get("printed", "")).rstrip()):
+        return Outcome(
+            0.0,
+            f"{feedback} It printed {quoted(printed)}.",
+            details=(*output_details, Detail("Printed", printed)),
+        )
+    return Outcome(0.0, feedback, details=output_details)
+
+
+def _truncated(value: str) -> str:
+    """``value`` truncated to ``MAX_SHOWN_LENGTH`` characters."""
+    return value if len(value) <= MAX_SHOWN_LENGTH else f"{value[:MAX_SHOWN_LENGTH]}…"
+
+
+def _syntax_error(program: str, setup: TestSetup) -> str | None:
+    """Why Python can't read ``program``, with the line of the student's code; None if it
+    can."""
+    try:
+        compile(program, "<code>", "exec")
+    except SyntaxError as error:
+        line = (error.lineno or 0) - setup.code_before.count("\n") - 1
+        line_note = f" (line {line})" if line > 0 else ""
+        return f"SyntaxError: {error.msg}{line_note}"
+    return None

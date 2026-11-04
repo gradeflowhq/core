@@ -9,26 +9,26 @@ def breakdown_of(outcome: Outcome, max_marks: float) -> CheckResult | None:
     children say their marks, as deeper ones' depend on every check above."""
     if not outcome.children:
         return None
-    children = tuple(
-        _check_result(child, _child_marks(child, max_marks)) for child in outcome.children
+    # The result's own feedback says why it is unmarked, so the root gives no reason.
+    return CheckResult(
+        title=_title(outcome),
+        effect=outcome.effect or effect_of(outcome),
+        details=outcome.details,
+        children=tuple(
+            _check_result(child, _child_marks(child, max_marks)) for child in outcome.children
+        ),
     )
-    # The result's own feedback says why it is unmarked.
-    return _check_result(outcome, None, children).model_copy(update={"details": outcome.details})
 
 
-def _check_result(
-    outcome: Outcome, marks: float | None, children: tuple[CheckResult, ...] | None = None
-) -> CheckResult:
+def _check_result(outcome: Outcome, marks: float | None) -> CheckResult:
     effect = outcome.effect or effect_of(outcome)
     reason_details = (Detail("Reason", outcome.feedback),) if effect == "unmarked" else ()
-    if children is None:
-        children = tuple(_check_result(child, None) for child in outcome.children)
     return CheckResult(
         title=_title(outcome),
         effect=effect,
         marks=marks,
         details=(*outcome.details, *reason_details),
-        children=children,
+        children=tuple(_check_result(child, None) for child in outcome.children),
     )
 
 

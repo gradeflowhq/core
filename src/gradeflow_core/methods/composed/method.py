@@ -2,7 +2,7 @@
 
 from collections.abc import Iterator, Mapping
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from pydantic import PrivateAttr
 
@@ -35,6 +35,7 @@ class ComposedCheck(Check):
 
 class ComposedMethod(Method[Settings]):
     _check_base_class = ComposedCheck
+    _holds_checks = True  # whatever its inputs, it marks through the checks its file expands to
 
     def __init__(
         self, name: str, file: MethodFile, methods_by_ref: Mapping[str, Method[Any]]
@@ -59,10 +60,6 @@ class ComposedMethod(Method[Settings]):
         )
         validate_templates(file, self.settings)
 
-    def _expanded(self, check: Check) -> Check:
-        assert isinstance(check, ComposedCheck)  # validated with this method's model
-        return check.expanded()
-
     def initial_settings(self, position: Position) -> dict[str, Any]:
         """Lists a new check starts with, such as Answer Sets' first set."""
         return {
@@ -72,7 +69,7 @@ class ComposedMethod(Method[Settings]):
         }
 
     def describe(self, check: Check) -> str:
-        expanded = self._expanded(check)
+        expanded = cast(ComposedCheck, check).expanded()
         if self.file.description is None:
             return expanded.describe()
         parts = [part.describe() for _, part, _ in expanded.method.inner_checks(expanded)]
@@ -87,7 +84,7 @@ class ComposedMethod(Method[Settings]):
         question: QuestionId | None,
         value: int | None,
     ) -> dict[QuestionId, Outcome]:
-        outcomes = self._expanded(check).mark(context, question, value)
+        outcomes = cast(ComposedCheck, check).expanded().mark(context, question, value)
         template = self.file.feedback
         scope = {"inputs": dict(self._settings_of(check))}
         # A method file with a description is titled by it, not by the checks it is written as.
@@ -105,11 +102,8 @@ class ComposedMethod(Method[Settings]):
             for key, outcome in outcomes.items()
         }
 
-    def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return self._expanded(check).questions_marked(question)
-
-    def questions_read(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return self._expanded(check).questions_read(question)
+    def reads_earlier_results(self, settings: Mapping[str, Any]) -> bool:
+        return True  # its file's checks run in order, as a Combination's do
 
     def expanded_checks(self, check: Check) -> Iterator[tuple[Location, Check, bool]]:
-        yield ("generated", self.name), self._expanded(check), False
+        yield ("generated", self.name), cast(ComposedCheck, check).expanded(), False

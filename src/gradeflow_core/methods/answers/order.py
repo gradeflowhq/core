@@ -13,7 +13,7 @@ from ...questions.types import Answer, Value
 from ...questions.values import ValuesQuestion
 from ..check import Check
 from ..example import examples_beside
-from ..matching import read_or_none, unreadable_problems
+from ..matching import unreadable_problems
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
@@ -85,7 +85,7 @@ class Order(AnswerMethod[OrderSettings]):
     def _mark_answer(self, settings: OrderSettings, answer: Answer, question: Question) -> Outcome:
         assert isinstance(question, ValuesQuestion)
         assert isinstance(answer, list)
-        correct_order = [read_or_none(_item_reader(question), item) for item in settings.order]
+        correct_order = list(map(_item_reader(question), settings.order))
         expected = f"Expected {', '.join(settings.order)}."
         match settings.marks_for:
             case "exact":

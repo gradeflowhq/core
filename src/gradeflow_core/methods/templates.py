@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import lru_cache, partial
-from typing import Any, Literal
+from typing import Any, Literal, get_type_hints
 
 from jinja2 import StrictUndefined, Template, TemplateSyntaxError, meta, nodes
 from jinja2.environment import TemplateExpression
@@ -21,6 +21,7 @@ from ..common.text import (
     quoted,
     reads_better_listed,
 )
+from .outcome import EarlierResult
 
 REFERENCE = re.compile(r"^\{\{((?:(?!\{\{|\}\}).)+)\}\}$", re.DOTALL)
 """A value that is exactly one reference, which keeps the type of what it refers to."""
@@ -115,12 +116,9 @@ class ListOf:
     item: Shape
 
 
+_SCALARS: Mapping[type, Scalar] = {bool: "bool", float: "number", str: "text"}
 EARLIER_RESULT: Mapping[str, Shape] = {
-    "correct": "bool",
-    "proportion": "number",
-    "feedback": "text",
-    "marked": "bool",
-    "skipped": "bool",
+    key: _SCALARS[annotation] for key, annotation in get_type_hints(EarlierResult).items()
 }
 """An earlier check's result, as ``checks.<id>``."""
 PART_RESULT: Mapping[str, Shape] = {**EARLIER_RESULT, "name": "text", "question": "text"}
@@ -159,7 +157,6 @@ def condition(text: str) -> str:
     return expression
 
 
-@lru_cache(maxsize=4096)
 def top_level_names(expression: str) -> frozenset[str]:
     """The names ``expression`` reads, such as ``inputs`` and ``checks``."""
     return frozenset(meta.find_undeclared_variables(ENVIRONMENT.parse(f"{{{{ {expression} }}}}")))
@@ -172,13 +169,19 @@ def is_template(text: str) -> bool:
 
 def has_template(value: Any) -> bool:
     """Whether ``value`` has a reference or template in it, so it is only known when it marks."""
+    return any(map(is_template, _strings(value)))
+
+
+def _strings(value: Any) -> Iterator[str]:
+    """The strings anywhere in ``value``, as YAML holds it."""
     if isinstance(value, str):
-        return is_template(value)
-    if isinstance(value, Mapping):
-        return any(has_template(item) for item in value.values())
-    if isinstance(value, list):
-        return any(has_template(item) for item in value)
-    return False
+        yield value
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
 
 
 def validate(source: str, scope: Mapping[str, Shape], *, expression: bool = False) -> None:
@@ -365,11 +368,7 @@ def names_read(source: str, root: str) -> frozenset[str]:
 
 def names_read_in(value: Any, root: str) -> frozenset[str]:
     """The names the templates anywhere in ``value`` read of ``root``."""
-    if isinstance(value, Mapping):
-        return frozenset().union(*(names_read_in(item, root) for item in value.values()))
-    if isinstance(value, list):
-        return frozenset().union(*(names_read_in(item, root) for item in value))
-    return names_read(value, root) if isinstance(value, str) else frozenset()
+    return frozenset().union(*(names_read(text, root) for text in _strings(value)))
 
 
 def render(source: str, context: Mapping[str, Any]) -> str:

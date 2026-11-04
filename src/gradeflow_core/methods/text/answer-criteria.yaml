@@ -40,8 +40,7 @@ checks:
       confidence_needed: "{{ inputs.confidence_needed }}"
       careful_effort: "{{ inputs.careful_effort }}"
 description: |-
-  AI checks the answer for {% if inputs.criteria | length > 1 %}each of these:
-  {% for each in inputs.criteria %}{% if not loop.first %}{{ "\n" }}{% endif %}- {{ each.criterion | escaped }} ({{ each.marks }} mark{% if each.marks not in [1, -1] %}s{% endif %}){% endfor %}{% else %}{% for each in inputs.criteria %}{{ each.criterion | escaped }} ({{ each.marks }} mark{% if each.marks not in [1, -1] %}s{% endif %}).{% endfor %}{% endif %}
+  AI checks the answer for {% for each in inputs.criteria %}{% if loop.length > 1 %}{% if loop.first %}each of these:{% endif %}{{ "\n" }}- {% endif %}{{ each.criterion | escaped }} ({{ each.marks }} mark{% if each.marks not in [1, -1] %}s{% endif %}){% if loop.length == 1 %}.{% endif %}{% endfor %}
 examples:
   - title: Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working.
     description: |-

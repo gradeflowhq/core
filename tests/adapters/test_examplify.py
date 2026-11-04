@@ -4,6 +4,7 @@ import zlib
 import pytest
 
 from gradeflow_core import GradeFlowError, Question, QuestionSet, read_question_document
+from gradeflow_core.adapters.rtf import MAX_GROUP_DEPTH
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.reading import ListReading
@@ -270,5 +271,15 @@ def test_only_questions_in_both_are_described() -> None:
     ids=["csv", "no questions", "unclosed"],
 )
 def test_other_files_are_refused(file: bytes) -> None:
-    with pytest.raises(GradeFlowError, match="isn't an ExamSoft question document"):
+    with pytest.raises(
+        GradeFlowError,
+        match=r"^Couldn't read the file: it isn't an ExamSoft question document\.$",
+    ):
         read_question_document(file, QUESTIONS)
+
+
+def test_a_document_that_cant_be_read_says_why() -> None:
+    with pytest.raises(
+        GradeFlowError, match=r"^Couldn't read the file: its groups are nested too deeply\.$"
+    ):
+        read_question_document(b"{\\rtf1 " + b"{" * MAX_GROUP_DEPTH, QUESTIONS)

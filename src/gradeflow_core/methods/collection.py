@@ -5,17 +5,18 @@ Each method is one version of a method: checks name it by ``Method.ref``, such a
 """
 
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from graphlib import CycleError, TopologicalSorter
 from types import MappingProxyType
 from typing import Any, Self
 
 from pydantic import ValidationError
 
-from ..common.documents import YamlError, as_plain_data, load_yaml_with_lines, with_line
+from ..common.documents import as_plain_data, load_yaml_with_lines, with_line
 from ..common.error_formatting import error_message
-from ..common.exceptions import GradeFlowError, MethodFileError
+from ..common.exceptions import GradeFlowError, InvalidError, MethodFileError
 from ..common.paths import join
-from .composed.file import MethodFile, MethodFileFieldError, methods_used, methods_used_by_file
+from .composed.file import COMBINATION, MethodFile, MethodFileFieldError, methods_used_by_file
 from .composed.method import ComposedMethod
 from .method import Method
 from .names import method_name, method_ref
@@ -25,7 +26,8 @@ class Methods(tuple[Method[Any], ...]):
     """Methods in order, each version of a method once, as checks name them by ``ref``. Raises
     ``MethodFileError`` for a ref supplied twice."""
 
-    _by_ref: Mapping[str, Method[Any]]
+    by_ref: Mapping[str, Method[Any]]
+    """The methods by ref."""
 
     def __new__(cls, methods: Iterable[Method[Any]] = ()) -> Self:
         self = super().__new__(cls, methods)
@@ -34,13 +36,8 @@ class Methods(tuple[Method[Any], ...]):
             if method.ref in by_ref:
                 raise MethodFileError(f"Duplicate method {method.ref}.")
             by_ref[method.ref] = method
-        self._by_ref = MappingProxyType(by_ref)
+        self.by_ref = MappingProxyType(by_ref)
         return self
-
-    @property
-    def by_ref(self) -> Mapping[str, Method[Any]]:
-        """The methods by ref."""
-        return self._by_ref
 
     def find(self, ref: str) -> Method[Any]:
         """The method ``ref`` names. Raises ``GradeFlowError`` if none is it."""
@@ -66,17 +63,7 @@ class Methods(tuple[Method[Any], ...]):
         Each name is a namespace and a name, as `method_name` makes them. Files may use these
         methods and each other.
         """
-        for name, _ in files:
-            namespace, separator, short_name = name.partition("/")
-            if not separator:
-                raise MethodFileError(
-                    f"{name}: Name it as a namespace and name, such as intro-biology/term."
-                )
-            try:
-                method_name(namespace, short_name)
-            except MethodFileError as error:
-                raise MethodFileError(f"{name}: {error}") from None
-        return load_files(files, self)
+        return load_method_files(files, self, strict=True).methods
 
     def dependencies(self, ref: str) -> set[str]:
         """Every ref the method ``ref`` depends on, rejecting missing references and composition
@@ -91,7 +78,7 @@ class Methods(tuple[Method[Any], ...]):
             if method is None:
                 raise MethodFileError(f"There's no method {current}.")
             references = (
-                methods_used(method.file.combination()) | methods_used_by_file(method.file)
+                methods_used_by_file(method.file) | {COMBINATION}
                 if isinstance(method, ComposedMethod)
                 else set()
             )
@@ -101,29 +88,91 @@ class Methods(tuple[Method[Any], ...]):
         return set(graph) - {ref}
 
 
-def load_files(files: Sequence[tuple[str, str]], methods: Methods) -> Methods:
-    """`Methods.with_files`, whatever the names are, as for the built-in methods' own files."""
+@dataclass(frozen=True)
+class FailedFile:
+    """A method file that doesn't load, and its problems."""
+
+    ref: str
+    messages: list[str]
+
+
+@dataclass(frozen=True)
+class LoadedFiles:
+    """The methods of the method files that load, and why each other file doesn't."""
+
+    methods: Methods
+    failed: dict[str, FailedFile]
+    """Each file that doesn't load, by ref, or by name if it can't be read, with the file at fault:
+    itself or one it uses."""
+
+
+def load_method_files(
+    files: Sequence[tuple[str, str]], methods: Methods, *, strict: bool = False
+) -> LoadedFiles:
+    """The methods of the ``(name, YAML)`` files that load, after ``methods``, and why each other
+    file doesn't. Each name is a namespace and a name, as `method_name` makes them. A file that
+    doesn't load stops only the files that use it. With ``strict``, the first raises
+    ``MethodFileError``."""
+    named, failed = [], {}
+    for name, text in files:
+        if problem := _name_problem(name):
+            failed[name] = FailedFile(name, [problem])
+        else:
+            named.append((name, text))
+    if strict:
+        _raise_first(failed)
+    loaded = load_files(named, methods, strict=strict)
+    return LoadedFiles(loaded.methods, failed | loaded.failed)
+
+
+def load_files(
+    files: Sequence[tuple[str, str]], methods: Methods, *, strict: bool = False
+) -> LoadedFiles:
+    """`load_method_files`, whatever the names are, as for the built-in methods' own files."""
     methods_by_ref = dict(methods.by_ref)
-    parsed = {}
+    parsed, failed = {}, {}
     for name, text in files:
         try:
             document, file = _parsed_file(text)
         except MethodFileError as error:
-            raise MethodFileError(f"{name}: {error}") from None
+            failed[name] = FailedFile(name, error.messages)
+            continue
         ref = method_ref(name, file.version)
         if ref in methods_by_ref or ref in parsed:
             raise MethodFileError(f"Duplicate method {ref}.")
         parsed[ref] = name, document, file
     dependencies = {ref: methods_used_by_file(file) for ref, (_, _, file) in parsed.items()}
-    for ref, references in dependencies.items():
-        for missing in sorted(references - methods_by_ref.keys() - parsed.keys()):
-            raise MethodFileError(f"{ref}: There's no method {missing}.")
     for ref in _dependency_order({ref: used & parsed.keys() for ref, used in dependencies.items()}):
-        try:
-            methods_by_ref[ref] = _composed_method(*parsed[ref], methods_by_ref)
-        except MethodFileError as error:
-            raise MethodFileError(f"{ref}: {error}") from None
-    return Methods([*methods, *(methods_by_ref[ref] for ref in parsed)])
+        used = sorted(dependencies[ref])
+        if at_fault := next((failed[used_ref] for used_ref in used if used_ref in failed), None):
+            failed[ref] = at_fault
+        else:
+            try:
+                methods_by_ref[ref] = _composed_method(*parsed[ref], methods_by_ref)
+            except MethodFileError as error:
+                failed[ref] = FailedFile(ref, error.messages)
+    if strict:
+        _raise_first(failed)
+    loaded = (methods_by_ref[ref] for ref in parsed if ref not in failed)
+    return LoadedFiles(Methods([*methods, *loaded]), failed)
+
+
+def _name_problem(name: str) -> str | None:
+    namespace, separator, short_name = name.partition("/")
+    if not separator:
+        return "Name it as a namespace and name, such as intro-biology/term."
+    try:
+        method_name(namespace, short_name)
+    except MethodFileError as error:
+        return str(error)
+    return None
+
+
+def _raise_first(failed: Mapping[str, FailedFile]) -> None:
+    """Raises ``MethodFileError`` for the first file that fails on its own."""
+    for key, failure in failed.items():
+        if failure.ref == key:
+            raise MethodFileError(f"{key}: {failure.messages[0]}")
 
 
 def method_of(
@@ -152,7 +201,7 @@ def _parsed_file(text: str) -> tuple[Any, MethodFile]:
     try:
         document = load_yaml_with_lines(text)
         data = as_plain_data(document)
-    except YamlError as error:
+    except InvalidError as error:
         raise MethodFileError(str(error)) from None
     return document, _validated(document, data)
 
@@ -174,7 +223,9 @@ def _composed_method(
     try:
         return ComposedMethod(name, file, methods_by_ref)
     except MethodFileFieldError as error:
-        raise MethodFileError(with_line(document, error.path, str(error))) from None
+        raise MethodFileError(
+            *(with_line(document, path, message) for message, path in error.problems)
+        ) from None
 
 
 def _dependency_order(dependencies: Mapping[str, set[str]]) -> list[str]:

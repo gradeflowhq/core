@@ -4,7 +4,7 @@ inference model run locally."""
 import functools
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
@@ -75,12 +75,13 @@ def best_match(
     1. ``context``, the question in Markdown, comes before both texts as plain text when
     given.
     """
-    with_question = _with_question(context)
+    question = unescaped_markdown(context)
+    framed_answer = _framed(answer, question)
     closest, highest = 0, -2.0
-    for index, reference in enumerate(references):
-        score = _entailment_score(with_question(answer), with_question(reference))
+    for index, reference in enumerate(_framed(reference, question) for reference in references):
+        score = _entailment_score(framed_answer, reference)
         if score >= cutoff:
-            score = min(score, _entailment_score(with_question(reference), with_question(answer)))
+            score = min(score, _entailment_score(reference, framed_answer))
             if score >= cutoff:
                 return index, True
         if score > highest:
@@ -91,13 +92,12 @@ def best_match(
 def entails(answer: str, point: str, context: str, cutoff: float) -> bool:
     """Whether ``answer`` entails ``point`` at ``cutoff``: entailment minus contradiction, with the
     whole answer as premise, each framed by ``context`` as in ``best_match``."""
-    with_question = _with_question(context)
-    return _entailment_score(with_question(answer), with_question(point)) >= cutoff
-
-
-def _with_question(context: str) -> Callable[[str], str]:
     question = unescaped_markdown(context)
-    return (lambda text: f"Question: {question}\nAnswer: {text}") if question else str
+    return _entailment_score(_framed(answer, question), _framed(point, question)) >= cutoff
+
+
+def _framed(text: str, question: str) -> str:
+    return f"Question: {question}\nAnswer: {text}" if question else text
 
 
 @dataclass(frozen=True)

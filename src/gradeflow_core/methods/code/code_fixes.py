@@ -9,7 +9,6 @@ import tokenize
 import warnings
 from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, replace
-from functools import lru_cache
 from tokenize import TokenInfo
 from typing import Any, Literal, NamedTuple, get_args
 
@@ -109,7 +108,7 @@ def _penalty_field(kind: FixKind) -> Any:
 
 
 class CodeFixes(Settings):
-    model_config = ConfigDict(title="Fix code", frozen=True)
+    model_config = ConfigDict(title="Fix code")
 
     indentation: bool = Field(
         default=False,
@@ -205,7 +204,6 @@ def _fix_feedback(fix: Fix, penalty: float) -> str:
     return f"{capitalized(fix.description)}{suffix}."
 
 
-@lru_cache(maxsize=4096)
 def fixed_versions(code: str, kinds: frozenset[FixKind], setup: str) -> tuple[FixedCode, ...]:
     """``code`` fixed with ``kinds`` of fixes, once for each likely indentation. Empty when it
     can't be fixed. Names defined in ``setup`` count as defined."""

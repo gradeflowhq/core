@@ -5,7 +5,6 @@ from io import StringIO
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..common.exceptions import GradeFlowError
-from ..common.problems import invalid_errors
 from ..common.text import plain_join, plural, quoted_join
 from ..questions.submissions import StudentId, Submission
 from ..questions.types import QuestionId
@@ -28,12 +27,6 @@ class AnswersCsv(BaseModel):
         title="Marks columns",
         description="For each question, the column with marks already given.",
     )
-
-    @classmethod
-    def load(cls, data: object) -> AnswersCsv:
-        """``data`` as options. Raises ``InvalidError`` if they aren't valid."""
-        with invalid_errors(data):
-            return cls.model_validate(data)
 
     @file_read_errors()
     def read(self, text: str) -> list[Submission]:

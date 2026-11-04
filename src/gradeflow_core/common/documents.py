@@ -21,13 +21,6 @@ _MAX_DEPTH = 100
 _DUPLICATE_KEY = re.compile(r'found duplicate (?:merge )?key "(.*?)"(?: with value "|$)', re.DOTALL)
 
 
-class YamlError(InvalidError):
-    """Text that isn't YAML: one problem, saying where."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__([Problem(message)])
-
-
 class _Representer(RoundTripRepresenter):
     def represent_str(self, data: str) -> ScalarNode:
         """``data``, as a block if it has several lines, as people write code."""
@@ -49,13 +42,13 @@ def _new_yaml() -> YAML:
 
 
 def load_yaml_with_lines(text: str) -> Any:
-    """``text`` as YAML, keeping where each value is. Raises ``YamlError`` if it isn't YAML."""
+    """``text`` as YAML, keeping where each value is. Raises ``InvalidError`` if it isn't YAML."""
     try:
         return _new_yaml().load(text)
     except YAMLError as error:
         position = getattr(error, "problem_mark", None)
         where = f"Line {position.line + 1}: " if position is not None else ""
-        raise YamlError(f"{where}{_yaml_problem(error)}.") from None
+        raise InvalidError([Problem(f"{where}{_yaml_problem(error)}.")]) from None
 
 
 def _yaml_problem(error: YAMLError) -> str:
@@ -69,14 +62,16 @@ def _yaml_problem(error: YAMLError) -> str:
 
 
 def as_plain_data(node: Any) -> Any:
-    """``node`` as plain dicts and lists. Raises ``YamlError`` for a ``{{ … }}`` left
+    """``node`` as plain dicts and lists. Raises ``InvalidError`` for a ``{{ … }}`` left
     unquoted, which YAML reads as a mapping."""
     if isinstance(node, Mapping):
         for key in node:
             if isinstance(key, Mapping):
                 line = node.lc.key(key)[0] + 1 if hasattr(node, "lc") else None
                 where = f"Line {line}: " if line else ""
-                raise YamlError(f'{where}Quote {{{{ … }}}}, as in "{{{{ inputs.name }}}}".')
+                raise InvalidError(
+                    [Problem(f'{where}Quote {{{{ … }}}}, as in "{{{{ inputs.name }}}}".')]
+                )
         return {str(key): as_plain_data(value) for key, value in node.items()}
     if isinstance(node, list):
         return [as_plain_data(item) for item in node]

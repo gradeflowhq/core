@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from unittest.mock import Mock
 
 import pytest
 
@@ -345,23 +344,6 @@ def test_a_method_that_cant_mark_the_question_says_so_before_its_finished() -> N
         (problem.check, problem.field, problem.is_incomplete) for problem in draft.problems
     ] == [("", (), False)]
     assert draft.problems[0].message.startswith("Accepted Answers can't mark")
-
-
-def test_a_checks_schema_is_worked_out_once_for_where_it_is(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from gradeflow_core.editing import drafts
-
-    check_schema = Mock(wraps=drafts._check_schema)
-    draft = combination_draft()
-    monkeypatch.setattr(drafts, "_check_schema", check_schema)
-    for _ in range(2):
-        draft.schema("with.checks.0")
-        draft.schema("with.checks.1")
-    assert [schema_call.args[0].name for schema_call in check_schema.call_args_list] == [
-        "gradeflow/accepted-answers",
-        "gradeflow/key-points",
-    ]
 
 
 def test_a_checks_values_are_read_as_its_question_reads_them() -> None:

@@ -40,9 +40,7 @@ _SCHEMA_POSITION_FIELDS = tuple(
 
 def compatible_methods(position: Position, *, methods: Methods = BUILTINS) -> Methods:
     """The methods a check at ``position`` can use, in their order."""
-    return Methods(
-        method for method in methods if method.level != "internal" and method.can_mark_at(position)
-    )
+    return Methods(method for method in methods if _fits(method, position))
 
 
 @dataclass(frozen=True)
@@ -724,12 +722,16 @@ def _checks_run_before(check: Check, target: Check, earlier: list[Check]) -> lis
 def _new_check(method: Method[Any], position: Position, *, names_question: bool) -> JsonDict:
     """A new check of ``method`` at ``position``, naming its question if ``names_question``. Raises
     ``EditingError`` for a method that can't mark there."""
-    if method.level == "internal" or not method.can_mark_at(position):
+    if not _fits(method, position):
         raise EditingError(f"{method.label} can't mark here.")
     new_check: JsonDict = {"uses": method.ref, "with": method.initial_settings(position)}
     if names_question and position.question:
         return {"question": position.question, **new_check}
     return new_check
+
+
+def _fits(method: Method[Any], position: Position) -> bool:
+    return method.level != "internal" and method.can_mark_at(position)
 
 
 def first_unused_name(stem: str, taken: Container[object], separator: str = "_") -> str:
@@ -759,7 +761,7 @@ def _is_within(path: str, root: str) -> bool:
 
 
 def _check_schema(
-    method: Method[Any], position: Position, enclosing_position: Position | None = None
+    method: Method[Any], position: Position, enclosing_position: Position
 ) -> JsonDict:
     """The JSON schema of the fields of a check of ``method`` at ``position``: those that place it
     in a question group's list first, then its method's settings there, then the other keys a
@@ -775,7 +777,7 @@ def _check_schema(
         if position.in_group
         and position.in_list
         and not method.marks_question_group
-        and (enclosing_position is None or enclosing_position.question is None)
+        and enclosing_position.question is None
         else []
     )
     check_fields = Check.model_fields
@@ -798,7 +800,7 @@ def _check_schema(
         and question.value_count
         and position.in_list
         and not position.value_fixed
-        and (enclosing_position is None or enclosing_position.value is None)
+        and enclosing_position.value is None
         and not marks_all_values
     ):
         fields["value"] = (

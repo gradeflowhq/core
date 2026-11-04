@@ -23,8 +23,9 @@ from .drafts import MarkingDraft, field_path, fields_of
 class MethodChecksDraft(MarkingDraft):
     """A method's checks, as the Combination of them: its settings are the file's ``checks`` and
     ``combine``, so it keeps its method and has no fields of a check. A bound field's value is its
-    input's default, and changing it changes the default.
-    ``inputs`` are the method's input declarations, shared with the draft that owns them."""
+    input's default, and changing it changes the default; an input with no default is checked
+    with its test value. ``inputs`` are the method's input declarations, shared with the draft
+    that owns them."""
 
     def __init__(
         self,
@@ -33,9 +34,20 @@ class MethodChecksDraft(MarkingDraft):
         question: QuestionId | None,
         methods: Methods,
         inputs: dict[str, dict[str, Any]],
+        test_values: Mapping[str, Any],
     ) -> None:
         super().__init__(data, questions, question, methods=methods)
         self._inputs = inputs
+        self.test_values = test_values
+
+    @property
+    def test_values(self) -> dict[str, Any]:
+        return self._test_values
+
+    @test_values.setter
+    def test_values(self, values: Mapping[str, Any]) -> None:
+        self._test_values = dict(values)
+        self._cached_validation = None
 
     def set_input(self, name: str, declaration: dict[str, Any]) -> None:
         """Declare the input ``name``, or replace its declaration."""
@@ -136,6 +148,13 @@ class MethodChecksDraft(MarkingDraft):
             }
         if isinstance(value, list):
             return [self._resolved_tree(item) for item in value]
+        name = input_reference(value)
+        if (
+            name in self._inputs
+            and "default" not in self._inputs[name]
+            and name in self.test_values
+        ):
+            return deepcopy(self.test_values[name])
         return self._resolved_value(value)
 
 

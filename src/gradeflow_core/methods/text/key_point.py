@@ -14,13 +14,13 @@ from ..check import Check
 from ..matching import (
     MATCH_FIELD,
     SPELLING_CUTOFFS,
+    STRICTNESS_FIELD,
     Match,
     Strictness,
     closest_spelling,
     match_note,
     match_problems,
     model_context,
-    strictness_field,
 )
 from ..method import AnswerMethod
 from ..outcome import Outcome
@@ -34,7 +34,7 @@ POINT_MEANING_CUTOFFS: dict[Strictness, float] = {"lenient": -0.05, "normal": 0.
 class KeyPointSettings(Settings):
     point: NonBlankText = Field(title="Point")
     match: Match = MATCH_FIELD
-    strictness: Strictness = strictness_field(applies_when={"match": ["spelling", "meaning"]})
+    strictness: Strictness = STRICTNESS_FIELD
     whole_words: bool = Field(
         default=False,
         title="Whole words only",

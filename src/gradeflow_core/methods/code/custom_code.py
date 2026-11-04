@@ -21,22 +21,34 @@ RESULT_VARIABLES_HELP = (
     "correct (True or False) or proportion (from 0 to 1), and feedback if you like"
 )
 STARTER_CODE = 'correct = False\nfeedback = ""\n'
-TIME_LIMIT_FIELD = Field(
-    default=runner.TIME_LIMIT_S,
-    ge=1,
-    le=runner.MAX_TIME_LIMIT_S,
-    title="Time limit (seconds)",
-    description="Longest time the code may run before it fails.",
-    json_schema_extra=ADVANCED_HINT,
-)
-MEMORY_LIMIT_FIELD = Field(
-    default=runner.MEMORY_LIMIT_MB,
-    ge=runner.MIN_MEMORY_LIMIT_MB,
-    le=runner.MAX_MEMORY_LIMIT_MB,
-    title="Memory limit (MiB)",
-    description="Most memory the code may use before it fails.",
-    json_schema_extra=ADVANCED_HINT,
-)
+
+
+def time_limit_field(description: str) -> Any:
+    """A time limit setting, within the runner's bounds."""
+    return Field(
+        default=runner.TIME_LIMIT_S,
+        ge=1,
+        le=runner.MAX_TIME_LIMIT_S,
+        title="Time limit (seconds)",
+        description=description,
+        json_schema_extra=ADVANCED_HINT,
+    )
+
+
+def memory_limit_field(description: str) -> Any:
+    """A memory limit setting, within the runner's bounds."""
+    return Field(
+        default=runner.MEMORY_LIMIT_MB,
+        ge=runner.MIN_MEMORY_LIMIT_MB,
+        le=runner.MAX_MEMORY_LIMIT_MB,
+        title="Memory limit (MiB)",
+        description=description,
+        json_schema_extra=ADVANCED_HINT,
+    )
+
+
+TIME_LIMIT_FIELD = time_limit_field("Longest time the code may run before it fails.")
+MEMORY_LIMIT_FIELD = memory_limit_field("Most memory the code may use before it fails.")
 
 
 def code_description(answer: str) -> str:

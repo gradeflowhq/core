@@ -1,6 +1,6 @@
 import pytest
 
-from gradeflow_core.common.documents import YamlError
+from gradeflow_core import InvalidError
 from gradeflow_core.editing import dump_yaml, load_yaml
 
 
@@ -33,6 +33,6 @@ def test_text_of_several_lines_reads_back_as_written(text: str) -> None:
     ],
 )
 def test_text_that_isnt_yaml_is_refused_at_its_line(text: str, message: str) -> None:
-    with pytest.raises(YamlError) as caught:
+    with pytest.raises(InvalidError) as caught:
         load_yaml(text)
     assert str(caught.value) == message

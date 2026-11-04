@@ -22,6 +22,7 @@ from ..example import examples_beside
 from ..matching import (
     MATCH_FIELD,
     SPELLING_CUTOFFS,
+    STRICTNESS_FIELD,
     TOLERANCE_FIELD,
     Match,
     Strictness,
@@ -30,8 +31,6 @@ from ..matching import (
     match_note,
     match_problems,
     model_context,
-    read_or_none,
-    strictness_field,
     unreadable_problems,
     within,
 )
@@ -51,7 +50,7 @@ class AcceptedAnswersSettings(Settings):
         json_schema_extra=hint(lists_answers=True),
     )
     match: Match = MATCH_FIELD
-    strictness: Strictness = strictness_field(applies_when={"match": ["spelling", "meaning"]})
+    strictness: Strictness = STRICTNESS_FIELD
     tolerance: float = TOLERANCE_FIELD
 
 
@@ -105,11 +104,7 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
     ) -> Outcome:
         if not settings.answers:
             return Outcome(0.0, "No accepted answers.")
-        accepted = {
-            text: value_read
-            for text in settings.answers
-            if (value_read := read_or_none(question.read, text)) is not None
-        }
+        accepted = {text: question.read(text) for text in settings.answers}
         if isinstance(answer, int | float) and not isinstance(answer, bool):
             within_tolerance = any(
                 within(answer, value, settings.tolerance)
@@ -126,7 +121,7 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
         expected = Outcome(
             0.0, as_sentence(f"Expected {quoted_join(settings.answers, conjunction='or')}")
         )
-        if settings.match == "exact" or not accepted:
+        if settings.match == "exact":
             return expected
         accepted_texts = list(accepted)
         accepted_readings = [str(value) for value in accepted.values()]

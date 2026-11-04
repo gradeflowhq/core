@@ -4,7 +4,7 @@ import math
 import re
 import textwrap
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from fractions import Fraction
 from typing import Any
 
@@ -166,12 +166,18 @@ def _number_with_unit(text: str) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def sorted_options(options: Iterable[str]) -> list[str]:
+    """``options`` in natural order, those that sort alike, such as ``1`` and ``01``, in one order
+    whatever the hash seed."""
+    return natsorted(options, alg=ns.PRESORT)
+
+
 def write_answer(answer: Answer) -> str:
     """An answer as text: choices in order, values between commas, ``42`` not ``42.0``."""
     if answer is None:
         return ""
     if isinstance(answer, frozenset):
-        return ", ".join(natsorted(answer, alg=ns.PRESORT))
+        return ", ".join(sorted_options(answer))
     if isinstance(answer, list):
         return ", ".join(map(write_answer, answer))
     return as_text(answer)

@@ -6,7 +6,7 @@ from collections.abc import Iterable, Iterator
 
 from . import new_question
 from .base import Question
-from .choice import ChoiceQuestion, choice_reading
+from .choice import ChoiceQuestion
 from .code import CodeQuestion
 from .layouts import guess_layouts
 from .number import NumberQuestion, reads_as_number
@@ -17,12 +17,12 @@ from .values import BLANK_SEPARATOR, ValuesQuestion
 
 CHOICE_OPTION_LIMIT = 7
 """Most distinct values a question may have to be worked out as a choice."""
-SEPARATORS = (BLANK_SEPARATOR, ",", ";", "|", "/")
-"""What may separate an answer's values, the answer key's own first."""
+SEPARATORS = (",", ";", "|", "/")
+"""What else may separate an answer's values, after the answer key's own."""
 
 
 def infer_question(answers: list[str]) -> Question:
-    if values := _same_count_values_question(answers, SEPARATORS[:1]):
+    if values := _same_count_values_question(answers, (BLANK_SEPARATOR,)):
         return values
     if _mostly_numbers(answers):
         return NumberQuestion()
@@ -30,7 +30,7 @@ def infer_question(answers: list[str]) -> Question:
         return _choice_question(answers)
     if _mostly_code(answers):
         return CodeQuestion()
-    values = _same_count_values_question(answers, SEPARATORS[1:])
+    values = _same_count_values_question(answers, SEPARATORS)
     return (
         values
         if values and all(value_type == "number" for value_type in values.value_types)
@@ -54,7 +54,7 @@ def _question_of_type(question_type: QuestionType, answers: list[str]) -> Questi
         case "choice":
             return (
                 _choice_question(answers)
-                if _distinct_values(answers, choice_reading())
+                if _distinct_values(answers, ListReading())
                 else new_question("choice")
             )
         case "values":
@@ -127,9 +127,7 @@ def _is_option(value: str) -> bool:
 def _looks_like_choices(answers: list[str]) -> bool:
     """Whether the answers choose among a few options that look like options, one of them
     chosen in more than one answer: students share options, while unlike answers differ."""
-    option_sets = [
-        set(filter(None, values)) for values in _split_answers(answers, choice_reading())
-    ]
+    option_sets = [set(filter(None, values)) for values in _split_answers(answers, ListReading())]
     option_counts = Counter(option for options in option_sets for option in options)
     return (
         0 < len(option_counts) <= CHOICE_OPTION_LIMIT
@@ -139,7 +137,7 @@ def _looks_like_choices(answers: list[str]) -> bool:
 
 
 def _choice_question(answers: list[str]) -> ChoiceQuestion:
-    reading = choice_reading()
+    reading = ListReading()
     return ChoiceQuestion(
         options=frozenset(_distinct_values(answers, reading)),
         allow_multiple=_value_counts(answers, reading) != {1},

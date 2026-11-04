@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
-from ..questions.reading import write_answer
-from ..questions.types import Answer, QuestionId, Unreadable
+from ..questions.types import Answer, Unreadable
 
 FULL_MARKS_PROPORTION = 1 - 1e-9
 """A proportion this close to 1 is full marks, so rounding in sums doesn't cost a correct answer."""
@@ -57,6 +56,13 @@ class Outcome:
     contribution: float | None = None
     """The part of that check's proportion it gave, when that check adds its parts up."""
 
+    def first_error(self) -> str | None:
+        """The first error in its details or those of its parts, such as why code couldn't run."""
+        errors = (detail.value for detail in self.details if detail.kind == "error")
+        return next(errors, None) or next(
+            filter(None, (part.first_error() for part in self.parts)), None
+        )
+
     def all_models(self) -> tuple[str, ...]:
         """The language models that decided it or any of its parts, each once."""
         return tuple(
@@ -103,19 +109,6 @@ def unanswered_outcome(answer: Answer | Unreadable) -> Outcome | None:
 def clamped(proportion: float) -> float:
     """``proportion`` kept between 0 and 1, and 0 when it is only rounding away from it."""
     return 0.0 if proportion < NO_MARKS_PROPORTION else min(proportion, 1.0)
-
-
-def feedback_scope(
-    outcome: Outcome, answer: Answer | Unreadable, question: QuestionId
-) -> dict[str, Any]:
-    """What a feedback template sees of how a check marked ``answer``."""
-    return {
-        "answer": answer.answer if isinstance(answer, Unreadable) else write_answer(answer),
-        "correct": outcome.correct,
-        "proportion": outcome.proportion,
-        "feedback": outcome.feedback,
-        "parts": [part.template_values(question) for part in outcome.parts],
-    }
 
 
 class EarlierResult(TypedDict):

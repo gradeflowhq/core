@@ -19,8 +19,6 @@ from ..logic.combination import (
     combine,
     description_heading,
     outcomes_in_order,
-    questions_marked_by,
-    questions_read_by,
 )
 from ..method import Method
 from ..outcome import CORRECT, Outcome
@@ -139,12 +137,6 @@ class MultipleValues(Method[MultipleValuesSettings]):
 
     def reads_earlier_results(self, settings: Mapping[str, Any]) -> bool:
         return not settings.get("any_order", False)
-
-    def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return questions_marked_by(self._settings_of(check).checks, question)
-
-    def questions_read(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return questions_read_by(self._settings_of(check).checks, question)
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(check)

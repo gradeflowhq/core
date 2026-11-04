@@ -78,7 +78,7 @@ METHOD_FILES = tuple(
 
 def _builtins() -> Methods:
     files = [(f"{BUILTIN_NAMESPACE}/{path.stem}", path.read_text()) for path in METHOD_FILES]
-    methods = load_files(files, Methods(PYTHON_METHODS))
+    methods = load_files(files, Methods(PYTHON_METHODS), strict=True).methods
     return Methods(
         sorted(methods, key=lambda method: (CATALOGUE_ORDER.index(method.name), method.version))
     )

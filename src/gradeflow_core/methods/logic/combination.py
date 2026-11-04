@@ -79,19 +79,6 @@ def outcomes_in_order(
     return check_outcomes
 
 
-def questions_marked_by(checks: Sequence[Check], question: QuestionId | None) -> set[QuestionId]:
-    """The questions ``checks`` give marks to, reading ``question`` unless they name another."""
-    return {
-        key for check in checks if not check.read_only for key in check.questions_marked(question)
-    }
-
-
-def questions_read_by(checks: Sequence[Check], question: QuestionId | None) -> set[QuestionId]:
-    """The questions whose answers ``checks`` read, reading ``question`` unless they name
-    another."""
-    return {key for check in checks for key in check.questions_read(question)}
-
-
 def combine(
     settings: CombinationSettings, check_outcomes: CheckOutcomes, questions: QuestionSet
 ) -> dict[QuestionId, Outcome]:
@@ -145,15 +132,16 @@ def _combined_by_question(
         parts = tuple(outcome for _, outcome in checks_with_parts)
         weighted_parts = [(check.weight, outcome) for check, outcome in checks_with_parts]
         proportion = _proportion(settings.combine, weighted_parts, _max_marks(questions, key))
-        feedback = (
-            _not_allowed_feedback(checks_with_parts)
-            if settings.combine == "none"
-            else _joined_feedback(
+        if settings.combine == "none":
+            error = next(filter(None, (part.first_error() for part in parts)), None)
+            proportion = 0.0 if error else proportion
+            feedback = _not_allowed_feedback(checks_with_parts, error)
+        else:
+            feedback = _joined_feedback(
                 _explaining_parts(
                     settings.combine, checks_with_parts, proportion >= FULL_MARKS_PROPORTION
                 )
             )
-        )
         combined[key] = Outcome(
             proportion, feedback, marked=all(part.marked for part in parts), parts=parts
         )
@@ -302,9 +290,10 @@ def _explaining_parts(
     return tuple(explaining_parts)
 
 
-def _not_allowed_feedback(checks_with_parts: list[tuple[Check, Outcome]]) -> str:
-    """Under "None may be correct": why parts are left for a person, and "Not allowed." with what
-    each check that found the answer checks, unless its feedback is its own; else "Correct."."""
+def _not_allowed_feedback(checks_with_parts: list[tuple[Check, Outcome]], error: str | None) -> str:
+    """Under "None may be correct": why parts are left for a person, and the ``error`` that kept a
+    part from checking the answer, which gets no marks then; or "Not allowed." with what each check
+    that found the answer checks, unless its feedback is its own; else "Correct."."""
     not_allowed_reasons = [
         part.feedback if check.feedback else as_sentence(plain_markdown(check.describe()))
         for check, part in checks_with_parts
@@ -314,7 +303,9 @@ def _not_allowed_feedback(checks_with_parts: list[tuple[Check, Outcome]]) -> str
         tuple(part for _, part in checks_with_parts if not part.marked)
     )
     not_allowed_line = (
-        f"Not allowed. {' '.join(not_allowed_reasons)}" if not_allowed_reasons else ""
+        as_sentence(f"Couldn't check the answer: {error}")
+        if error
+        else (f"Not allowed. {' '.join(not_allowed_reasons)}" if not_allowed_reasons else "")
     )
     return "\n".join(line for line in (unmarked_feedback, not_allowed_line) if line) or CORRECT
 
@@ -457,12 +448,6 @@ class Combination(Method[CombinationSettings]):
 
     def reads_earlier_results(self, settings: Mapping[str, Any]) -> bool:
         return True
-
-    def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return questions_marked_by(self._settings_of(check).checks, question)
-
-    def questions_read(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return questions_read_by(self._settings_of(check).checks, question)
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         # Only a written list needs a check: a method file may fill one from an optional input.

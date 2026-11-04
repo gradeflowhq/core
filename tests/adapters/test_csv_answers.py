@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from gradeflow_core import AnswersCsv, GradeFlowError, InvalidError, Problem
+from gradeflow_core import AnswersCsv, GradeFlowError
 
 
 def test_csv_adapter_reads_answers_by_student() -> None:
@@ -114,13 +114,3 @@ def test_csv_adapter_marks_may_have_spaces() -> None:
         student_id_column="student_id", answer_columns=["q1"], marks_columns={"q1": "marks"}
     ).read("student_id,q1,marks\ns1,answer, 1.5 \n")
     assert submissions[0].marks == {"q1": 1.5}
-
-
-def test_options_load_from_data_and_say_what_is_missing() -> None:
-    options = {"student_id_column": "id", "answer_columns": ["Q1"]}
-    assert AnswersCsv.load(options) == AnswersCsv(student_id_column="id", answer_columns=["Q1"])
-    with pytest.raises(InvalidError) as caught:
-        AnswersCsv.load({"student_id_column": "id"})
-    assert caught.value.problems == [
-        Problem("Required.", field=("answer_columns",), is_incomplete=True)
-    ]

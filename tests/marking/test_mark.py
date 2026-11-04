@@ -149,7 +149,8 @@ def test_each_result_and_the_total_count_the_questions_maximum_marks() -> None:
     )
     [submission] = mark(QUESTIONS, scheme, [Submission(student_id="s1", answers={"Q2": "4"})])
     assert (submission.results["Q2"].marks, submission.results["Q2"].max_marks) == (2, 2)
-    assert (submission.total_marks, submission.max_marks) == (2, 3)
+    # Q3 has no marking yet, and still counts.
+    assert (submission.total_marks, submission.max_marks) == (2, 4)
 
 
 def test_a_question_without_a_marking_keeps_its_given_marks() -> None:

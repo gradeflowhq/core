@@ -70,13 +70,7 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
     def _mark_answer(
         self, settings: EquivalentExpressionSettings, answer: Answer, question: Question
     ) -> Outcome:
-        # Accepted expressions are read as answers are, so capitals match when they're ignored.
-        accepted = [
-            expression
-            for text in settings.answers
-            if (expression := read_or_none(expressions.parse, str(question.read(text) or text)))
-            is not None
-        ]
+        accepted = [_read(text, question) for text in settings.answers]
         variables = frozenset().union(*(expression.variables for expression in accepted))
         expected = as_sentence(
             f"Expected an expression equal to {quoted_join(settings.answers, conjunction='or')}"
@@ -93,11 +87,12 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
         return Outcome(0.0, expected)
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
-        texts = self._settings_of(check).answers
+        question = position.question_model
+        assert question is not None  # it marks only text questions
         accepted: dict[int, Expression] = {}
-        for index, text in enumerate(texts):
+        for index, text in enumerate(self._settings_of(check).answers):
             try:
-                accepted[index] = expressions.parse(text)
+                accepted[index] = _read(text, question)
             except ValueError as error:
                 yield Problem(str(error), field=("answers", index))
         points = _sample_points(
@@ -109,6 +104,12 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
                     "Can't be worked out for most values of its variables.",
                     field=("answers", index),
                 )
+
+
+def _read(text: str, question: Question) -> Expression:
+    """An accepted expression, read as answers to ``question`` are, so capitals match when they're
+    ignored."""
+    return expressions.parse(str(question.read(text) or text))
 
 
 def _sample_points(variables: frozenset[str]) -> list[dict[str, float]]:
@@ -138,8 +139,6 @@ def _is_equivalent(
     answer_expression: Expression, accepted: Expression, points: Sequence[Mapping[str, float]]
 ) -> bool:
     expected = _values_at_points(accepted, points)
-    if len(expected) < MIN_WORKABLE_POINTS:
-        return False
     actual = _values_at_points(answer_expression, points)
     return all(
         index in actual and math.isclose(actual[index], value, rel_tol=1e-6, abs_tol=1e-9)

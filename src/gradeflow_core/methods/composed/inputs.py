@@ -1,7 +1,8 @@
 """A composed method's inputs, each typed by the setting it fills."""
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError, create_model
@@ -16,7 +17,7 @@ from ..check import CHECK_FIELDS, METHODS_CONTEXT_KEY, how_many_checks
 from ..settings import Settings, annotated, item_field, literal
 from ..templates import TemplateError, has_template, names_read_in, reference, validate
 from .expand import EXPANDED_NAMES
-from .file import TEMPLATE_KEYS, Input, MethodFile, MethodFileFieldError
+from .file import COMBINATION, TEMPLATE_KEYS, Input, MethodFile, MethodFileFieldError
 
 if TYPE_CHECKING:
     from ..method import Method
@@ -35,28 +36,43 @@ class _InputTypes:
         self.repeated_item_fields: list[dict[str, tuple[Any, FieldInfo]]] = []
         self.inputs_in_templates = names_read_in([file.description, file.feedback], "inputs")
         """Inputs that templates and conditions name."""
+        self.errors: list[MethodFileFieldError] = []
+        """The problems found so far."""
 
     def inputs(self) -> dict[str, tuple[Any, FieldInfo]]:
-        try:
-            self._visit_check(self.file.combination(), ())
-        except (
-            MethodFileFieldError
-        ) as error:  # where it is in the file: ``with.checks`` is ``checks``
-            path = error.path[1:] if error.path[:1] == ("with",) else error.path
-            raise MethodFileFieldError(str(error), path) from None
+        combination = self.methods_by_ref.get(COMBINATION)
+        if combination is None:
+            raise MethodFileFieldError(f"There's no method {COMBINATION}.", ("uses",))
+        self._visit_settings(self.file.combination()["with"], combination, ())
         for key, declared_input in self.file.inputs.items():
-            if key in CHECK_FIELDS:
-                raise MethodFileFieldError(
-                    f"A check has its own {key}: name the input otherwise.", ("inputs", key)
-                )
-            if key in self.input_types:
-                continue
-            if key not in self.inputs_in_templates:
-                raise MethodFileFieldError(
-                    f"{declared_input.title or f'Input {key}'} isn't used.", ("inputs", key)
-                )
-            self.input_types[key] = (_type_of(declared_input.default), FieldInfo())
+            with self._collect_errors():
+                self._visit_input(key, declared_input)
+        if self.errors:
+            raise MethodFileFieldError.combined(self.errors)
         return self.input_types
+
+    def _visit_input(self, key: str, declared_input: Input) -> None:
+        if key in CHECK_FIELDS:
+            raise MethodFileFieldError(
+                f"A check has its own {key}: name the input otherwise.", ("inputs", key)
+            )
+        if (
+            key in self.input_types or self.errors
+        ):  # a setting that failed may be the one that uses it
+            return
+        if key not in self.inputs_in_templates:
+            raise MethodFileFieldError(
+                f"{declared_input.title or f'Input {key}'} isn't used.", ("inputs", key)
+            )
+        self.input_types[key] = (_type_of(declared_input.default), FieldInfo())
+
+    @contextmanager
+    def _collect_errors(self) -> Iterator[None]:
+        """Records a problem raised inside, and goes on."""
+        try:
+            yield
+        except MethodFileFieldError as error:
+            self.errors.append(error)
 
     def _record(self, expression: str, annotation: Any, info: FieldInfo, path: Location) -> None:
         if not _DOTTED_NAME.fullmatch(expression):
@@ -100,14 +116,14 @@ class _InputTypes:
             if key in ("uses", "for_each"):
                 continue
             if key == "with":
-                self._visit_settings(value, method.settings, (*path, "with"))
+                self._visit_settings(value, method, (*path, "with"))
             elif key not in CHECK_FIELDS:
                 raise MethodFileFieldError(f"A check has no {key}:.", (*path, key))
             elif (expression := reference(value)) is not None:
                 info = CHECK_FIELDS[key]
                 self._record(expression, info.annotation, info, (*path, key))
 
-    def _visit_settings(self, values: Any, model: type[BaseModel], path: Location) -> None:
+    def _visit_settings(self, values: Any, method: Method[Any], path: Location) -> None:
         if (expression := reference(values)) is not None:
             raise MethodFileFieldError(
                 f"Fill in a method's settings one by one, not with {expression}.",
@@ -115,16 +131,17 @@ class _InputTypes:
             )
         if not isinstance(values, Mapping | None):
             raise MethodFileFieldError("A check's settings aren't a mapping.", path)
+        model = method.settings
         for key, value in (values or {}).items():
-            info = model.model_fields.get(key)
-            if info is None:
-                raise MethodFileFieldError(
-                    f"{model.model_config.get('title') or 'This method'} has no setting {key}.",
-                    (*path, key),
-                )
-            if (source := _source_of(value)) is not None:
-                info = _with_input_conditions(info, source, values or {}, model, (*path, key))
-            self._visit_setting(value, info, (*path, key))
+            with self._collect_errors():
+                info = model.model_fields.get(key)
+                if info is None:
+                    raise MethodFileFieldError(
+                        f"{method.label} has no setting {key}.", (*path, key)
+                    )
+                if (source := _source_of(value)) is not None:
+                    info = _with_input_conditions(info, source, values or {}, model, (*path, key))
+                self._visit_setting(value, info, (*path, key))
 
     def _visit_setting(self, value: Any, info: FieldInfo, path: Location) -> None:
         if (expression := reference(value)) is not None:
@@ -135,7 +152,8 @@ class _InputTypes:
                 self._visit_check(value, path)
             case "many" if (item_info := item_field(info)) is not None:
                 for index, item in enumerate(value):
-                    self._visit_item(item, item_info, (*path, index))
+                    with self._collect_errors():
+                        self._visit_item(item, item_info, (*path, index))
             case _ if has_template(value):
                 element = get_args(info.annotation)[0] if get_args(info.annotation) else Any
                 for index, item in enumerate(value if isinstance(value, list) else ()):

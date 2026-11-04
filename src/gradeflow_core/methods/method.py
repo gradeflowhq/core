@@ -85,11 +85,6 @@ class Method[S: Settings](ABC):
     def __repr__(self) -> str:
         return f"<Method {self.ref}>"
 
-    @property
-    def setting_titles(self) -> list[str]:
-        """What a check of it is set up with, by title, in order."""
-        return [info.title or name for name, info in self.settings.model_fields.items()]
-
     def settings_schema(self, position: Position) -> JsonDict:
         """The JSON schema of a check's settings, its ``with``, at ``position``: such as the
         options of the question it marks."""
@@ -155,13 +150,31 @@ class Method[S: Settings](ABC):
         Unreadable answers, and blank ones unless it ``marks_blank_answers``, are dealt with
         before."""
 
+    @cached_property
+    def _holds_checks(self) -> bool:
+        """Whether its settings hold checks, which then mark and read for it."""
+        return any(how_many_checks(info) for info in self.settings.model_fields.values())
+
     def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
         """The questions the check gives marks to."""
-        return {question} if question else set()
+        if not self._holds_checks:
+            return {question} if question else set()
+        return {
+            key
+            for _, inner, _ in self.expanded_checks(check)
+            if not inner.read_only
+            for key in inner.questions_marked(question)
+        }
 
     def questions_read(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
         """The questions whose answers the check reads, those it marks included."""
-        return self.questions_marked(check, question)
+        if not self._holds_checks:
+            return self.questions_marked(check, question)
+        return {
+            key
+            for _, inner, _ in self.expanded_checks(check)
+            for key in inner.questions_read(question)
+        }
 
     def inner_checks(self, check: Check) -> Iterator[tuple[Location, Check, bool]]:
         """The checks written in its settings, where they are, and whether they are in a list."""

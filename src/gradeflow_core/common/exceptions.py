@@ -27,4 +27,9 @@ class EditingError(GradeFlowError):
 
 
 class MethodFileError(GradeFlowError):
-    """A method's YAML that doesn't define a method, with the line at fault."""
+    """A method's YAML that doesn't define a method, with the line at fault. ``messages`` lists
+    every problem found, the first being its message."""
+
+    def __init__(self, message: str, *others: str) -> None:
+        super().__init__(message)
+        self.messages = [message, *others]

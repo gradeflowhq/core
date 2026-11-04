@@ -52,14 +52,19 @@ class MultipleChoiceSettings(Settings):
         return list(dict.fromkeys(correct))
 
 
-_DESCRIPTION_OPENINGS = {
-    "exactly": "Chooses exactly these",
-    "all": "Chooses all of these, other options allowed",
-    "none": "Chooses none of these",
-    "any": "Chooses any of these",
-    "share_each": "Chooses these, a share for each",
+_DESCRIPTIONS: dict[Compare, tuple[str, str, Literal["and", "or"]]] = {
+    "exactly": ("Chooses exactly {}.", "Chooses exactly these", "and"),
+    "all": (
+        "Chooses {}, other options allowed.",
+        "Chooses all of these, other options allowed",
+        "and",
+    ),
+    "none": ("Chooses none of {}.", "Chooses none of these", "and"),
+    "any": ("Chooses {}.", "Chooses any of these", "or"),
+    "share_each": ("Chooses {}, a share for each.", "Chooses these, a share for each", "and"),
 }
-"""How a description listing the options opens, for each way of comparing."""
+"""For each way of comparing: its description with the options inline, how one listing them
+opens, and the word that joins them."""
 
 
 class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
@@ -96,28 +101,17 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
+        inline, listed, conjunction = _DESCRIPTIONS[settings.compare]
         if reads_better_listed(settings.correct):
-            opening = _DESCRIPTION_OPENINGS[settings.compare]
-            return f"{opening}:\n{markdown_code_list(settings.correct)}"
-        or_list = code_join(settings.correct, conjunction="or")
-        and_list = code_join(settings.correct, conjunction="and")
-        match settings.compare:
-            case "exactly":
-                return f"Chooses exactly {and_list}."
-            case "all":
-                return f"Chooses {and_list}, other options allowed."
-            case "none":
-                return f"Chooses none of {and_list}."
-            case "any":
-                return f"Chooses {or_list}."
-            case "share_each":
-                return f"Chooses {and_list}, a share for each."
+            return f"{listed}:\n{markdown_code_list(settings.correct)}"
+        return inline.format(code_join(settings.correct, conjunction=conjunction))
 
     def _mark_answer(
         self, settings: MultipleChoiceSettings, answer: Answer, question: Question
     ) -> Outcome:
         assert isinstance(question, ChoiceQuestion)
-        chosen_options = answer if isinstance(answer, frozenset) else frozenset()
+        assert isinstance(answer, frozenset)  # choice questions read sets of options
+        chosen_options = answer
         correct_options = {question.reading.normalized(option) for option in settings.correct}
         match settings.compare:
             case "exactly":
@@ -135,7 +129,7 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         if proportion >= 1:
             return Outcome(1.0, CORRECT)
         expected_options = quoted_join(
-            settings.correct, conjunction="or" if settings.compare == "any" else "and"
+            settings.correct, conjunction=_DESCRIPTIONS[settings.compare][2]
         )
         none_of_prefix = "none of " if settings.compare == "none" else ""
         return Outcome(proportion, as_sentence(f"Expected {none_of_prefix}{expected_options}"))

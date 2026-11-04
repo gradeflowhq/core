@@ -71,6 +71,27 @@ def test_a_drafts_earlier_checks_match_generated_execution_order() -> None:
     assert draft.earlier_checks("with.then.1") == ["with.then.0"]
 
 
+def test_a_branchs_checks_read_those_before_them_while_the_condition_is_unfinished() -> None:
+    questions = QuestionSet({"Q1": TextQuestion(), "Q2": TextQuestion()})
+    marking = {
+        "uses": "gradeflow/conditional@1",
+        "with": {
+            "condition": [{"question": "Q1", "uses": "gradeflow/key-points@1"}],
+            "then": [
+                {"id": "a", "question": "Q2", "uses": "gradeflow/full-marks@1"},
+                {
+                    "question": "Q2",
+                    "uses": "gradeflow/full-marks@1",
+                    "if": "{{ checks.a.correct }}",
+                },
+            ],
+        },
+    }
+    draft = MarkingDraft(marking, questions, None)
+    assert draft.earlier_checks("with.then.1") == ["with.then.0"]
+    assert [problem.check for problem in draft.problems] == ["with.condition.0"]
+
+
 MARKING = {
     "question": "Q1",
     "uses": "gradeflow/combination@1",

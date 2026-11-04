@@ -63,7 +63,11 @@ def mark(
     language model at ``model_endpoint``, do so for ``chunk_size`` sheets at a time, and say how
     far they got to ``on_progress``."""
     problem_results = [_problem_results(marking, questions) for marking in scheme.markings]
-    questions_read = [_questions_read(marking) for marking in scheme.markings]
+    max_marks = sum(question.max_marks for question in questions.values())
+    questions_read = [
+        () if results is not None else tuple(sorted(marking.questions_read()))
+        for marking, results in zip(scheme.markings, problem_results, strict=True)
+    ]
     caches: list[dict[tuple[str | None, ...], dict[QuestionId, QuestionResult]]] = [
         {} for _ in scheme.markings
     ]
@@ -102,11 +106,6 @@ def mark(
             ):
                 if marking_problem_results is not None:
                     marking_results = marking_problem_results
-                elif marking_questions_read is None:
-                    context = Context(
-                        answers, questions, written_answers=sheet.answers, precomputed=precomputed
-                    )
-                    marking_results = _marking_results(marking, context)
                 else:
                     cache_key = tuple(sheet.answers.get(key) for key in marking_questions_read)
                     if cache_key not in cache:
@@ -132,8 +131,11 @@ def mark(
             results = _given_results(sheet, questions) | results
             result_class = MarkedSubmission if isinstance(sheet, Submission) else MarkedSheet
             yield result_class(
-                **sheet.model_dump(include=set(result_class.model_fields)),
-                results={key: results[key] for key in questions if key in results},
+                **sheet.model_dump(include=set(result_class.model_fields))
+                | {
+                    "results": {key: results[key] for key in questions if key in results},
+                    "max_marks": max_marks,
+                }
             )
 
 
@@ -169,14 +171,6 @@ def _problem_results(
         key: _unmarked_result(questions[key], feedback, marking.method.label)
         for key in keys & questions.keys()
     }
-
-
-def _questions_read(marking: Check) -> tuple[QuestionId, ...] | None:
-    """The questions whose answers a marking reads; None if it can't say."""
-    try:
-        return tuple(sorted(marking.questions_read()))
-    except InvalidError, TemplateError:  # a generated body that marking reports
-        return None
 
 
 def _marking_results(marking: Check, context: Context) -> dict[QuestionId, QuestionResult]:

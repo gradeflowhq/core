@@ -1,5 +1,6 @@
 import json
 import re
+from typing import Any
 
 import pytest
 
@@ -12,7 +13,6 @@ from gradeflow_core.editing import (
     Position,
     compatible_methods,
 )
-from gradeflow_core.editing.drafts import _check_schema, _new_check
 from gradeflow_core.methods.check import CHECK_FIELDS
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
@@ -21,6 +21,7 @@ from gradeflow_core.questions.values import ValuesQuestion
 from tests.schemas import schema_nodes
 
 METHODS = {method.name: method for method in BUILTINS}
+COMBINATION = "gradeflow/combination@1"
 
 QUESTIONS = QuestionSet(
     {
@@ -30,15 +31,36 @@ QUESTIONS = QuestionSet(
         "Q4": NumberQuestion(),
     }
 )
-POSITIONS = {
-    "question group": Position(QUESTIONS, in_group=True),
-    "text": Position(QUESTIONS, "Q1"),
-    "choice": Position(QUESTIONS, "Q2"),
-    "values": Position(QUESTIONS, "Q3"),
-    "number": Position(QUESTIONS, "Q4"),
-    "value": Position(QUESTIONS, "Q3", 2, in_list=True),
-    "in question group": Position(QUESTIONS, "Q1", in_list=True, in_group=True),
+PLACES: dict[str, tuple[str | None, dict[str, Any] | None]] = {
+    "question group": (None, None),
+    "text": ("Q1", None),
+    "choice": ("Q2", None),
+    "values": ("Q3", None),
+    "number": ("Q4", None),
+    "text in a list": ("Q1", {}),
+    "value": ("Q3", {"value": 2}),
+    "in question group": (None, {"question": "Q1"}),
 }
+"""Where a check can be: the marking's question, and the keys of the check in a Combination's
+list, if it is in one."""
+
+
+def draft_at(place: str, check: dict[str, Any]) -> tuple[MarkingDraft, str]:
+    """A draft with ``check`` at ``place``, and the check's path."""
+    question, list_keys = PLACES[place]
+    marking = (
+        check
+        if list_keys is None
+        else {"uses": COMBINATION, "with": {"checks": [{**list_keys, **check}]}}
+    )
+    if question:
+        marking = {"question": question, **marking}
+    return MarkingDraft(marking, QUESTIONS, question), "" if list_keys is None else "with.checks.0"
+
+
+def schema_at(method: str, place: str, **check_keys: Any) -> dict[str, Any]:
+    draft, path = draft_at(place, {"uses": METHODS[method].ref, **check_keys})
+    return draft.schema(path)
 
 
 def test_a_draft_offers_the_methods_compatible_with_its_check() -> None:
@@ -56,20 +78,15 @@ def test_no_setting_is_named_like_a_key_a_check_has() -> None:
     ]
 
 
-def check_keys(position: Position) -> list[str]:
-    properties = _check_schema(METHODS["gradeflow/key-point"], position)["properties"]
+def check_keys(place: str) -> list[str]:
+    properties = schema_at("gradeflow/key-point", place, **{"if": "{{ true }}"})["properties"]
     return [key for key in properties if key in CHECK_FIELDS]
 
 
 def test_a_checks_fields_are_its_settings_and_the_keys_a_check_there_may_have() -> None:
-    assert check_keys(Position(QUESTIONS, "Q1")) == ["if", "feedback"]
-    assert check_keys(Position(QUESTIONS, "Q1", in_list=True)) == [
-        "name",
-        "weight",
-        "if",
-        "feedback",
-    ]
-    assert check_keys(POSITIONS["in question group"]) == [
+    assert check_keys("text") == ["if", "feedback"]
+    assert check_keys("text in a list") == ["name", "weight", "if", "feedback"]
+    assert check_keys("in question group") == [
         "question",
         "read_only",
         "name",
@@ -77,34 +94,28 @@ def test_a_checks_fields_are_its_settings_and_the_keys_a_check_there_may_have() 
         "if",
         "feedback",
     ]
-    assert check_keys(POSITIONS["question group"]) == ["if", "feedback"], (
+    assert check_keys("question group") == ["if", "feedback"], (
         "a question group's marking reads no question"
     )
-    group_check_schema = _check_schema(
-        METHODS["gradeflow/key-point"], POSITIONS["in question group"]
-    )
+    group_check_schema = schema_at("gradeflow/key-point", "in question group")
     assert list(group_check_schema["properties"])[:3] == ["question", "read_only", "point"]
     assert group_check_schema["properties"]["question"]["enum"] == ["Q1", "Q2", "Q3", "Q4"]
     assert "question" in group_check_schema["required"], (
         "a check in a question group needs its question"
     )
-    value_check_schema = _check_schema(
-        METHODS["gradeflow/accepted-answers"], Position(QUESTIONS, "Q3", 2, in_list=True)
-    )
+    value_check_schema = schema_at("gradeflow/accepted-answers", "value")
     assert value_check_schema["properties"]["value"]["anyOf"][0]["enum"] == [1, 2]
-    fixed_value_position = Position(QUESTIONS, "Q3", 2, in_list=True, value_fixed=True)
-    assert (
-        "value"
-        not in _check_schema(METHODS["gradeflow/accepted-answers"], fixed_value_position)[
-            "properties"
-        ]
-    )
+    multiple_values = {
+        "question": "Q3",
+        "uses": METHODS["gradeflow/multiple-values"].ref,
+        "with": {"checks": [{"uses": METHODS["gradeflow/accepted-answers"].ref}]},
+    }
+    fixed_value_schema = MarkingDraft(multiple_values, QUESTIONS, "Q3").schema("with.checks.0")
+    assert "value" not in fixed_value_schema["properties"]
 
 
 def test_fields_offer_the_questions_options_and_students_answers() -> None:
-    choice_properties = _check_schema(
-        METHODS["gradeflow/multiple-choice"], Position(QUESTIONS, "Q2")
-    )["properties"]
+    choice_properties = schema_at("gradeflow/multiple-choice", "choice")["properties"]
     assert (
         choice_properties["correct"]["items"]["enum"],
         choice_properties["correct"]["uniqueItems"],
@@ -112,13 +123,11 @@ def test_fields_offer_the_questions_options_and_students_answers() -> None:
         ["a", "b"],
         True,
     ), "options are chosen, each once"
-    answers_properties = _check_schema(
-        METHODS["gradeflow/accepted-answers"], Position(QUESTIONS, "Q1")
-    )["properties"]
+    answers_properties = schema_at("gradeflow/accepted-answers", "text")["properties"]
     assert answers_properties["answers"]["x-gradeflow"] == {"lists_answers": True}
-    group_properties = _check_schema(
-        METHODS["gradeflow/custom-code-for-a-group"], Position(QUESTIONS, in_group=True)
-    )["properties"]
+    group_properties = schema_at("gradeflow/custom-code-for-a-group", "question group")[
+        "properties"
+    ]
     assert group_properties["questions"]["items"]["enum"] == ["Q1", "Q2", "Q3", "Q4"]
 
 
@@ -133,50 +142,64 @@ def test_fields_offer_the_questions_options_and_students_answers() -> None:
 def test_only_fields_of_whole_answers_take_them(
     method: str, field: str, lists_answers: bool
 ) -> None:
-    properties = _check_schema(METHODS[method], Position(QUESTIONS, "Q1"))["properties"]
+    properties = schema_at(method, "text")["properties"]
     assert properties[field].get("x-gradeflow", {}).get("lists_answers", False) == lists_answers
 
 
-@pytest.mark.parametrize("position", POSITIONS.values(), ids=POSITIONS)
-def test_new_checks_are_plain_json_of_their_method(position: Position) -> None:
-    for method in compatible_methods(position):
-        new_check = _new_check(method, position, names_question=False)
-        assert json.loads(json.dumps(new_check)) == new_check
-        assert new_check["uses"] == method.ref
+def new_check(method: str, place: str) -> dict[str, Any]:
+    """A new check of ``method`` at ``place``: a new marking, a check added to a list, or, as
+    adding can't choose a value, a check whose method changed."""
+    question, list_keys = PLACES[place]
+    reference = METHODS[method].ref
+    if list_keys is None:
+        return MarkingDraft.new(reference, QUESTIONS, question).data
+    draft, path = draft_at(place, {"uses": "gradeflow/unknown@1"})
+    if "value" in list_keys:
+        draft.change_method(path, reference)
+    else:
+        draft.replace({**draft.data, "with": {"checks": []}})
+        draft.add(path, reference, list_keys.get("question"))
+    check: dict[str, Any] = draft.data["with"]["checks"][0]
+    return check
+
+
+def methods_at(place: str) -> Methods:
+    draft, path = draft_at(place, {"uses": COMBINATION})
+    return draft.methods(path)
+
+
+@pytest.mark.parametrize("place", PLACES)
+def test_new_checks_are_plain_json_of_their_method(place: str) -> None:
+    for method in methods_at(place):
+        check = new_check(method.name, place)
+        assert json.loads(json.dumps(check)) == check
+        assert check["uses"] == method.ref
 
 
 def test_multiple_values_has_a_check_for_each_value_no_more() -> None:
-    values_properties = _check_schema(
-        METHODS["gradeflow/multiple-values"], Position(QUESTIONS, "Q3")
-    )["properties"]
-    checks = values_properties["checks"]
+    checks = schema_at("gradeflow/multiple-values", "values")["properties"]["checks"]
     assert (checks["minItems"], checks["maxItems"]) == (2, 2)
 
 
 def test_a_new_composed_check_starts_with_its_lists() -> None:
-    new_check = _new_check(
-        METHODS["gradeflow/answer-sets"], Position(QUESTIONS, in_group=True), names_question=False
-    )
-    assert new_check["with"] == {
+    assert new_check("gradeflow/answer-sets", "question group")["with"] == {
         "sets": [{"name": "Expected", "uses": "gradeflow/combination@1", "with": {"checks": []}}]
     }
 
 
 def test_a_new_multiple_values_check_checks_each_value() -> None:
-    new_check = _new_check(
-        METHODS["gradeflow/multiple-values"], Position(QUESTIONS, "Q3"), names_question=True
-    )
-    assert new_check["question"] == "Q3"
-    assert [check["uses"] for check in new_check["with"]["checks"]] == [
+    check = new_check("gradeflow/multiple-values", "values")
+    assert check["question"] == "Q3"
+    assert [inner["uses"] for inner in check["with"]["checks"]] == [
         "gradeflow/accepted-answers@1",
         "gradeflow/accepted-answers@1",
     ]
 
 
-@pytest.mark.parametrize("position", POSITIONS.values(), ids=POSITIONS)
-def test_every_hint_uses_the_typed_vocabulary(position: Position) -> None:
-    for method in compatible_methods(position):
-        for node in schema_nodes(_check_schema(method, position)):
+@pytest.mark.parametrize("place", PLACES)
+def test_every_hint_uses_the_typed_vocabulary(place: str) -> None:
+    for method in methods_at(place):
+        for node in schema_nodes(schema_at(method.name, place)):
             if HINT_KEY in node:
                 Hint.model_validate(node[HINT_KEY], strict=True)
 
@@ -188,10 +211,8 @@ def test_unknown_methods_are_refused_by_the_draft() -> None:
 
 
 def test_a_checks_schema_and_new_settings_need_no_methods() -> None:
-    method = METHODS["gradeflow/key-points"]
-    position = Position(QUESTIONS, "Q1")
-    assert "points" in _check_schema(method, position)["properties"]
-    assert _new_check(method, position, names_question=True) == {
+    assert "points" in schema_at("gradeflow/key-points", "text")["properties"]
+    assert new_check("gradeflow/key-points", "text") == {
         "question": "Q1",
         "uses": "gradeflow/key-points@1",
         "with": {},
@@ -337,7 +358,5 @@ def test_a_drafts_schemas_differ_where_the_checks_positions_do() -> None:
     )
     one_value_code_schema = draft.schema("with.checks.0")["properties"]["code"]
     assert one_value_code_schema != whole_answer_code_schema
-    assert (
-        one_value_code_schema
-        == _check_schema(custom_code, draft.position("with.checks.0"))["properties"]["code"]
-    )
+    fresh_draft = MarkingDraft(draft.data, QUESTIONS, "Q3")
+    assert one_value_code_schema == fresh_draft.schema("with.checks.0")["properties"]["code"]

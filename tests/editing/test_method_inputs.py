@@ -44,6 +44,24 @@ def test_test_values_never_replace_authored_defaults_or_fixed_values() -> None:
     assert draft.test_values == {}
 
 
+def test_an_input_with_no_default_is_checked_with_its_test_value() -> None:
+    questions = QuestionSet.model_validate({"Q1": {"type": "text"}})
+    draft = MethodDraft.new(questions, name="answers", version=1, label="Answers")
+    draft.checks.add("with.checks.0", "gradeflow/accepted-answers@1")
+    draft.checks.add("with.checks.1", "gradeflow/equivalent-expression@1")
+    draft.checks.update("with.checks.1", {"answers": ["x2"]})
+    draft.bind_new_input("with.checks.0.with.answers", label="Accepted answers")
+    assert draft.checks.problems == []
+    assert [str(problem) for problem in draft.problems] == [
+        "Give “Accepted answers” a test value or a default."
+    ]
+    draft.test_values = {"answers": ["sun"]}
+    expected = [Problem("Unknown name “x2”.", "with.checks.1", ("answers", 0))]
+    assert draft.checks.problems == expected
+    assert draft.problems == expected
+    assert draft.checks.values("with.checks.0")["answers"] is None
+
+
 @pytest.mark.parametrize("value", [None, "", [], {}])
 def test_empty_values_create_required_inputs(value: object) -> None:
     draft = number_range_draft()

@@ -48,7 +48,6 @@ class _Token(NamedTuple):
 
 
 class _Names(NamedTuple):
-    uses: frozenset[str]
     reads: frozenset[str]
     stores: frozenset[str]
     targets: frozenset[str] = frozenset()
@@ -238,7 +237,6 @@ def _names(tokens: list[_Token], first_keyword: str, compound: bool) -> _Names:
             and not tokens[i + 1].is_operator(".", "(", "[")
         }
     names = _Names(
-        uses=frozenset(names_by_index.values()),
         reads=frozenset(name for i, name in names_by_index.items() if i not in stored_indices),
         stores=frozenset(names_by_index[i] for i in stored_indices),
     )
@@ -348,7 +346,7 @@ def _depths(
             definition_depth,
             *(depth for depth in range(innermost, -1, -1) if depth != definition_depth),
         ]
-    uses = statement.names.uses
+    uses = statement.names.reads | statement.names.stores
     using_depth = max(
         (depth + 1 for depth in range(len(open_blocks) - 1) if open_blocks[depth].names & uses),
         default=0,

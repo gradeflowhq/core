@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 
 from gradeflow_core import InvalidError
+from gradeflow_core.questions.reading import TextReading
+from gradeflow_core.questions.text import TextQuestion
 
 from .helpers import describe, mark, mark_all, problems_of, proportions
 
@@ -107,3 +109,10 @@ def test_accepted_expressions_must_parse_and_be_worked_out() -> None:
     ]
     with pytest.raises(InvalidError, match="Add at least one"):
         problems_of(equivalent_expression())
+
+
+def test_accepted_expressions_are_checked_as_the_question_reads_them() -> None:
+    question = TextQuestion(reading=TextReading(ignore_punctuation=True))
+    assert problems_of(equivalent_expression("x - 1"), question) == [
+        ("", ("answers", 0), "Couldn't read “x  1” as an expression.")
+    ]

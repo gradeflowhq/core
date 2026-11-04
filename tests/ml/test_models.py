@@ -51,7 +51,7 @@ def test_setup_command_prepares_every_model(
 def test_setup_command_explains_a_missing_optional_dependency(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "setup_models", Mock(side_effect=ImportError(MISSING_MODEL_MESSAGE)))
+    monkeypatch.setattr(embeddings, "setup", Mock(side_effect=ImportError(MISSING_MODEL_MESSAGE)))
     with pytest.raises(SystemExit) as caught:
         cli.main(["setup"])
     assert caught.value.code == 1

@@ -24,8 +24,9 @@ from ..common.hints import ADVANCED_HINT, hint, hint_of
 from ..common.problems import Problem, invalid_errors
 from ..common.text import capitalized
 from ..questions.question_set import Answers, QuestionSet, read_answer
-from ..questions.types import QuestionId
-from .outcome import EarlierResult, Outcome, feedback_scope, unanswered_outcome
+from ..questions.reading import write_answer
+from ..questions.types import QuestionId, Unreadable
+from .outcome import EarlierResult, Outcome, unanswered_outcome
 from .position import Position
 from .problems import located_problems
 from .settings import IDENTIFIER, Settings, item_field
@@ -271,7 +272,17 @@ def rendered_feedback(
     answer = (
         written.strip() if written is not None else read_answer(context.answers, question, value)
     )
-    return render(template, {**scope, **feedback_scope(outcome, answer, question)})
+    return render(
+        template,
+        {
+            **scope,
+            "answer": answer.answer if isinstance(answer, Unreadable) else write_answer(answer),
+            "correct": outcome.correct,
+            "proportion": outcome.proportion,
+            "feedback": outcome.feedback,
+            "parts": [part.template_values(question) for part in outcome.parts],
+        },
+    )
 
 
 CHECK_KEYS = tuple(info.alias or name for name, info in Check.model_fields.items())

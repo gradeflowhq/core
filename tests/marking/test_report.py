@@ -7,6 +7,7 @@ MARKED_SUBMISSION = MarkedSubmission(
         "Q10": QuestionResult(proportion=1, max_marks=1, feedback="Correct."),
         "Q2": QuestionResult(proportion=0.5, max_marks=3, feedback="  "),
     },
+    max_marks=4,
 )
 
 

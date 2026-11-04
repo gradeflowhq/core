@@ -20,7 +20,6 @@ from gradeflow_core.editing import (
     ConditionRow,
     EditingError,
     ExampleRow,
-    ExpectedResult,
     MethodDraft,
     RowResult,
     load_yaml,
@@ -181,12 +180,12 @@ feedback: '{{ inputs.message }}'
 
 def test_trying_rows_leaves_the_examples_unchanged() -> None:
     draft = number_range_draft()
-    expected = {"Q1": ExpectedResult(marks=2, feedback="Correct.")}
+    expected = {"Q1": {"marks": 2, "feedback": "Correct."}}
     results = try_rows(
         draft,
         [
             ExampleRow(answers={"Q1": "15"}),
-            ExampleRow(answers={"Q1": "8"}, expected=expected),
+            ExampleRow.model_validate({"answers": {"Q1": "8"}, "expected": expected}),
             ExampleRow(answers={"Q1": "invalid"}),
             ExampleRow(answers={"Q1": ""}),
         ],
@@ -429,11 +428,13 @@ def test_examples_publish_without_execution_or_fabricated_expectations(
     draft = number_range_draft()
     mark = Mock()
     monkeypatch.setattr("gradeflow_core.marking.examples.mark", mark)
-    wrong_expected = {"Q1": ExpectedResult(marks=2, feedback="Wrong.")}
+    wrong_row = ExampleRow.model_validate(
+        {"answers": {"Q1": "8"}, "expected": {"Q1": {"marks": 2, "feedback": "Wrong."}}}
+    )
     index = draft.set_example(
         [
             ExampleRow(answers={"Q1": "15"}),
-            ExampleRow(answers={"Q1": "8"}, expected=wrong_expected),
+            wrong_row,
         ],
         index=None,
     )
@@ -441,7 +442,7 @@ def test_examples_publish_without_execution_or_fabricated_expectations(
     method = draft.finalized()
     first, second = method.examples[0].rows
     assert (first.answers, first.expected) == ({"Q1": "15"}, {})
-    assert second.expected == wrong_expected
+    assert second.expected == wrong_row.expected
     assert method.examples[0].questions == dict(draft.questions)
     assert draft.set_example([], index=0) is None
     assert draft.finalized().examples == ()
@@ -644,7 +645,29 @@ def test_an_input_is_titled_as_the_setting_it_fills_unless_labelled() -> None:
 def test_a_composed_check_missing_a_setting_is_a_problem_in_words() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="words", version=1, label="Words")
     draft.checks.add("with.checks.0", "gradeflow/key-points@1")
-    assert problem_messages(draft) == ["Words: points: Required."]
+    assert draft.problems == [
+        Problem("Required.", "with.checks.0", ("points",), is_incomplete=True)
+    ]
+
+
+def test_a_method_that_doesnt_load_lists_each_problem() -> None:
+    draft = MethodDraft.from_yaml(
+        """label: Old
+summary: Written for an earlier version.
+question_types: [text]
+checks:
+  - uses: gradeflow/key-points@1
+    with: {points: [light], old: 1}
+  - uses: gradeflow/best-answer@1
+""",
+        TEXT_QUESTIONS,
+        name="sample/old",
+        version=1,
+    )
+    assert problem_messages(draft) == [
+        "Key Points has no setting old.",
+        "There's no method gradeflow/best-answer@1.",
+    ]
 
 
 def test_whole_check_list_binding_stays_executable_in_yaml() -> None:
@@ -832,9 +855,11 @@ def test_setting_one_example_keeps_the_others_and_its_title() -> None:
 
 def test_a_draft_reads_its_examples_without_results_and_keeps_those_it_is_given() -> None:
     draft = number_range_draft()
-    correct_expected = {"Q1": ExpectedResult(marks=1, feedback="Correct.")}
-    draft.set_example([ExampleRow(answers={"Q1": "15"}, expected=correct_expected)], index=None)
-    assert draft.examples[0].rows[0].expected == correct_expected
+    correct_row = ExampleRow.model_validate(
+        {"answers": {"Q1": "15"}, "expected": {"Q1": {"marks": 1, "feedback": "Correct."}}}
+    )
+    draft.set_example([correct_row], index=None)
+    assert draft.examples[0].rows[0].expected == correct_row.expected
     reopened = MethodDraft.from_yaml(draft.to_yaml(), NUMBER_QUESTIONS, name="range", version=1)
     assert reopened.examples[0].rows == example_rows("15")
 

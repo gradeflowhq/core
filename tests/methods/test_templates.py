@@ -4,7 +4,7 @@ from unittest.mock import Mock, call
 import pytest
 
 from gradeflow_core.methods import templates
-from gradeflow_core.methods.outcome import EarlierResult, Outcome, feedback_scope
+from gradeflow_core.methods.outcome import Outcome
 from gradeflow_core.methods.templates import (
     EARLIER_RESULT,
     PART_RESULT,
@@ -220,7 +220,8 @@ def test_marking_compiles_each_template_once_for_every_student(
 
 
 def test_template_shapes_match_what_marking_gives_them() -> None:
-    outcome = Outcome(1.0)
-    assert EARLIER_RESULT.keys() == EarlierResult.__annotations__.keys()
-    assert PART_RESULT.keys() == outcome.template_values("Q1").keys()
-    assert templates.FEEDBACK_SCOPE.keys() == feedback_scope(outcome, "Paris", "Q1").keys()
+    assert PART_RESULT.keys() == Outcome(1.0).template_values("Q1").keys()
+    feedback = " ".join(f"{{{{ {name} }}}}" for name in templates.FEEDBACK_SCOPE)
+    check = {"uses": "gradeflow/key-point@1", "with": {"point": "x"}, "feedback": feedback}
+    [result] = mark_all(check, ["Paris"])
+    assert result.feedback.startswith("Paris ")

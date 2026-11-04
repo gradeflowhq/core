@@ -23,11 +23,13 @@ MARKED_SUBMISSIONS = [
             "Q1": QuestionResult(proportion=1, max_marks=1, feedback="Correct."),
             "Q2": QuestionResult(proportion=1 / 3, max_marks=3),
         },
+        max_marks=4,
     ),
     MarkedSubmission(
         student_id="9",
         answers={"Q1": "b"},
         results={"Q1": QuestionResult(proportion=0, max_marks=1, feedback="Expected a.")},
+        max_marks=4,
     ),
 ]
 

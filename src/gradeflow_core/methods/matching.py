@@ -2,9 +2,9 @@
 answers they expect."""
 
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import Field, JsonValue
+from pydantic import Field
 from rapidfuzz import process
 from rapidfuzz.distance import Levenshtein
 
@@ -35,13 +35,13 @@ MATCH_FIELD: Match = Field(
 )
 
 
-def strictness_field(applies_when: dict[str, JsonValue] | None = None) -> Any:
-    """The How strict field, Normal by default."""
-    return Field(
-        default="normal",
-        title="How strict",
-        json_schema_extra=hint(labels=STRICTNESS_LABELS, applies_when=applies_when),
-    )
+STRICTNESS_FIELD: Strictness = Field(
+    default="normal",
+    title="How strict",
+    json_schema_extra=hint(
+        labels=STRICTNESS_LABELS, applies_when={"match": ["spelling", "meaning"]}
+    ),
+)
 
 
 def match_note(match: Match, strictness: Strictness) -> str:

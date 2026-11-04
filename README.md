@@ -310,6 +310,27 @@ assert draft.problems == []
 print(draft.to_yaml())
 ```
 
+`load_method_files` loads saved method files as far as it can. A file that no longer loads, such
+as one written for an earlier version, stops only the files that use it, and `failed` lists its
+problems:
+
+```python
+from gradeflow_core import BUILTINS
+from gradeflow_core.editing import load_method_files
+
+old = """\
+version: 1
+label: Old
+summary: Written for an earlier version.
+question_types: [text]
+checks:
+  - uses: gradeflow/key-points@1
+    with: {points: [light], unknown_setting: true}
+"""
+loaded = load_method_files([("intro-biology/old", old)], BUILTINS)
+print(loaded.failed["intro-biology/old@1"].messages)
+```
+
 `compatible_methods` lists the methods that fit at a `Position`, and `settings_schema` gives a
 method's settings there:
 

@@ -1,22 +1,17 @@
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, ClassVar, Literal, Self
 
-from natsort import natsorted, ns
+from natsort import natsorted
 from pydantic import Field, PlainSerializer, ValidationInfo, field_validator
 
 from ..common.schemas import JsonDict, type_field
 from ..common.text import quoted
 from .base import Question
-from .reading import ListReading, is_blank, read_list, reading_field
+from .reading import ListReading, is_blank, read_list, reading_field, sorted_options
 
 Options = Annotated[
     frozenset[str], PlainSerializer(sorted, return_type=list[str], when_used="json")
 ]
-
-
-def choice_reading() -> ListReading:
-    """How choices are read unless set otherwise: separated by commas, ignoring capitals."""
-    return ListReading(ignore_case=True)
 
 
 class ChoiceQuestion(Question):
@@ -25,7 +20,7 @@ class ChoiceQuestion(Question):
     new_question_data: ClassVar[dict[str, Any]] = {"options": ["a", "b"]}
 
     type: Literal["choice"] = type_field("choice")
-    reading: ListReading = reading_field(choice_reading)
+    reading: ListReading = reading_field(ListReading)
     options: Options = Field(
         min_length=1, title="Options", description="The options students can choose from."
     )
@@ -43,7 +38,7 @@ class ChoiceQuestion(Question):
             isinstance(option, str) for option in options
         ):
             return options
-        reading = info.data.get("reading") or choice_reading()
+        reading = info.data.get("reading") or ListReading()
         read_options: list[str] = []
         for option in map(reading.normalized, options):
             if not option:
@@ -66,7 +61,7 @@ class ChoiceQuestion(Question):
         )
 
     def answer_schema(self) -> JsonDict:
-        options = {"type": "string", "enum": natsorted(self.options, alg=ns.PRESORT)}
+        options = {"type": "string", "enum": sorted_options(self.options)}
         if self.allow_multiple:
             property_schema = {
                 "type": "array",
@@ -79,9 +74,7 @@ class ChoiceQuestion(Question):
         return {"type": "object", "properties": {self._answer_property: property_schema}}
 
     def answer_values(self, answer: str) -> dict[str, Any]:
-        chosen_options = natsorted(
-            (self.read(answer) or frozenset()) & self.options, alg=ns.PRESORT
-        )
+        chosen_options = sorted_options((self.read(answer) or frozenset()) & self.options)
         if self.allow_multiple:
             return {self._answer_property: chosen_options}
         return {self._answer_property: chosen_options[0] if chosen_options else None}

@@ -96,9 +96,13 @@ def test_duplicate_references_are_rejected() -> None:
 
 
 def test_missing_dependencies_and_cycles_are_reported() -> None:
-    with pytest.raises(MethodFileError, match="sample/outer@1: There's no method missing@1"):
+    with pytest.raises(
+        MethodFileError, match="sample/outer@1: Line 7: There's no method missing@1"
+    ):
         BUILTINS.with_files([("sample/outer", method_file("missing@1"))])
-    with pytest.raises(MethodFileError, match="sample/outer@1: There's no method sample/inner"):
+    with pytest.raises(
+        MethodFileError, match="sample/outer@1: Line 7: There's no method sample/inner"
+    ):
         BUILTINS.with_files(
             [
                 ("sample/outer", method_file("sample/inner")),

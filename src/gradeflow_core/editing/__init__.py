@@ -8,9 +8,9 @@ from ..common.model_service import list_models
 from ..marking.examples import RowResult, mark_rows
 from ..marking.model_choice import ModelTrial, try_model
 from ..methods.check import Marking
-from ..methods.collection import rewrite_references
+from ..methods.collection import FailedFile, LoadedFiles, load_method_files, rewrite_references
 from ..methods.composed.file import methods_used
-from ..methods.example import Example, ExampleRow, ExpectedResult
+from ..methods.example import Example, ExampleRow
 from ..methods.names import method_name, method_ref, split_ref
 from ..methods.position import Position
 from ..questions import QUESTION_TYPES, new_question
@@ -32,7 +32,8 @@ __all__ = [
     "EditingError",
     "Example",
     "ExampleRow",
-    "ExpectedResult",
+    "FailedFile",
+    "LoadedFiles",
     "Marking",
     "MarkingDraft",
     "MethodDraft",
@@ -46,6 +47,7 @@ __all__ = [
     "converted_question",
     "dump_yaml",
     "list_models",
+    "load_method_files",
     "load_yaml",
     "mark_by_example",
     "mark_rows",

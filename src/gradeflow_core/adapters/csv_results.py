@@ -76,12 +76,7 @@ class ResultsCsv(BaseModel):
                 cells.append(format_marks(result.marks) if result else "")
             cells += [result.feedback if result else ""] if self.include_feedback else []
         if self.include_totals:
-            # Out of the whole assessment's marks, not only those of the questions it has results
-            # for.
-            cells += [
-                format_marks(submission.total_marks),
-                format_marks(sum(question.max_marks for question in questions.values())),
-            ]
+            cells += [format_marks(submission.total_marks), format_marks(submission.max_marks)]
         if self.include_report:
             cells.append("\n".join(map(str, submission.report())))
         return cells

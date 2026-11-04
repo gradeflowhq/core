@@ -5,7 +5,8 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from gradeflow_core.methods.code import code_test, runner
+from gradeflow_core.methods.code import code_tests as code_tests_module
+from gradeflow_core.methods.code import runner
 
 from .helpers import CODE_QUESTION, code_tests, describe, mark, mark_all, proportions
 
@@ -111,13 +112,16 @@ def test_a_value_json_cannot_carry_still_compares() -> None:
 
 def test_expected_values_fall_back_to_as_written() -> None:
     assert (
-        code_test._evaluated_expected("undefined_name", code_test.TestSetup()) == "undefined_name"
+        code_tests_module._evaluated_expected("undefined_name", code_tests_module.TestSetup())
+        == "undefined_name"
     )
 
 
 def test_expected_values_are_worked_out_inside_indented_setup_code() -> None:
-    setup = code_test.TestSetup(code_before="def f():", code_after="TWO = 2", indent_spaces=4)
-    assert code_test._evaluated_expected("TWO * 2", setup) == "4"
+    setup = code_tests_module.TestSetup(
+        code_before="def f():", code_after="TWO = 2", indent_spaces=4
+    )
+    assert code_tests_module._evaluated_expected("TWO * 2", setup) == "4"
 
 
 def test_a_test_runs_within_its_memory_limit() -> None:
@@ -142,12 +146,12 @@ def test_a_test_runs_within_its_memory_limit() -> None:
 )
 def test_setup_is_bounded(setup: dict[str, int]) -> None:
     with pytest.raises(ValidationError):
-        code_test.TestSetup.model_validate(setup)
+        code_tests_module.TestSetup.model_validate(setup)
 
 
 def record_expected_value_runs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """The code run to work out expected values, from now on."""
-    code_test._evaluated_expected.cache_clear()
+    code_tests_module._evaluated_expected.cache_clear()
     runs: list[str] = []
     original_run = runner.run
 
@@ -173,16 +177,6 @@ def test_expected_values_are_worked_out_once_per_test(monkeypatch: pytest.Monkey
     assert results[1].feedback == (
         "Passed 0 of 2 tests.\nf() gave 3. Expected 2.\nf() * 2 gave 6. Expected 4."
     )
-
-
-def test_expected_values_shown_as_written_are_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    runs = record_expected_value_runs(monkeypatch)
-    check = code_tests({"expression": "f()", "expected": "1 + 1"}, evaluate_expected=False)
-    assert (
-        mark(check, "def f():\n    return 3", CODE_QUESTION).feedback
-        == "f() gave 3. Expected 1 + 1."
-    )
-    assert runs == []
 
 
 def test_one_test_is_described_in_a_line() -> None:
@@ -246,6 +240,9 @@ def test_code_that_cant_be_tested_gets_no_marks_for_avoiding_the_tests(
 ) -> None:
     result = mark(code_tests(F_GIVES_1, combine="none"), answer, CODE_QUESTION)
     assert (result.proportion, result.feedback) == (0, f"Couldn't test the code: {error}.")
+    not_allowed = {"uses": "gradeflow/not-allowed@1", "with": {"check": code_tests(F_GIVES_1)}}
+    result = mark(not_allowed, answer, CODE_QUESTION)
+    assert (result.proportion, result.feedback) == (0, f"Couldn't check the answer: {error}.")
 
 
 ADD_TEST = {"expression": "add(2, 3)", "expected": "5"}

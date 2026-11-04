@@ -72,16 +72,12 @@ class MarkedSheet(AnswerSheet):
     """An answer sheet with what marking gave it: a result for each question it was marked for."""
 
     results: dict[QuestionId, QuestionResult]
+    max_marks: float = Field(ge=0, description="The maximum marks of all the questions")
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def total_marks(self) -> float:
         return sum(result.marks for result in self.results.values())
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def max_marks(self) -> float:
-        return sum(result.max_marks for result in self.results.values())
 
     def report(self) -> list[ReportLine]:
         """The marking report: the marks and feedback, question by question, for a gradebook
