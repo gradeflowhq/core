@@ -453,7 +453,6 @@ class MethodDraft:
         """Bind a setting to a new input of its own, labelled as the setting unless given, whose
         default is the setting's value unless given, numbered if another input has its label. The
         input's name."""
-        self.unbind(path)
         field = self._configurable_field(path)
         has_default = default is not PydanticUndefined
         if not has_default:
@@ -464,6 +463,7 @@ class MethodDraft:
             message := self._rejection_reason(field, default)
         ):
             raise EditingError(message)
+        self.unbind(path)
         stem = str(path_parts(path)[-1])
         name = first_unused_name(f"{stem}_input" if stem in CHECK_FIELDS else stem, self._inputs)
         titles = {declaration.get("title") for declaration in self._inputs.values()}

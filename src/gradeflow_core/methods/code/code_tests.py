@@ -266,6 +266,27 @@ def _evaluated_expected(expected: str, setup: TestSetup) -> str:
     return repr(variables.get("expected"))
 
 
+_COMPARISON = """
+def _types(value):
+    types, pending = set(), [value]
+    while pending:
+        item = pending.pop()
+        types.add(type(item))
+        if isinstance(item, dict):
+            pending += [*item, *item.values()]
+        elif isinstance(item, (list, tuple, set, frozenset)):
+            pending += item
+    return types
+
+_expected_types = _types(expected)
+if _expected_types & {int, float}:
+    _expected_types |= {int, float}
+passed = _types(output) <= _expected_types and output == expected
+"""
+"""How a test passes: the output equals the expected value and holds no type the expected value
+doesn't, so code can't pass with an ``__eq__`` of its own. Ints and floats count as one type."""
+
+
 def _outcome_of_test(code: str, test: Test, setup: TestSetup) -> Outcome:
     """How ``code`` does on ``test``, run inside ``setup``."""
     program = setup.program_for(code)
@@ -286,8 +307,7 @@ def _outcome_of_test(code: str, test: Test, setup: TestSetup) -> Outcome:
         "with _contextlib.redirect_stdout(_printed):\n"
         f"    output = {test.expression}\n"
         "printed = _printed.getvalue()\n"
-        f"expected = {test.expected}\n"
-        "passed = output == expected"
+        f"expected = {test.expected}{_COMPARISON}"
     )
     variables: dict[str, Any] = {}
     try:

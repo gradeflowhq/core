@@ -102,6 +102,39 @@ def test_combine_decides_the_proportion(combine: str, proportion: float) -> None
     )
 
 
+EQUALS_ANYTHING = "class A:\n    def __eq__(self, other):\n        return True\n"
+
+
+@pytest.mark.parametrize(
+    ("returned", "expected", "passes"),
+    [
+        ("1.0", "1", True),
+        ("[1, 2.0]", "[1.0, 2]", True),
+        ("A()", "5", False),
+        ("[A()]", "[5]", False),
+        ("{5: A()}", "{5: 5}", False),
+        ("True", "1", False),
+        ("(1, 2)", "[1, 2]", False),
+    ],
+)
+def test_a_test_passes_only_with_the_types_it_expects(
+    returned: str, expected: str, passes: bool
+) -> None:
+    answer = f"{EQUALS_ANYTHING}def f():\n    return {returned}"
+    result = mark(code_tests({"expression": "f()", "expected": expected}), answer, CODE_QUESTION)
+    assert result.correct is passes
+
+
+def test_a_test_may_expect_a_class_the_code_defines() -> None:
+    answer = (
+        "class P:\n"
+        "    def __init__(self, x):\n        self.x = x\n"
+        "    def __eq__(self, other):\n        return self.x == other.x\n"
+    )
+    result = mark(code_tests({"expression": "P(1)", "expected": "P(1)"}), answer, CODE_QUESTION)
+    assert result.correct
+
+
 def test_a_value_json_cannot_carry_still_compares() -> None:
     assert mark(
         code_tests({"expression": "f()", "expected": "range(3)"}),

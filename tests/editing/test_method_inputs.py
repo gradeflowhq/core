@@ -199,6 +199,15 @@ def test_input_choices_apply_to_defaults_edited_from_either_location() -> None:
     assert draft.checks.values("")["combine"] == "proportional"
 
 
+def test_a_refused_default_leaves_the_draft_as_it_was() -> None:
+    draft = number_range_draft()
+    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum")
+    before = draft.to_yaml()
+    with pytest.raises(EditingError, match="number"):
+        draft.bind_new_input("with.checks.0.with.min_value", label="Other", default="abc")
+    assert draft.to_yaml() == before
+
+
 def test_a_draft_describes_and_validates_bound_defaults_without_materializing_them() -> None:
     draft = number_range_draft()
     draft.bind_new_input("with.checks.0.with.min_value", label="Minimum")
