@@ -103,14 +103,28 @@ def test_each_item_must_be_readable() -> None:
     ]
 
 
+def test_each_item_must_read_differently() -> None:
+    numbers = ValuesQuestion(value_types=["number"] * 3)
+    assert problems_of(order("1", "1.0", "3"), numbers) == [
+        ("", ("order", 1), "It reads the same as item 1.")
+    ]
+    three_text_values = ValuesQuestion(value_types=["text"] * 3)
+    assert problems_of(order("A", "b", "a"), three_text_values) == [
+        ("", ("order", 2), "It reads the same as item 1.")
+    ]
+    case_sensitive = ValuesQuestion(
+        value_types=["text"] * 3, reading=ListReading(ignore_case=False)
+    )
+    assert problems_of(order("A", "b", "a"), case_sensitive) == []
+
+
 @pytest.mark.parametrize(
     ("items", "message"),
     [
         (["a"], "Add at least 2."),
-        (["a", "a"], "Each item must be different."),
         (["a", " "], "Can't be blank."),
     ],
 )
-def test_items_are_at_least_two_different_ones(items: list[str], message: str) -> None:
+def test_items_are_at_least_two_and_not_blank(items: list[str], message: str) -> None:
     with pytest.raises(InvalidError, match=message):
         problems_of(order(*items), FOUR_TEXT_VALUES)

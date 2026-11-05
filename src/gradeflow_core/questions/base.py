@@ -8,7 +8,7 @@ from ..common import schemas
 from ..common.hints import hint
 from ..common.problems import invalid_errors
 from ..common.schemas import JsonDict
-from .reading import write_answer
+from .reading import Reading, write_answer
 from .types import Answer, QuestionType
 
 
@@ -28,6 +28,7 @@ class Question(BaseModel, ABC):
     """What a new question of this type is set up with, beyond its defaults."""
     if TYPE_CHECKING:
         type: QuestionType  # each type's own field, which would come first here
+        reading: Reading
 
     max_marks: float = Field(
         default=1.0,
@@ -91,7 +92,7 @@ class Question(BaseModel, ABC):
         question can't read stays as it is.
         """
         try:
-            return write_answer(self.read(answer))
+            return write_answer(self.read(answer), self.reading)
         except ValueError:
             return answer
 

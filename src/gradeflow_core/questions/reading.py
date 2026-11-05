@@ -5,6 +5,7 @@ import re
 import textwrap
 import unicodedata
 from collections.abc import Callable, Iterable
+from decimal import Decimal
 from fractions import Fraction
 from typing import Any
 
@@ -48,8 +49,9 @@ class TextReading(Reading):
     )
 
     def normalized(self, value: str) -> str:
-        """``value``, such as a choice option, with its spaces, capitals and punctuation read as in
-        answers."""
+        """``value``, such as a choice option, read as answers are: in Unicode NFC, then trimmed,
+        lowercased and without punctuation as the reading sets."""
+        value = unicodedata.normalize("NFC", value)
         value = value.strip() if self.trim_spaces else value
         value = value.lower() if self.ignore_case else value
         if self.ignore_punctuation:
@@ -131,10 +133,10 @@ def parse_number(text: str) -> int | float:
     for parse in (int, float, lambda written: float(Fraction(written))):
         try:
             value = parse(text)
-        except ValueError, ZeroDivisionError:
+            if math.isfinite(value):
+                return value
+        except ValueError, ZeroDivisionError, OverflowError:
             continue
-        if math.isfinite(value):
-            return value
         break
     raise ValueError(f"Couldn't read {quoted(text)} as a number.")
 
@@ -146,7 +148,7 @@ _SUPERSCRIPT_POWER = re.compile(r"10([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)")
 _WRITTEN_OUT = re.compile(
     r"(?P<number>[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)"
     r"(?:\s*[x×*]\s*10\s*(?:\^|\*\*)\s*(?P<power>[-+]?\d+))?"
-    r"(?:\s?(?P<unit>(?:[^\W\d_]|[°%])[\w/^·*.°%-]{0,11}))?"
+    r"(?:\s?(?P<unit>(?![x×]\d)(?:[^\W\d_]|[°%])[\w/^·*.°%-]{0,11}))?"
 )
 
 
@@ -159,9 +161,11 @@ def _number_with_unit(text: str) -> float | None:
     match = _WRITTEN_OUT.fullmatch(text.translate(_SUPERSCRIPT_DIGITS))
     if match is None or not (match["power"] or match["unit"]):
         return None
+    if match["unit"] and match["unit"][0].isnumeric():  # \w matches numerals such as ½
+        return None
     try:
-        value = float(match["number"]) * 10 ** int(match["power"] or 0)
-    except OverflowError:
+        value = float(Decimal(match["number"]).scaleb(int(match["power"] or 0)))
+    except ArithmeticError, ValueError:
         return None
     return value if math.isfinite(value) else None
 
@@ -172,12 +176,16 @@ def sorted_options(options: Iterable[str]) -> list[str]:
     return natsorted(options, alg=ns.PRESORT)
 
 
-def write_answer(answer: Answer) -> str:
-    """An answer as text: choices in order, values between commas, ``42`` not ``42.0``."""
+def write_answer(answer: Answer, reading: Reading | None = None) -> str:
+    """An answer as text that ``reading`` reads back as the same answer: choices in order, values
+    separated as it separates them, ``42`` not ``42.0``."""
     if answer is None:
         return ""
+    separator = ", "
+    if isinstance(reading, ListReading):
+        separator = reading.separator + (" " if reading.trim_spaces else "")
     if isinstance(answer, frozenset):
-        return ", ".join(sorted_options(answer))
+        return separator.join(sorted_options(answer))
     if isinstance(answer, list):
-        return ", ".join(map(write_answer, answer))
+        return separator.join(map(write_answer, answer))
     return as_text(answer)

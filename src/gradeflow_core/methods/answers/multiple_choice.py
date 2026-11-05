@@ -1,7 +1,7 @@
 from collections.abc import Iterator, Mapping
 from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field
 
 from ...common.hints import hint
 from ...common.problems import Problem
@@ -17,6 +17,7 @@ from ...questions.choice import ChoiceQuestion
 from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
+from ..matching import duplicate_problems
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
@@ -45,11 +46,6 @@ class MultipleChoiceSettings(Settings):
         "share for each wrong one.",
         json_schema_extra=hint(labels=COMPARE_LABELS),
     )
-
-    @field_validator("correct")
-    @classmethod
-    def _without_duplicates(cls, correct: list[str]) -> list[str]:
-        return list(dict.fromkeys(correct))
 
 
 _DESCRIPTIONS: dict[Compare, tuple[str, str, Literal["and", "or"]]] = {
@@ -97,7 +93,7 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         normalized_options = (
             question.reading.normalized(each) if isinstance(each, str) else each for each in correct
         )
-        return {**settings, "correct": list(dict.fromkeys(normalized_options))}
+        return {**settings, "correct": list(normalized_options)}
 
     def describe(self, check: Check) -> str:
         settings = self._settings_of(check)
@@ -138,6 +134,8 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         question = position.question_model
         if not isinstance(question, ChoiceQuestion):
             return
-        for index, option in enumerate(self._settings_of(check).correct):
+        correct = self._settings_of(check).correct
+        for index, option in enumerate(correct):
             if question.reading.normalized(option) not in question.options:
                 yield Problem(f"{option} isn't one of the options.", field=("correct", index))
+        yield from duplicate_problems(correct, question.reading.normalized, "correct")

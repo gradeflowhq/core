@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -12,8 +13,8 @@ from pydantic import ValidationError
 from rapidfuzz.fuzz import ratio
 
 import gradeflow_core
-from gradeflow_core import AnswerComparison, compare_answers
-from gradeflow_core.ml import embeddings
+from gradeflow_core import AnswerComparison, GradeFlowError, compare_answers
+from gradeflow_core.ml import MISSING_MODEL_MESSAGE, embeddings
 
 
 def connected_groups(size: int, pairs: Sequence[tuple[int, int]]) -> list[list[int]]:
@@ -42,18 +43,11 @@ def test_exact_answers_preserve_text_and_original_indices() -> None:
     assert texts == ["Water", "water!", "Water", "", " ", "", "water!"]
 
 
-def test_normalized_equality_ignores_case_punctuation_and_unicode_width() -> None:
+def test_normalized_equality_ignores_case_spacing_and_unicode_width() -> None:
     comparison = compare_answers(
-        ["  Ｈ₂Ｏ  IS\n wet!", "h₂o is wet", "water", "waters"], similarity="normalized"
+        ["  Ｈ₂Ｏ  IS\n wet!", "h2o is wet!", "h2o is wet", "water"], similarity="normalized"
     )
     assert comparison.groups() == [[0, 1], [2], [3]]
-
-
-@pytest.mark.parametrize("similarity", ["normalized", "spelling", "meaning"])
-def test_numbers_and_blanks_only_group_when_equal(similarity: Any) -> None:
-    texts = ["-9.81", "9.81", "+9.81", "9.8", "1e-3", "1e3", "", " ", "!!!", "Water", "water!"]
-    comparison = compare_answers(texts, similarity=similarity)
-    assert comparison.groups(threshold=0) == [[0], [1], [2], [3], [4], [5], [6, 7, 8], [9, 10]]
 
 
 @pytest.mark.parametrize("similarity", ["exact", "normalized", "spelling", "meaning"])
@@ -67,9 +61,22 @@ def test_empty_and_single_answer_need_no_model(
     load_model.assert_not_called()
 
 
-def test_spelling_overlooks_case_and_punctuation() -> None:
-    comparison = compare_answers(["H2O", "h2o.", "water"], similarity="spelling")
+def test_meaning_without_the_ml_extra_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    for module in ("numpy", "scipy", "scipy.cluster.hierarchy", "scipy.spatial.distance"):
+        monkeypatch.setitem(sys.modules, module, None)
+    with pytest.raises(GradeFlowError, match=re.escape(MISSING_MODEL_MESSAGE)):
+        compare_answers(["ice", "frozen water"], similarity="meaning")
+
+
+def test_spelling_overlooks_case_and_spacing() -> None:
+    comparison = compare_answers(["H2O", " h2o ", "water"], similarity="spelling")
     assert comparison.groups(threshold=1) == [[0, 1], [2]]
+
+
+def test_spelling_compares_numbers_as_text_and_never_joins_a_blank() -> None:
+    comparison = compare_answers(["9.81", "9.8", "", " "], similarity="spelling")
+    assert comparison.groups(threshold=0.85) == [[0, 1], [2, 3]]
+    assert comparison.groups(threshold=0) == [[0, 1], [2, 3]]
 
 
 def test_spelling_joins_transitively_at_the_requested_threshold() -> None:
@@ -99,7 +106,7 @@ def test_meaning_prepares_documents_once_then_groups_without_inference(
     pytest.importorskip("scipy")
     embed = Mock(return_value=np.asarray([[1, 0], [0.8, 0.6], [0, 1], [-1, 0]], np.float32))
     monkeypatch.setattr(embeddings, "embed_texts", embed)
-    texts = ["First!", "middle", "last", "opposite", "FIRST"]
+    texts = ["First ", "middle", "last", "opposite", "FIRST"]
     comparison = compare_answers(texts, similarity="meaning")
     embed.assert_called_once_with(["first", "middle", "last", "opposite"])
     restored = AnswerComparison.model_validate_json(comparison.model_dump_json())
@@ -147,16 +154,6 @@ def test_meaning_threshold_uses_the_same_precision_as_document_scores(
     for threshold in (score, score + 1e-9, score + 1e-6):
         expected = [[0, 1]] if (scores >= threshold)[0, 1] else [[0], [1]]
         assert restored.groups(threshold) == expected
-
-
-def test_meaning_never_compares_numbers_or_blanks(monkeypatch: pytest.MonkeyPatch) -> None:
-    np = pytest.importorskip("numpy")
-    pytest.importorskip("scipy")
-    embed = Mock(return_value=np.asarray([[1, 0], [1, 0]], np.float32))
-    monkeypatch.setattr(embeddings, "embed_texts", embed)
-    comparison = compare_answers(["9", "word", "another", "", "9"], similarity="meaning")
-    assert comparison.groups(threshold=0) == [[0, 4], [1, 2], [3]]
-    embed.assert_called_once_with(["word", "another"])
 
 
 def test_restoring_and_regrouping_work_without_optional_dependencies(

@@ -89,6 +89,14 @@ def test_code_that_fails_leaves_the_answer_for_a_person(source: str, message: st
     assert message in result.feedback
 
 
+def test_only_the_results_are_read_back() -> None:
+    result = mark(custom_code("correct = True\nfeedback = object()"), "x")
+    assert (result.is_marked, result.feedback) == (
+        False,
+        "Your code failed: TypeError: feedback isn't a JSON value or a set.",
+    )
+
+
 def test_code_that_cant_run_is_a_problem_of_the_check() -> None:
     assert problems_of(custom_code("correct = (\n")) == [
         ("", ("code",), "Line 1: '(' was never closed.")

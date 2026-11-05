@@ -147,6 +147,14 @@ checks:
         True,
         False,
     ]
+    draft.checks.update("with.checks.0", {"name": "Term"})
+    assert list(draft.checks.data["with"]["checks"][0].items()) == [
+        ("for_each", "{{ inputs.terms }}"),
+        ("name", "Term"),
+        ("uses", "gradeflow/key-point@1"),
+        ("with", {"point": "{{ item }}"}),
+    ]
+    assert draft.problems == []
 
 
 def test_compatibility_refuses_a_number_check_declared_for_text() -> None:
@@ -267,6 +275,31 @@ def test_from_marking_preserves_templates_written_as_literal_answer_text() -> No
     assert result.total_marks == 1
 
 
+def test_from_marking_keeps_braces_in_check_names_but_not_in_feedback() -> None:
+    check = Check.load(
+        {
+            "question": "Q1",
+            "uses": "gradeflow/combination@1",
+            "with": {
+                "checks": [
+                    {
+                        "uses": "gradeflow/key-point@1",
+                        "name": "Has {{ braces }}",
+                        "with": {"point": "a"},
+                        "feedback": "{{ feedback }} Got {{ answer }}.",
+                    },
+                    {"uses": "gradeflow/key-point@1", "with": {"point": "b"}},
+                ]
+            },
+        }
+    )
+    draft = MethodDraft.from_marking(
+        check, TEXT_QUESTIONS, name="braces", version=1, label="Braces", summary="Braces."
+    )
+    [result] = try_rows(draft, example_rows("b"))
+    assert result.results["Q1"].feedback.startswith("Has {{ braces }}: Missing “a”. Got b.")
+
+
 def test_invalid_input_defaults_are_rejected_even_when_test_values_are_valid() -> None:
     draft = number_range_draft()
     draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
@@ -288,6 +321,29 @@ def test_unbinding_a_bound_setting_preserves_its_inherited_default() -> None:
     assert reopened.checks.values("with.checks.0")["whole_words"] is False
     reopened.unbind("with.checks.0.with.whole_words")
     assert reopened.problems == []
+
+
+def test_a_refused_change_to_a_bound_field_leaves_its_default() -> None:
+    draft = number_range_draft()
+    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
+    retired = MethodDraft.from_yaml(
+        draft.to_yaml().replace("gradeflow/number-range@1", "gradeflow/retired@1"),
+        NUMBER_QUESTIONS,
+        name="range",
+        version=1,
+    )
+    with pytest.raises(EditingError, match=re.escape("There's no method gradeflow/retired@1.")):
+        retired.checks.update("with.checks.0", {"min_value": 3})
+    assert retired.inputs["min_value"]["default"] == 10
+
+
+def test_unbinding_an_input_without_a_default_leaves_the_setting_unset() -> None:
+    draft = number_range_draft()
+    name = draft.bind_new_input("with.checks.0.weight", label="Weight")
+    draft.update_input(name, {"title": "Weight"})
+    draft.remove_input(name)
+    assert "weight" not in draft.checks.data["with"]["checks"][0]
+    assert draft.problems == []
 
 
 def test_opening_a_bound_definition_does_not_change_publishable_content() -> None:

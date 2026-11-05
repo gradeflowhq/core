@@ -505,12 +505,15 @@ class MethodDraft:
         self._remove_if_unused(field.bound_input)
 
     def unbind(self, path: str) -> None:
-        """Give a bound setting its input's default as a fixed value."""
+        """Give a bound setting its input's default as a fixed value, or unset it without one."""
         field = self._configurable_field(path)
         if field.bound_input is None:
             return
-        data = self._checks.data
-        set_at(data, path, deepcopy(self._inputs[field.bound_input].get("default")))
+        data, declaration = self._checks.data, self._inputs[field.bound_input]
+        if "default" in declaration:
+            set_at(data, path, deepcopy(declaration["default"]))
+        else:
+            del get(data, path.rpartition(".")[0])[field.key]
         self._checks.replace(data)
         self._remove_if_unused(field.bound_input)
 
@@ -718,14 +721,15 @@ def _only_question(questions: QuestionSet) -> QuestionId | None:
 
 
 def _with_raw_templates(value: Any) -> Any:
-    """``value`` with the answer text of its checks keeping its braces once it is in a method
-    file's templates."""
+    """``value`` with its checks' templates in ``{% raw %}``, other than conditions and feedback, so
+    a method file keeps their braces."""
     if isinstance(value, str) and is_template(value):
         return f"{{% raw %}}{value}{{% endraw %}}"
-    if isinstance(value, dict) and "uses" in value:
-        return {**value, "with": _with_raw_templates(value["with"])} if "with" in value else value
     if isinstance(value, dict):
-        return {key: _with_raw_templates(item) for key, item in value.items()}
+        return {
+            key: item if key in TEMPLATE_KEYS and "uses" in value else _with_raw_templates(item)
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_with_raw_templates(item) for item in value]
     return value

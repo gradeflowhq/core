@@ -1,3 +1,4 @@
+import itertools
 import math
 import random
 from collections.abc import Iterator, Mapping, Sequence
@@ -15,6 +16,7 @@ from ...common.text import (
     reads_better_listed,
 )
 from ...questions.base import Question
+from ...questions.text import TextQuestion
 from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
@@ -26,8 +28,8 @@ from ..settings import NonBlankText, Settings
 from . import expressions
 from .expressions import Expression
 
-SAMPLE_POINT_COUNT = 8
-MIN_WORKABLE_POINTS = SAMPLE_POINT_COUNT // 2
+SAMPLE_POINT_COUNT = 16
+MIN_WORKABLE_POINTS = SAMPLE_POINT_COUNT // 4
 """An accepted expression must be workable at this many points to compare answers with."""
 
 
@@ -88,7 +90,13 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         question = position.question_model
-        assert question is not None  # it marks only text questions
+        assert isinstance(question, TextQuestion)  # it marks only text questions
+        if question.reading.ignore_punctuation:
+            yield Problem(
+                "The question ignores punctuation, which removes the brackets and signs "
+                "expressions need."
+            )
+            return
         accepted: dict[int, Expression] = {}
         for index, text in enumerate(self._settings_of(check).answers):
             try:
@@ -101,7 +109,7 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
         for index, expression in accepted.items():
             if len(_values_at_points(expression, points)) < MIN_WORKABLE_POINTS:
                 yield Problem(
-                    "Can't be worked out for most values of its variables.",
+                    "Can't be worked out for enough values of its variables.",
                     field=("answers", index),
                 )
 
@@ -113,12 +121,19 @@ def _read(text: str, question: Question) -> Expression:
 
 
 def _sample_points(variables: frozenset[str]) -> list[dict[str, float]]:
-    """Values to compare expressions at: the same ones each time, and away from integers and zero,
-    where unequal expressions tend to agree."""
+    """Points to compare expressions at, the same each time and away from integers and zero, where
+    unequal expressions tend to agree. Half are positive, and the rest have each sign combination of
+    up to three variables."""
     generator = random.Random(0)
+    sign_patterns = [(1, 1, 1)] * (SAMPLE_POINT_COUNT // 2) + [
+        signs[::-1] for signs in itertools.product((1, -1), repeat=3)
+    ]
     return [
-        {variable: generator.uniform(0.5, 2.5) for variable in sorted(variables)}
-        for _ in range(SAMPLE_POINT_COUNT)
+        {
+            variable: generator.uniform(0.5, 2.5) * signs[variable_index % 3]
+            for variable_index, variable in enumerate(sorted(variables))
+        }
+        for signs in sign_patterns
     ]
 
 

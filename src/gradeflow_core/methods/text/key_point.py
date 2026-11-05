@@ -84,6 +84,7 @@ def _matching_words(settings: KeyPointSettings, answer: str, question: Question)
     # The point is read as the answer was, so "CO2" still matches when capitals are ignored.
     point = str(question.read(settings.point) or settings.point)
     if settings.match == "spelling":
+        point = " ".join(_words(point)) or point
         closest_words = _closest_words(point, answer, SPELLING_CUTOFFS[settings.strictness])
         return None if closest_words is None else "" if closest_words == point else closest_words
     pattern = re.escape(point)
@@ -95,7 +96,7 @@ def _matching_words(settings: KeyPointSettings, answer: str, question: Question)
 def _closest_words(point: str, answer: str, cutoff: float) -> str | None:
     """The run of the answer's words, as many as the point's, spelt most like it, if alike
     enough."""
-    words = [word for word in (word.strip(string.punctuation) for word in answer.split()) if word]
+    words = _words(answer)
     point_word_count = len(point.split())
     word_sequences = [
         " ".join(words[start : start + point_word_count])
@@ -103,3 +104,8 @@ def _closest_words(point: str, answer: str, cutoff: float) -> str | None:
     ]
     best_index = closest_spelling(point, word_sequences, cutoff)
     return None if best_index is None else word_sequences[best_index]
+
+
+def _words(text: str) -> list[str]:
+    """The words of ``text``, without the punctuation around them."""
+    return [word for word in (word.strip(string.punctuation) for word in text.split()) if word]

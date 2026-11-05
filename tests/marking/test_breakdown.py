@@ -299,11 +299,11 @@ def test_a_marking_shows_the_code_as_written_when_fixing_it_gives_no_more() -> N
     assert {effect for _, effect, _, _ in tests} == {"no_marks"}
     assert result.breakdown is not None
     assert result.breakdown.children[0].details == (), "nothing fixed"
-    assert recursion[:3] == ("Uses recursion.", "unmarked", None)
+    assert recursion[:3] == ("Uses recursion.", "no_marks", 0.0)
     assert {detail.title: detail.value for detail in result.breakdown.children[1].details} == {
-        "Reason": "Couldn't read the code: expected ':' on line 1."
+        "Error": "SyntaxError: expected ':' (line 1)"
     }
-    assert loop[:3] == ("**Not allowed:** Uses a loop.", "unmarked", None)
+    assert loop[:3] == ("**Not allowed:** Uses a loop.", "no_marks", 0.0)
     assert result.breakdown.details == (), "the result's feedback says why"
 
 

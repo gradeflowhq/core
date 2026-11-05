@@ -93,24 +93,33 @@ def test_indented_code_is_read() -> None:
     assert mark(code_uses("loop"), "    for x in xs:\n        pass", CODE_QUESTION).proportion == 1
 
 
-def test_code_that_doesnt_parse_is_left_for_a_person() -> None:
+def test_code_that_doesnt_parse_gets_no_marks() -> None:
     result = mark(code_uses("loop"), "x = 1\ny = 2\nfor x in xs\n    pass", CODE_QUESTION)
-    assert (result.proportion, result.is_marked) == (0, False)
+    assert (result.proportion, result.is_marked) == (0, True)
     assert result.feedback == "Couldn't read the code: expected ':' on line 3."
 
 
-UNREADABLE_CODE_FEEDBACK = "Couldn't read the code: invalid syntax on line 1."
-
-
-def test_not_allowed_says_why_it_left_unreadable_code_for_a_person() -> None:
+@pytest.mark.parametrize(
+    ("answer", "error"),
+    [
+        ("def (", "SyntaxError: invalid syntax (line 1)"),
+        (
+            "def f(x):\nreturn x",
+            "IndentationError: expected an indented block after function definition on line 1 "
+            "(line 2)",
+        ),
+    ],
+)
+def test_not_allowed_gives_unreadable_code_no_marks(answer: str, error: str) -> None:
     not_allowed = {"uses": "gradeflow/not-allowed@1", "with": {"check": code_uses("loop")}}
-    result = mark(not_allowed, "def (", CODE_QUESTION)
-    assert (result.feedback, result.is_marked) == (UNREADABLE_CODE_FEEDBACK, False)
+    result = mark(not_allowed, answer, CODE_QUESTION)
+    assert (result.proportion, result.feedback) == (0, f"Couldn't check the answer: {error}.")
 
 
-def test_unreadable_code_says_so_over_the_checks_own_feedback() -> None:
-    result = mark({**code_uses("loop"), "feedback": "Own: no loops"}, "def (", CODE_QUESTION)
-    assert (result.feedback, result.is_marked) == (UNREADABLE_CODE_FEEDBACK, False)
+def test_fixed_code_without_the_construct_passes_not_allowed() -> None:
+    check = code_uses("loop", fixes={"indentation": True})
+    not_allowed = {"uses": "gradeflow/not-allowed@1", "with": {"check": check}}
+    assert mark(not_allowed, "def f(x):\nreturn x", CODE_QUESTION).proportion == 1
 
 
 @pytest.mark.parametrize(
@@ -188,7 +197,7 @@ def test_code_is_read_as_typed() -> None:
 def test_fix_code_lets_unreadable_code_be_checked() -> None:
     unindented_code = "def factorial(n):\nif n < 2:\nreturn 1\nreturn n * factorial(n - 1)"
     without_fixes = mark(code_uses("recursion"), unindented_code, CODE_QUESTION)
-    assert (without_fixes.proportion, without_fixes.is_marked) == (0, False)
+    assert without_fixes.feedback.startswith("Couldn't read the code")
     indentation_fix_at_half = {"indentation": True, "indentation_penalty": 0.5}
     result = mark(
         code_uses("recursion", fixes=indentation_fix_at_half), unindented_code, CODE_QUESTION

@@ -32,22 +32,35 @@ class AnswersCsv(BaseModel):
     def read(self, text: str) -> list[Submission]:
         """Each row's submission, as the CSV ``text`` holds it: its answers, and any marks already
         given. Raises ``GradeFlowError`` for a file it can't read."""
-        reader = csv.DictReader(StringIO(text))
-        if reader.fieldnames is None:
+        reader = csv.DictReader(StringIO(text.removeprefix("\ufeff"), newline=""))
+        try:
+            header, rows = reader.fieldnames, list(reader)
+        except csv.Error:
+            # Read with newline="", the only error csv raises is for a cell over its size limit.
+            raise GradeFlowError(
+                "A cell is too long to read. A quote mark left open can cause this."
+            ) from None
+        if header is None:
             return []
         columns = dict.fromkeys(
             [self.student_id_column, *self.answer_columns, *self.marks_columns.values()]
         )
-        missing = [column for column in columns if column not in reader.fieldnames]
+        missing = [column for column in columns if column not in header]
         if missing:
             noun = plural("column", len(missing))
             raise GradeFlowError(
                 f"The file has no {quoted_join(missing, conjunction='and')} {noun}."
             )
+        repeated = [column for column in columns if header.count(column) > 1]
+        if repeated:
+            noun, verb = ("column", "is") if len(repeated) == 1 else ("columns", "are")
+            raise GradeFlowError(
+                f"The {quoted_join(repeated, conjunction='and')} {noun} {verb} written twice."
+            )
 
         submissions: list[Submission] = []
         rows_by_id: dict[StudentId, list[int]] = {}
-        for row_number, row in enumerate(reader, start=2):
+        for row_number, row in enumerate(rows, start=2):
             # DictReader fills missing cells with None, typically after an unquoted newline.
             missing_cells = [column for column, value in row.items() if value is None]
             if missing_cells:

@@ -84,7 +84,7 @@ class Methods(tuple[Method[Any], ...]):
             )
             graph[current] = references
             pending.extend(references - graph.keys())
-        _dependency_order(graph)
+        _raise_first(_dependency_order(graph)[1])
         return set(graph) - {ref}
 
 
@@ -102,8 +102,8 @@ class LoadedFiles:
 
     methods: Methods
     failed: dict[str, FailedFile]
-    """Each file that doesn't load, by ref, or by name if it can't be read, with the file at fault:
-    itself or one it uses."""
+    """Each file that doesn't load, by ref, or by name if its version can't be read, with the file
+    at fault: itself or one it uses."""
 
 
 def load_method_files(
@@ -130,19 +130,30 @@ def load_files(
 ) -> LoadedFiles:
     """`load_method_files`, whatever the names are, as for the built-in methods' own files."""
     methods_by_ref = dict(methods.by_ref)
-    parsed, failed = {}, {}
+    parsed: dict[str, tuple[str, Any, MethodFile]] = {}
+    failed: dict[str, FailedFile] = {}
     for name, text in files:
         try:
-            document, file = _parsed_file(text)
+            document, data = _load_yaml(text)
         except MethodFileError as error:
             failed[name] = FailedFile(name, error.messages)
             continue
-        ref = method_ref(name, file.version)
-        if ref in methods_by_ref or ref in parsed:
-            raise MethodFileError(f"Duplicate method {ref}.")
-        parsed[ref] = name, document, file
+        version = data.get("version") if isinstance(data, Mapping) else None
+        ref = method_ref(name, version) if type(version) is int else name
+        if ref in methods_by_ref or ref in parsed or ref in failed:
+            parsed.pop(ref, None)
+            failed[ref] = FailedFile(ref, ["Duplicate method."])
+            continue
+        try:
+            parsed[ref] = name, document, _validated(document, data)
+        except MethodFileError as error:
+            failed[ref] = FailedFile(ref, error.messages)
     dependencies = {ref: methods_used_by_file(file) for ref, (_, _, file) in parsed.items()}
-    for ref in _dependency_order({ref: used & parsed.keys() for ref, used in dependencies.items()}):
+    order, cycle_failures = _dependency_order(
+        {ref: used & parsed.keys() for ref, used in dependencies.items()}
+    )
+    failed |= cycle_failures
+    for ref in order:
         used = sorted(dependencies[ref])
         if at_fault := next((failed[used_ref] for used_ref in used if used_ref in failed), None):
             failed[ref] = at_fault
@@ -197,13 +208,12 @@ def rewrite_references(data: Any, replacements: Mapping[str, str]) -> Any:
     return data
 
 
-def _parsed_file(text: str) -> tuple[Any, MethodFile]:
+def _load_yaml(text: str) -> tuple[Any, Any]:
     try:
         document = load_yaml_with_lines(text)
-        data = as_plain_data(document)
+        return document, as_plain_data(document)
     except InvalidError as error:
         raise MethodFileError(str(error)) from None
-    return document, _validated(document, data)
 
 
 def _validated(document: Any, data: Any) -> MethodFile:
@@ -228,9 +238,19 @@ def _composed_method(
         ) from None
 
 
-def _dependency_order(dependencies: Mapping[str, set[str]]) -> list[str]:
-    try:
-        return list(TopologicalSorter(dependencies).static_order())
-    except CycleError as error:
-        cycle = error.args[1]
-        raise MethodFileError(f"{cycle[0]} can't use itself: {' → '.join(cycle)}.") from None
+def _dependency_order(
+    dependencies: Mapping[str, set[str]],
+) -> tuple[list[str], dict[str, FailedFile]]:
+    """The refs in dependency order, and why those in a cycle fail."""
+    cycle_failures: dict[str, FailedFile] = {}
+    while True:
+        try:
+            return list(TopologicalSorter(dependencies).static_order()), cycle_failures
+        except CycleError as error:
+            cycle = error.args[1][:-1]
+            for index, ref in enumerate(cycle):
+                path = [*cycle[index:], *cycle[: index + 1]]
+                cycle_failures[ref] = FailedFile(ref, [f"Can't use itself: {' → '.join(path)}."])
+            dependencies = {
+                ref: used - set(cycle) for ref, used in dependencies.items() if ref not in cycle
+            }

@@ -2,9 +2,9 @@ import re
 
 from pydantic import Field, field_validator
 
-from ...common.hints import ADVANCED_HINT
-from ...common.text import as_sentence, code_span
+from ...common.text import code_span
 from ...questions.base import Question
+from ...questions.text import TextQuestion
 from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
@@ -18,22 +18,6 @@ class PatternSettings(Settings):
         min_length=1,
         title="Pattern",
         examples=["^colou?r$"],
-    )
-    ignore_case: bool = Field(
-        default=False,
-        title="Ignore case",
-        json_schema_extra=ADVANCED_HINT,
-    )
-    multi_line: bool = Field(
-        default=False,
-        title="Match each line",
-        description="^ and $ match at each line, not only the whole answer.",
-        json_schema_extra=ADVANCED_HINT,
-    )
-    dotall: bool = Field(
-        default=False,
-        title="Dot matches line breaks",
-        json_schema_extra=ADVANCED_HINT,
     )
 
     @field_validator("pattern")
@@ -57,7 +41,8 @@ class Pattern(AnswerMethod[PatternSettings]):
         "**How it marks:** The answer gets full marks if the pattern is found anywhere in it. "
         "Patterns use [Python's regular expression syntax]"
         "(https://docs.python.org/3/library/re.html#regular-expression-syntax). Start the "
-        "pattern with `^` and end it with `$` to match the whole answer.\n\n"
+        "pattern with `^` and end it with `$` to match the whole answer. On a question that keeps "
+        "case, start it with `(?i)` to ignore case.\n\n"
         "**Good to know:** A pattern checks the form, not the value, so `6/8` matches "
         "`^\\d+/\\d+$`. Pair it with a check of the value in a Combination.\n\n"
         "**Related:** When a list of answers or words will do, use Accepted Answers or Key "
@@ -69,28 +54,14 @@ class Pattern(AnswerMethod[PatternSettings]):
     examples = examples_beside(__file__)
 
     def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
-        flag_notes = [
-            text
-            for enabled, text in (
-                (settings.ignore_case, "ignoring case"),
-                (settings.multi_line, "matching each line"),
-                (settings.dotall, "with a dot matching line breaks"),
-            )
-            if enabled
-        ]
-        return as_sentence(
-            ", ".join([f"Matches the pattern {code_span(settings.pattern)}", *flag_notes])
-        )
+        return f"Matches the pattern {code_span(self._settings_of(check).pattern)}."
 
     def _mark_answer(
         self, settings: PatternSettings, answer: Answer, question: Question
     ) -> Outcome:
-        flags = (
-            (re.IGNORECASE if settings.ignore_case else re.NOFLAG)
-            | (re.MULTILINE if settings.multi_line else re.NOFLAG)
-            | (re.DOTALL if settings.dotall else re.NOFLAG)
-        )
+        # Answers to a question that ignores case are lowercased, so the pattern ignores it too.
+        ignores_case = isinstance(question, TextQuestion) and question.reading.ignore_case
+        flags = re.IGNORECASE if ignores_case else re.NOFLAG
         is_match = re.search(settings.pattern, str(answer), flags) is not None
         return Outcome(
             float(is_match), "Correct format." if is_match else "Not in the expected format."

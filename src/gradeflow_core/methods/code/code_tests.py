@@ -1,11 +1,11 @@
 import textwrap
+from collections.abc import Iterator
 from dataclasses import replace
-from functools import lru_cache
-from typing import Any
 
 from pydantic import ConfigDict, Field
 
 from ...common.hints import ADVANCED_HINT, PYTHON_CODE_HINT, hint
+from ...common.problems import Problem
 from ...common.text import (
     as_sentence,
     capitalized,
@@ -21,11 +21,13 @@ from ..example import examples_beside
 from ..logic.combination import (
     COMBINE_LABELS,
     Combine,
+    ignored_weight_problems,
     proportion_and_parts,
     weight_notes,
 )
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Detail, Outcome
+from ..position import Position
 from ..settings import Settings
 from . import runner
 from .code_fixes import CodeFixes, best_fixed_outcome, fixes_field
@@ -144,6 +146,11 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
         )
         return f"Passes {_which_tests(combine, len(tests))}:\n{test_lines}"
 
+    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
+        settings = self._settings_of(check)
+        weights = [test.weight for test in settings.tests]
+        yield from ignored_weight_problems(weights, settings.combine, "tests")
+
     def _mark_answer(
         self, settings: CodeTestsSettings, answer: Answer, question: Question
     ) -> Outcome:
@@ -250,70 +257,62 @@ def _which_tests(combine: Combine, count: int) -> str:
             return "these tests, a share for each"
 
 
-@lru_cache(maxsize=4096)
-def _evaluated_expected(expected: str, setup: TestSetup) -> str:
-    """The expected value evaluated around no student code, or as written if that fails."""
-    variables: dict[str, Any] = {}
-    try:
-        runner.run(
-            f"{setup.program_for('pass')}\nexpected = {expected}",
-            variables,
-            time_limit_s=setup.time_limit,
-            memory_limit_mb=setup.memory_limit,
-        )
-    except runner.CodeError:
-        return expected
-    return repr(variables.get("expected"))
+_TEST_PROGRAM = """
+import contextlib, io
 
-
-_COMPARISON = """
-def _types(value):
-    types, pending = set(), [value]
+def nested_types(value):
+    types, seen, pending = set(), set(), [value]
     while pending:
         item = pending.pop()
         types.add(type(item))
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
         if isinstance(item, dict):
             pending += [*item, *item.values()]
         elif isinstance(item, (list, tuple, set, frozenset)):
             pending += item
     return types
 
-_expected_types = _types(expected)
-if _expected_types & {int, float}:
-    _expected_types |= {int, float}
-passed = _types(output) <= _expected_types and output == expected
+scope = {}
+exec(program, scope)
+captured_stdout = io.StringIO()
+with contextlib.redirect_stdout(captured_stdout):
+    output = eval(expression, scope)
+printed = captured_stdout.getvalue().rstrip()[:max_length]
+output_repr = repr(output)[:max_length]
+expected_value = eval(expected, scope)
+expected_repr = repr(expected_value)[:max_length]
+expected_types = nested_types(expected_value)
+if expected_types & {int, float}:
+    expected_types |= {int, float}
+passed = bool(nested_types(output) <= expected_types and output == expected_value)
 """
-"""How a test passes: the output equals the expected value and holds no type the expected value
-doesn't, so code can't pass with an ``__eq__`` of its own. Ints and floats count as one type."""
+"""Runs the student's code, then the test. It passes when the output equals the expected value and
+holds only its types, ints and floats counting as one."""
 
 
 def _outcome_of_test(code: str, test: Test, setup: TestSetup) -> Outcome:
     """How ``code`` does on ``test``, run inside ``setup``."""
     program = setup.program_for(code)
-    expected = _truncated(_evaluated_expected(test.expected, setup))
-    test_details = (
-        Detail("Expression", test.expression, "code"),
-        Detail("Expected", expected, "code"),
-    )
+    test_details = (Detail("Expression", test.expression, "code"),)
     if (syntax_error := _syntax_error(program, setup)) is not None:
         return Outcome(
             0.0,
             f"Couldn't run the code: {syntax_error}.",
             details=(*test_details, Detail("Output", syntax_error, "error")),
         )
-    test_code = (
-        "import contextlib as _contextlib, io as _io\n"
-        "_printed = _io.StringIO()\n"
-        "with _contextlib.redirect_stdout(_printed):\n"
-        f"    output = {test.expression}\n"
-        "printed = _printed.getvalue()\n"
-        f"expected = {test.expected}{_COMPARISON}"
-    )
-    variables: dict[str, Any] = {}
     try:
-        runner.run(
-            f"{program}\n{test_code}",
-            variables,
+        returned = runner.run(
+            _TEST_PROGRAM,
+            {
+                "program": program,
+                "expression": test.expression,
+                "expected": test.expected,
+                # One more character than feedback shows, so _truncated can tell a longer value.
+                "max_length": MAX_SHOWN_LENGTH + 1,
+            },
+            ("printed", "output_repr", "expected_repr", "passed"),
             time_limit_s=setup.time_limit,
             memory_limit_mb=setup.memory_limit,
         )
@@ -321,17 +320,27 @@ def _outcome_of_test(code: str, test: Test, setup: TestSetup) -> Outcome:
         failure = as_sentence(f"{test.expression} failed: {error.reason}")
         return Outcome(
             0.0,
-            f"{failure} Expected {expected}.",
-            details=(*test_details, Detail("Output", error.reason, "error")),
+            f"{failure} Expected {test.expected}.",
+            details=(
+                *test_details,
+                Detail("Expected", test.expected, "code"),
+                Detail("Output", error.reason, "error"),
+            ),
         )
-    output = _truncated(repr(variables.get("output")))
-    output_details = (*test_details, Detail("Output", output, "code"))
-    if variables.get("passed"):
+    output, expected = (
+        _truncated(str(returned.get(name))) for name in ("output_repr", "expected_repr")
+    )
+    output_details = (
+        *test_details,
+        Detail("Expected", expected, "code"),
+        Detail("Output", output, "code"),
+    )
+    if returned.get("passed") is True:
         return Outcome(
             1.0, f"{test.expression} gave {output}, as expected.", details=output_details
         )
     feedback = f"{test.expression} gave {output}. Expected {expected}."
-    if printed := _truncated(str(variables.get("printed", "")).rstrip()):
+    if printed := _truncated(str(returned.get("printed", ""))):
         return Outcome(
             0.0,
             f"{feedback} It printed {quoted(printed)}.",
@@ -351,7 +360,7 @@ def _syntax_error(program: str, setup: TestSetup) -> str | None:
     try:
         compile(program, "<code>", "exec")
     except SyntaxError as error:
-        line = (error.lineno or 0) - setup.code_before.count("\n") - 1
-        line_note = f" (line {line})" if line > 0 else ""
-        return f"SyntaxError: {error.msg}{line_note}"
+        return runner.syntax_error_text(
+            error, (error.lineno or 0) - setup.code_before.count("\n") - 1
+        )
     return None

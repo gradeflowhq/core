@@ -160,7 +160,9 @@ def _problem_results(marking: Check, questions: QuestionSet) -> _Results | None:
     try:
         keys = marking.questions_marked()
     except InvalidError, TemplateError:
-        keys = {marking.question} if marking.question else set()
+        keys = set()
+    # An empty Combination marks no question, so its marking's question gets the problem.
+    keys = keys or ({marking.question} if marking.question else set())
     feedback = " ".join(map(str, problems))
     return {
         key: _unmarked_result(questions[key], feedback, marking.method.label)

@@ -179,7 +179,7 @@ def test_trying_models_tries_again_those_that_errored(fake_models: InstallFakeMo
         model="decider",
         role="fast",
         rows_matched=0,
-        rows_tried=0,
+        rows_tried=None,
         seconds=0.1,
         failure="The AI service answered 503.",
     )
@@ -187,6 +187,16 @@ def test_trying_models_tries_again_those_that_errored(fake_models: InstallFakeMo
         ("decider", "fast"),
         ("decider", "careful"),
     ]
+
+
+def test_trying_models_skips_those_that_refused_a_role(fake_models: InstallFakeModels) -> None:
+    fake = fake_models(example_verdicts)
+    fake.models = ["reasoner"]
+    fake.without_logprobs = {"reasoner"}
+    [refused, passed] = try_models(ENDPOINT)
+    assert (refused.role, refused.rows_tried, passed.role) == ("fast", 0, "careful")
+    assert list(try_models(ENDPOINT, [refused, passed])) == []
+    assert best_models([refused, passed]) == (None, "reasoner")
 
 
 def test_trying_models_says_when_each_test_starts(fake_models: InstallFakeModels) -> None:
@@ -204,9 +214,9 @@ def test_trying_models_says_why_a_model_fails(fake_models: InstallFakeModels) ->
     fake = fake_models(example_verdicts)
     fake.models = ["decider"]
     fake.listed_models = ["gone", "decider"]
-    assert [trial.failure for trial in try_models(ENDPOINT) if trial.model == "gone"] == [
-        "The AI service has no such model."
-    ] * 2
+    assert [
+        (trial.rows_tried, trial.failure) for trial in try_models(ENDPOINT) if trial.model == "gone"
+    ] == [(None, "The AI service has no such model.")] * 2
 
 
 def test_trying_models_at_an_address_with_none_says_so(fake_models: InstallFakeModels) -> None:

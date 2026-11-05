@@ -6,7 +6,7 @@ from io import StringIO
 from typing import Any
 
 from ruamel.yaml import YAML
-from ruamel.yaml.composer import MaxDepthExceededError
+from ruamel.yaml.composer import Composer, ComposerError, MaxDepthExceededError
 from ruamel.yaml.constructor import DuplicateKeyError
 from ruamel.yaml.error import YAMLError
 from ruamel.yaml.nodes import ScalarNode
@@ -21,7 +21,17 @@ _MAX_DEPTH = 100
 _DUPLICATE_KEY = re.compile(r'found duplicate (?:merge )?key "(.*?)"(?: with value "|$)', re.DOTALL)
 
 
+class _Composer(Composer):
+    def return_alias(self, a: Any) -> Any:
+        mark = self.parser.last_event.start_mark
+        raise ComposerError(None, None, "Anchors and aliases aren't supported", mark)
+
+
 class _Representer(RoundTripRepresenter):
+    def ignore_aliases(self, data: Any) -> bool:
+        """Never writes aliases, as loading refuses them."""
+        return True
+
     def represent_str(self, data: str) -> ScalarNode:
         """``data``, as a block if it has several lines, as people write code."""
         style = "|" if "\n" in data else None
@@ -33,6 +43,7 @@ _Representer.add_representer(str, _Representer.represent_str)
 
 def _new_yaml() -> YAML:
     yaml = YAML(typ="rt")
+    yaml.Composer = _Composer
     yaml.Representer = _Representer
     yaml.default_flow_style = False
     yaml.indent(mapping=2, sequence=4, offset=2)

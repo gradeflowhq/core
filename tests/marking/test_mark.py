@@ -136,6 +136,13 @@ def test_a_marking_with_problems_leaves_its_questions_for_a_person_saying_why() 
     assert results["Q1"].is_marked
 
 
+def test_an_empty_combination_leaves_its_question_for_a_person_saying_why() -> None:
+    empty = {"question": "Q1", "uses": "gradeflow/combination@1", "with": {"checks": []}}
+    result = results_of(empty, Q1="a")["Q1"]
+    assert (result.proportion, result.is_marked) == (0, False)
+    assert result.feedback == "checks: Add at least one check."
+
+
 def test_results_hold_a_proportion_of_the_questions_marks() -> None:
     result = QuestionResult(proportion=0.1 + 0.2, max_marks=3, method_label="Key Points")
     assert result.marks == pytest.approx(0.9)

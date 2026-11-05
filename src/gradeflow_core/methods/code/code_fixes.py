@@ -17,7 +17,7 @@ from rapidfuzz.distance import OSA
 
 from ...common.hints import ADVANCED_HINT, hint
 from ...common.text import capitalized, format_number, quoted
-from ...questions.layouts import BRACKETS, CLOSERS, OPENERS, guess_layouts
+from ...questions.layouts import BRACKETS, CLOSERS, COMPOUND, OPENERS, guess_layouts
 from ..outcome import Detail, Outcome
 from ..settings import Settings
 
@@ -56,9 +56,8 @@ STATEMENT_KEYWORDS = frozenset(
         "yield",
     }
 )
-HEADER_KEYWORDS = frozenset(
-    {"class", "def", "elif", "else", "except", "finally", "for", "if", "try", "while", "with"}
-)
+# A soft keyword can also be a name, as in "match = 1".
+HEADER_KEYWORDS = COMPOUND - frozenset(keyword.softkwlist)
 CONDITION_KEYWORDS = frozenset({"if", "elif", "while"})
 STANDALONE_KEYWORDS = frozenset({"pass", "break", "continue", "return", "else", "try", "finally"})
 KEYWORDS_BEFORE_COLON = frozenset({"else", "try", "finally", "except"})
@@ -175,7 +174,8 @@ def best_fixed_outcome(
     code: str, fixes: CodeFixes, setup: str, mark: Callable[[str], Outcome]
 ) -> Outcome:
     """The best outcome ``mark`` gives ``code`` or one of its fixed versions, less the fixes'
-    penalty; the earliest on a tie. ``setup`` is the code run before it."""
+    penalty: the most marks, then no error, then the earliest. ``setup`` is the code run before
+    it."""
     best = mark(code)
     best_version: FixedCode | None = None
     for version in fixed_versions(code, fixes.enabled_kinds, setup):
@@ -185,7 +185,11 @@ def best_fixed_outcome(
         outcome = replace(
             outcome, proportion=outcome.proportion * (1 - fixes.total_penalty(version))
         )
-        if (outcome.marked, outcome.proportion) > (best.marked, best.proportion):
+        if (outcome.marked, outcome.proportion, outcome.first_error() is None) > (
+            best.marked,
+            best.proportion,
+            best.first_error() is None,
+        ):
             best, best_version = outcome, version
     if best_version is None:
         return best
@@ -318,7 +322,7 @@ def _bracket_fix(statement: list[TokenInfo], *, code_ends: bool) -> _LineFix | N
             continue
         if not (opened := _open_brackets(statement[: index + 1])):
             continue
-        if token.string == ":" and statement[0].string in HEADER_KEYWORDS:
+        if token.string == ":" and _statement_keyword(statement) in HEADER_KEYWORDS:
             position = token.start
         elif _is_operand(token):
             position = token.end
@@ -378,7 +382,7 @@ def _quote_fix(
     end = len(line)
     if (
         unfinished_statement
-        and unfinished_statement[0].string in HEADER_KEYWORDS
+        and _statement_keyword(unfinished_statement) in HEADER_KEYWORDS
         and line.endswith(":")
         and end > start + 1
     ):
@@ -449,7 +453,7 @@ def _condition_fix(statement: list[TokenInfo]) -> _LineFix | None:
 
 def _colon_fix(statement: list[TokenInfo], lines: list[str]) -> _LineFix | None:
     """The ``:`` a block header ends with."""
-    if statement[0].string not in HEADER_KEYWORDS or any(
+    if _statement_keyword(statement) not in HEADER_KEYWORDS or any(
         token.string == ":" for token in _top_level_tokens(statement)
     ):
         return None
@@ -457,6 +461,13 @@ def _colon_fix(statement: list[TokenInfo], lines: list[str]) -> _LineFix | None:
     header = lines[end[0] - 1][: end[1]].strip()
     description = f"line {end[0]}, added {quoted(':')} after {quoted(header)}"
     return _Edit(end, end, ":"), Fix("colons", description)
+
+
+def _statement_keyword(statement: list[TokenInfo]) -> str:
+    """The statement's first word, after any ``async``."""
+    if statement[0].string == "async" and len(statement) > 1:
+        return statement[1].string
+    return statement[0].string
 
 
 def _top_level_tokens(statement: list[TokenInfo]) -> Iterator[TokenInfo]:

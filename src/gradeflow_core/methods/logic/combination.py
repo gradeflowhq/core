@@ -339,7 +339,8 @@ def _best_check(
     check_outcomes: CheckOutcomes, questions: QuestionSet
 ) -> tuple[Check, dict[QuestionId, Outcome]]:
     """The check giving the most marks over the questions it marks, the first on a tie, and its
-    outcomes. Questions only other checks mark get no marks."""
+    outcomes. Questions only other checks mark get no marks. An answer stays unmarked while a check
+    that couldn't mark it could give more."""
 
     def total(item: tuple[Check, dict[QuestionId, Outcome]]) -> float:
         check, outcomes = item
@@ -358,15 +359,25 @@ def _best_check(
             return f"{outcome.name or 'Partly correct'} ({best_check.weight:.0%} of the marks)."
         return outcome.feedback
 
-    return best_check, {
-        key: Outcome(
-            clamped(best_check.weight * outcome.proportion),
-            best_feedback(outcome),
-            marked=outcome.marked,
+    def best_outcome(key: QuestionId, outcome: Outcome) -> Outcome:
+        proportion = clamped(best_check.weight * outcome.proportion)
+        unmarked_worth_more = tuple(
+            part
+            for check, outcomes in check_outcomes
+            if check is not best_check
+            and (part := outcomes.get(key)) is not None
+            and not part.marked
+            and check.weight > proportion
+        )
+        feedback_lines = (_joined_feedback(unmarked_worth_more), best_feedback(outcome))
+        return Outcome(
+            proportion,
+            "\n".join(line for line in feedback_lines if line),
+            marked=outcome.marked and not unmarked_worth_more,
             parts=tuple(outcomes[key] for _, outcomes in check_outcomes if key in outcomes),
         )
-        for key, outcome in best_outcomes.items()
-    }
+
+    return best_check, {key: best_outcome(key, outcome) for key, outcome in best_outcomes.items()}
 
 
 def _max_marks(questions: QuestionSet, key: QuestionId) -> float:
@@ -451,9 +462,13 @@ class Combination(Method[CombinationSettings]):
         return True
 
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
+        settings = self._settings_of(check)
         # Only a written list needs a check: a method file may fill one from an optional input.
-        if not self._settings_of(check).checks and not check._from_method_file:  # noqa: SLF001
+        if not settings.checks and not check._from_method_file:  # noqa: SLF001
             yield Problem("Add at least one check.", field=("checks",), is_incomplete=True)
+        yield from ignored_weight_problems(
+            [inner.weight for inner in settings.checks], settings.combine, "checks"
+        )
 
 
 def _collapsed_to_only_child(outcome: Outcome) -> Outcome:
@@ -487,6 +502,19 @@ def weight_notes(weight: float, combine: Combine) -> tuple[str, ...]:
     if combine in ADDITIVE_COMBINES:
         return (f"weight {format_number(weight)}",)
     return (f"{weight:.0%} of the marks",) if combine == "any" else ()
+
+
+def ignored_weight_problems(
+    weights: Sequence[float], combine: Combine, field: str
+) -> Iterator[Problem]:
+    """A problem at each weight but 1, as ``all`` and ``none`` don't use weights."""
+    if combine in ("all", "none"):
+        for index, weight in enumerate(weights):
+            if weight != 1:
+                yield Problem(
+                    f"“{COMBINE_LABELS[combine]}” doesn't use weights.",
+                    field=(field, index, "weight"),
+                )
 
 
 def _earlier_result(outcomes: dict[QuestionId, Outcome]) -> EarlierResult:

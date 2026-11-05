@@ -65,6 +65,12 @@ def test_similar_spelling_compares_runs_of_as_many_words() -> None:
     assert describe(check) == "Includes `carbon dioxide` in similar spelling."
 
 
+def test_similar_spelling_ignores_punctuation_around_the_points_words_too() -> None:
+    check = {"uses": KEY_POINT, "with": {"point": "H2O.", "match": "spelling"}}
+    result = mark(check, "Water is H2O.")
+    assert (result.proportion, result.feedback) == (1, "Has “H2O”.")
+
+
 @pytest.mark.parametrize(
     ("strictness", "expected"),
     [("lenient", [1, 1, 1]), ("normal", [1, 1, 0]), ("strict", [1, 0, 0])],

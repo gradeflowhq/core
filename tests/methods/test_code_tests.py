@@ -1,5 +1,4 @@
 import errno
-from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -8,7 +7,7 @@ from pydantic import ValidationError
 from gradeflow_core.methods.code import code_tests as code_tests_module
 from gradeflow_core.methods.code import runner
 
-from .helpers import CODE_QUESTION, code_tests, describe, mark, mark_all, proportions
+from .helpers import CODE_QUESTION, code_tests, describe, mark, problems_of
 
 F_GIVES_1 = {"expression": "f()", "expected": "1"}
 G_GIVES_2 = {"expression": "g()", "expected": "2"}
@@ -32,6 +31,11 @@ def test_a_test_compares_the_expression_with_the_expected_value(
             "f() failed: NameError: name 'undefined_variable' is not defined. Expected 1.",
         ),
         ("oops(", "Couldn't run the code: SyntaxError: '(' was never closed (line 1)."),
+        (
+            "def f():\n    x = 1\n  return x",
+            "Couldn't run the code: IndentationError: unindent does not match any outer "
+            "indentation level (line 3).",
+        ),
         (
             "def f():\n    while True:\n        pass",
             "f() failed: it took longer than 1 second. Expected 1.",
@@ -82,6 +86,27 @@ def test_feedback_shows_values_as_python_writes_them() -> None:
     ).feedback == ("Passed 1 of 2 tests.\ng() gave 'a'. Expected 'b'.")
 
 
+@pytest.mark.parametrize(
+    ("returned", "expected", "feedback"),
+    [
+        ("(1, 2)", "(1, 3)", "f() gave (1, 2). Expected (1, 3)."),
+        ("{1: 'a'}", "{1: 'b'}", "f() gave {1: 'a'}. Expected {1: 'b'}."),
+        ("{1, 2}", "frozenset({1, 2})", "f() gave {1, 2}. Expected frozenset({1, 2})."),
+        ("BrokenRepr()", "4", "f() failed: ValueError. Expected 4."),
+        ("'x' * 300", "''", f"f() gave '{'x' * 199}…. Expected ''."),
+    ],
+)
+def test_feedback_shows_values_as_the_code_gave_them(
+    returned: str, expected: str, feedback: str
+) -> None:
+    answer = (
+        "class BrokenRepr:\n    def __repr__(self):\n        raise ValueError\n"
+        f"def f():\n    return {returned}"
+    )
+    check = code_tests({"expression": "f()", "expected": expected})
+    assert mark(check, answer, CODE_QUESTION).feedback == feedback
+
+
 def test_code_that_cannot_start_is_left_for_a_person(monkeypatch: pytest.MonkeyPatch) -> None:
     unavailable = OSError(errno.EAGAIN, "Resource temporarily unavailable")
     monkeypatch.setattr(runner, "run", Mock(side_effect=unavailable))
@@ -125,28 +150,68 @@ def test_a_test_passes_only_with_the_types_it_expects(
     assert result.correct is passes
 
 
+CLASS_P = (
+    "class P:\n"
+    "    def __init__(self, x):\n        self.x = x\n"
+    "    def __eq__(self, other):\n        return isinstance(other, P) and self.x == other.x\n"
+)
+
+
+def test_a_test_may_expect_a_class_the_setup_defines() -> None:
+    check = code_tests({"expression": "f()", "expected": "P(1)"}, setup={"code_before": CLASS_P})
+    assert mark(check, "def f():\n    return P(1)", CODE_QUESTION).correct
+    assert not mark(check, "def f():\n    return P(2)", CODE_QUESTION).correct
+
+
 def test_a_test_may_expect_a_class_the_code_defines() -> None:
-    answer = (
-        "class P:\n"
-        "    def __init__(self, x):\n        self.x = x\n"
-        "    def __eq__(self, other):\n        return self.x == other.x\n"
-    )
-    result = mark(code_tests({"expression": "P(1)", "expected": "P(1)"}), answer, CODE_QUESTION)
-    assert result.correct
+    check = code_tests({"expression": "P(1)", "expected": "P(1)"})
+    assert mark(check, CLASS_P, CODE_QUESTION).correct
 
 
-def test_a_value_json_cannot_carry_still_compares() -> None:
-    assert mark(
-        code_tests({"expression": "f()", "expected": "range(3)"}),
-        "def f():\n    return range(3)",
+@pytest.mark.parametrize(
+    ("returned", "expected"),
+    [
+        ("Counter('aab')", "Counter({'a': 2, 'b': 1})"),
+        ("Fraction(2, 4)", "Fraction(1, 2)"),
+        ("range(3)", "range(0, 3)"),
+        ("Point(1, 2)", "Point(x=1, y=2)"),
+    ],
+)
+def test_a_test_may_expect_any_value_python_compares(returned: str, expected: str) -> None:
+    setup = {
+        "code_before": "from collections import Counter, namedtuple\n"
+        "from fractions import Fraction\nPoint = namedtuple('Point', 'x y')"
+    }
+    check = code_tests({"expression": "f()", "expected": expected}, setup=setup)
+    assert mark(check, f"def f():\n    return {returned}", CODE_QUESTION).correct
+    assert not mark(check, "def f():\n    return Counter('xyz')", CODE_QUESTION).correct
+
+
+@pytest.mark.parametrize(
+    ("returned", "feedback"),
+    [
+        ("a", "f() gave [[...]]. Expected []."),
+        ("(x for x in a)", "f() gave <generator object f.<locals>.<genexpr>"),
+    ],
+)
+def test_output_holding_itself_or_a_generator_fails(returned: str, feedback: str) -> None:
+    answer = f"def f():\n    a = []\n    a.append(a)\n    return {returned}"
+    check = code_tests({"expression": "f()", "expected": "[]"}, setup={"time_limit": 2})
+    result = mark(check, answer, CODE_QUESTION)
+    assert (result.is_marked, result.correct) == (True, False)
+    assert result.feedback.startswith(feedback)
+
+
+def test_an_expected_value_that_fails_fails_the_test() -> None:
+    result = mark(
+        code_tests({"expression": "f()", "expected": "Q(1)"}),
+        "def f():\n    return 1",
         CODE_QUESTION,
-    ).correct
-
-
-def test_expected_values_fall_back_to_as_written() -> None:
-    check = code_tests({"expression": "f()", "expected": "undefined_name"})
-    result = mark(check, "undefined_name = 5\ndef f():\n    return 4", CODE_QUESTION)
-    assert result.feedback == "f() gave 4. Expected undefined_name."
+    )
+    assert (result.is_marked, result.feedback) == (
+        True,
+        "f() failed: NameError: name 'Q' is not defined. Expected Q(1).",
+    )
 
 
 def test_expected_values_are_worked_out_inside_indented_setup_code() -> None:
@@ -180,34 +245,23 @@ def test_setup_is_bounded(setup: dict[str, int]) -> None:
         code_tests_module.TestSetup.model_validate(setup)
 
 
-def record_expected_value_runs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """The code run to work out expected values, from now on. Worked-out values are cached, so
-    the tests using this expect values no other test does."""
-    runs: list[str] = []
-    original_run = runner.run
-
-    def recording_run(code: str, *args: Any, **kwargs: Any) -> None:
-        if "output =" not in code:
-            runs.append(code.rsplit("expected = ", 1)[-1])
-        original_run(code, *args, **kwargs)
-
-    monkeypatch.setattr(runner, "run", recording_run)
-    return runs
-
-
-def test_expected_values_are_worked_out_once_per_test(monkeypatch: pytest.MonkeyPatch) -> None:
-    runs = record_expected_value_runs(monkeypatch)
+def test_expected_values_are_shown_as_worked_out() -> None:
     check = code_tests(
         {"expression": "f()", "expected": "11 - 9"},
         {"expression": "f() * 2", "expected": "16 // 4"},
     )
-    results = mark_all(
-        check, [f"def f():\n    return {returned}" for returned in (2, 3, 4)], CODE_QUESTION
-    )
-    assert runs == ["11 - 9", "16 // 4"]
-    assert proportions(results) == [1, 0, 0]
-    assert results[1].feedback == (
+    assert mark(check, "def f():\n    return 3", CODE_QUESTION).feedback == (
         "Passed 0 of 2 tests.\nf() gave 3. Expected 2.\nf() * 2 gave 6. Expected 4."
+    )
+
+
+def test_a_test_weight_where_weights_arent_used_is_a_problem() -> None:
+    check = code_tests(F_GIVES_1, {**G_GIVES_2, "weight": 2})
+    assert problems_of(check, CODE_QUESTION) == [
+        ("", ("tests", 1, "weight"), "“All must be correct” doesn't use weights.")
+    ]
+    assert (
+        problems_of({**check, "with": {**check["with"], "combine": "total"}}, CODE_QUESTION) == []
     )
 
 

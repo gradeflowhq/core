@@ -25,7 +25,8 @@ class ModelTrial(BaseModel):
     model: str
     role: Role
     rows_matched: int
-    rows_tried: int
+    rows_tried: int | None
+    """None if the service failed."""
     seconds: float
     failure: str | None
 
@@ -39,7 +40,7 @@ def try_models(
     pass, then as the careful model until two pass. A model already ``tried`` in a role counts
     without being tried again, unless the service failed on it. ``on_start`` hears of each trial as
     it starts. Raises ``GradeFlowError`` when the endpoint lists no models."""
-    earlier = {(trial.model, trial.role): trial for trial in tried if trial.rows_tried}
+    earlier = {(trial.model, trial.role): trial for trial in tried if trial.rows_tried is not None}
     model_names = model_service.list_models(endpoint)
     for role in ROLES:
         passed = 0
@@ -73,7 +74,7 @@ def try_model(endpoint: model_service.ModelEndpoint, role: Role, name: str) -> M
     start = time.monotonic()
     trial_endpoint = endpoint.model_copy(update={"fast_model": name, "careful_model": name})
 
-    def trial(rows_matched: int, rows_tried: int, failure: str | None) -> ModelTrial:
+    def trial(rows_matched: int, rows_tried: int | None, failure: str | None) -> ModelTrial:
         seconds = round(time.monotonic() - start, 1)
         return ModelTrial(
             model=name,
@@ -88,7 +89,7 @@ def try_model(endpoint: model_service.ModelEndpoint, role: Role, name: str) -> M
         if (probe_failure := _role_refusal(trial_endpoint, role, name)) is not None:
             return trial(0, 0, probe_failure)
     except model_service.ServiceError as error:
-        return trial(0, 0, str(error))
+        return trial(0, None, str(error))
     method = BUILTINS.find(ANSWER_CRITERIA)
     rows_matched = rows_tried = 0
     for example in method.examples:

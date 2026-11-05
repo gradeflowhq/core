@@ -184,14 +184,19 @@ def _strings(value: Any) -> Iterator[str]:
             yield from _strings(item)
 
 
-def validate(source: str, scope: Mapping[str, Shape], *, expression: bool = False) -> None:
-    """Refuses a template, or an expression, that uses anything not allowed or not in
-    ``scope``, the types of what it may name."""
+def validate(
+    source: str,
+    scope: Mapping[str, Shape],
+    *,
+    expression_kind: Literal["reference", "condition"] | None = None,
+) -> None:
+    """Refuses a template, or with ``expression_kind`` a bare expression, that uses anything not
+    allowed or not in ``scope``, the types of what it may name."""
     try:
-        tree = ENVIRONMENT.parse(f"{{{{ {source} }}}}" if expression else source)
+        tree = ENVIRONMENT.parse(f"{{{{ {source} }}}}" if expression_kind else source)
     except TemplateSyntaxError as error:
-        if expression:
-            raise TemplateError("Can't read this condition.") from None
+        if expression_kind:
+            raise TemplateError(f"Can't read this {expression_kind}.") from None
         raise TemplateError(f"{error.message} (line {error.lineno})") from None
     _walk(tree, dict(scope))
 
@@ -320,7 +325,7 @@ def template_errors(
     holds what they may name. Feedback may be a template for each outcome."""
     if isinstance(source := check.get("if"), str):
         try:
-            validate(expression := condition(source), scope, expression=True)
+            validate(expression := condition(source), scope, expression_kind="condition")
         except TemplateError as error:
             yield ("if",), error
         else:

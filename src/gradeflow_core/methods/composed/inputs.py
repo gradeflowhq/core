@@ -78,7 +78,9 @@ class _InputTypes:
         if not _DOTTED_NAME.fullmatch(expression):
             # A template's own refusal says best what's wrong, such as arithmetic.
             try:
-                validate(expression, dict.fromkeys(EXPANDED_NAMES, "any"), expression=True)
+                validate(
+                    expression, dict.fromkeys(EXPANDED_NAMES, "any"), expression_kind="reference"
+                )
             except TemplateError as error:
                 raise MethodFileFieldError(str(error), path) from None
             raise MethodFileFieldError(
@@ -155,10 +157,13 @@ class _InputTypes:
                     with self._collect_errors():
                         self._visit_item(item, item_info, (*path, index))
             case _ if has_template(value):
+                self.inputs_in_templates |= names_read_in(value, "inputs")
                 element = get_args(info.annotation)[0] if get_args(info.annotation) else Any
                 for index, item in enumerate(value if isinstance(value, list) else ()):
                     if (expression := reference(item)) is not None:
                         self._record(expression, element, info, (*path, index))
+                    elif not has_template(item) and (item_info := item_field(info)):
+                        _validate_literal(item, item_info, (*path, index), self.methods_by_ref)
             case _:
                 _validate_literal(value, info, path, self.methods_by_ref)
 

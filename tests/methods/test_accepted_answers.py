@@ -120,6 +120,16 @@ def test_numbers_match_as_numbers_within_the_tolerance() -> None:
     assert mark(with_tolerance, "9.9", number).feedback == "Expected about 9.81."
 
 
+def test_numbers_are_equal_only_up_to_rounding_relative_to_their_size() -> None:
+    number = NumberQuestion()
+    tiny = {"uses": ACCEPTED_ANSWERS, "with": {"answers": ["6.63e-34"]}}
+    assert proportions(mark_all(tiny, ["6.63e-34", "9e-34", "0"], number)) == [1, 0, 0]
+    tenth = {"uses": ACCEPTED_ANSWERS, "with": {"answers": ["0.3"], "tolerance": 0.1}}
+    assert proportions(mark_all(tenth, ["0.4", "0.2", "0.41"], number)) == [1, 1, 0]
+    with_tolerance = {"uses": ACCEPTED_ANSWERS, "with": {"answers": ["9.81"], "tolerance": 0.05}}
+    assert proportions(mark_all(with_tolerance, ["9.86", "9.76"], number)) == [1, 1]
+
+
 def test_it_describes_itself() -> None:
     assert (
         describe({"uses": ACCEPTED_ANSWERS, "with": {"answers": ["a", "b"]}})

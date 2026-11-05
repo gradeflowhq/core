@@ -1,7 +1,6 @@
 """Answers compared once by how alike they are, then grouped at any threshold without comparing
 them again."""
 
-import re
 import struct
 import unicodedata
 from collections.abc import Sequence
@@ -10,16 +9,13 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from rapidfuzz.fuzz import ratio
 
-from ..ml import embeddings
+from ..common.exceptions import GradeFlowError
+from ..ml import MISSING_MODEL_MESSAGE, embeddings
 
 type Similarity = Literal["exact", "normalized", "spelling", "meaning"]
 type _Index = Annotated[int, Field(ge=0, strict=True)]
 type _Score = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 type _Link = tuple[_Index, _Index, _Score]
-
-_PUNCTUATION = re.compile(r"[^\w\s]", re.UNICODE)
-_SPACE = re.compile(r"\s+")
-_NUMBER = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
 
 class AnswerComparison(BaseModel):
@@ -53,9 +49,8 @@ class AnswerComparison(BaseModel):
     def groups(self, threshold: float = 0.85) -> list[list[int]]:
         """Input indices in connected groups at ``threshold`` (0 to 1), in input order.
 
-        Equal answers always group together; numbers and blanks never join different answers.
-        Similar spelling joins chains of similar answers; in a group of similar meaning, every
-        answer is that similar to every other.
+        Equal answers always group together. Similar spelling joins chains of similar answers; in a
+        group of similar meaning, every answer is that similar to every other.
         """
         if not 0 <= threshold <= 1:
             raise ValueError("The comparison threshold must be between 0 and 1.")
@@ -77,9 +72,9 @@ def compare_answers(
 ) -> AnswerComparison:
     """Prepare ordered answers for repeated grouping at different thresholds.
 
-    Supply canonical answers from ``Question.normalize``. Exact comparison preserves text;
-    other modes overlook case, punctuation and spacing. ``normalized`` compares equality
-    only. Meaning comparison requires the ``ml`` extra and performs document inference here.
+    Supply canonical answers from ``Question.normalize``. Exact comparison preserves text; other
+    modes overlook case and spacing. ``normalized`` compares equality only. Meaning comparison needs
+    the ``ml`` extra, raising ``GradeFlowError`` without it, and performs document inference here.
     """
     index_of_key: dict[str, int] = {}
     key_indices = []
@@ -87,16 +82,11 @@ def compare_answers(
         normalized = text if similarity == "exact" else _normalized(text)
         key_indices.append(index_of_key.setdefault(normalized, len(index_of_key)))
     similarity_links: list[_Link] = []
-    if similarity in ("spelling", "meaning"):
-        comparable = {
-            key: index for key, index in index_of_key.items() if key and not _NUMBER.fullmatch(key)
-        }
-        if len(comparable) > 1:
-            keys, indices = list(comparable), list(comparable.values())
-            key_links = _meaning_links(keys) if similarity == "meaning" else _spelling_links(keys)
-            similarity_links = [
-                (indices[left], indices[right], score) for left, right, score in key_links
-            ]
+    if similarity in ("spelling", "meaning") and len(index_of_key) > 1:
+        keys = list(index_of_key)
+        similarity_links = (
+            _meaning_links(keys) if similarity == "meaning" else _spelling_links(keys)
+        )
     return AnswerComparison(
         texts=tuple(answers),
         similarity=similarity,
@@ -106,10 +96,7 @@ def compare_answers(
 
 
 def _normalized(text: str) -> str:
-    if _NUMBER.fullmatch(text.strip()):
-        return text.strip()
-    text = _PUNCTUATION.sub("", unicodedata.normalize("NFKC", text).casefold())
-    return _SPACE.sub(" ", text).strip()
+    return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
 
 
 def _spelling_links(keys: list[str]) -> list[_Link]:
@@ -134,11 +121,14 @@ def _spelling_links(keys: list[str]) -> list[_Link]:
 def _meaning_links(keys: list[str]) -> list[_Link]:
     """Complete-linkage merges as links between the merged groups' first answers, scored by
     their least similar pair."""
-    import numpy as np
-    from scipy.cluster.hierarchy import linkage
-    from scipy.spatial.distance import pdist
+    try:
+        import numpy as np
+        from scipy.cluster.hierarchy import linkage
+        from scipy.spatial.distance import pdist
 
-    vectors = embeddings.embed_texts(keys)
+        vectors = embeddings.embed_texts(keys)
+    except ImportError:
+        raise GradeFlowError(MISSING_MODEL_MESSAGE) from None
     tree = linkage(pdist(vectors, "cosine"), method="complete")
     first_answer = list(range(len(keys)))
     links = []

@@ -113,6 +113,11 @@ def test_the_correct_options_are_read_as_the_question_reads_its_own() -> None:
     ]
 
 
+def test_each_correct_option_must_read_differently() -> None:
+    check = {"uses": "gradeflow/multiple-choice@1", "with": {"correct": ["B", "C", "b"]}}
+    assert problems_of(check, CHOICE) == [("", ("correct", 2), "It reads the same as item 1.")]
+
+
 def test_its_settings_schema_offers_the_questions_options() -> None:
     multiple_choice = BUILTINS.find("gradeflow/multiple-choice@1")
     schema = multiple_choice.settings_schema(Position(QuestionSet({"Q1": CHOICE}), "Q1"))

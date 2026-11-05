@@ -164,9 +164,11 @@ def test_custom_code_marking_has_no_student_identity_and_reuses_declared_inputs(
 
     code_variables: list[dict[str, Any]] = []
 
-    def execute(code: str, variables: dict[str, Any], **kwargs: Any) -> None:
+    def execute(
+        code: str, variables: dict[str, Any], returns: tuple[str, ...], **kwargs: Any
+    ) -> dict[str, Any]:
         code_variables.append(dict(variables))
-        variables.update(correct=variables["answer"] == "yes")
+        return {"correct": variables["answer"] == "yes"}
 
     monkeypatch.setattr(code_runner, "run", execute)
     questions = QuestionSet({"Q1": TextQuestion()})

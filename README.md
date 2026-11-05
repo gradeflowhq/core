@@ -76,6 +76,8 @@ questions = QuestionSet({"Q1": NumberQuestion(max_marks=2)})
 assert QuestionSet.from_yaml(questions.to_yaml()) == questions
 ```
 
+YAML aliases are refused.
+
 ## Language models
 
 Answer Criteria asks a language model which of the lecturer's criteria an answer meets. The endpoint
@@ -110,7 +112,8 @@ for marked in mark(questions, scheme, students, model_endpoint=endpoint):
 
 `try_models` tries the endpoint's newest models on Answer Criteria's own examples, as the fast model
 and then as the careful one, until two in each role mark them all correctly. It yields each
-`ModelTrial` as it ends, skips those passed as `tried`, and calls `on_start` as each starts.
+`ModelTrial` as it ends, skips those passed as `tried` unless the service failed on them, and calls
+`on_start` as each starts.
 `best_models` picks, in each role, the one with the most answers right, then the fastest.
 
 Answers go 12 to a request (`answers_per_request`) and sheets 60 at a time (`chunk_size`), with
@@ -207,7 +210,7 @@ for method in methods.latest():
 
 Files can use each other. A bad file raises `MethodFileError` with the line at fault.
 
-The built-in Key Points is itself composed:
+A shorter version of the built-in Key Points, which is composed:
 
 ```yaml
 version: 1
@@ -230,7 +233,8 @@ checks:
 
 An input takes the type of the setting it fills, and is required without a `default`. `for_each`
 repeats a check with `item` and `index`. With `combine: proportional`, weights share out the marks.
-With `combine: total`, each weight is a number of marks, capped at full marks. Templates are
+With `combine: total`, each weight is a number of marks, capped at full marks. With `combine: any`, a
+weight is the share of the marks a check can give; `all` and `none` don't use weights. Templates are
 sandboxed Jinja, and `{{ … }}` on its own keeps its value's type.
 
 ## Examples
@@ -283,6 +287,7 @@ from gradeflow_core.editing import Condition, ConditionRow, MarkingDraft
 
 questions = QuestionSet.load({"Q1": {"type": "text"}})
 draft = MarkingDraft.new("gradeflow/combination@1", questions, "Q1")
+draft.update("", {"combine": "any"})
 draft.add("with.checks.0", "gradeflow/accepted-answers@1")
 draft.update("with.checks.0", {"answers": ["Paris"]})
 draft.add("with.checks.1", "gradeflow/key-points@1")
@@ -386,9 +391,10 @@ and YAML (`load_yaml`, `dump_yaml`).
 
 ## Running code
 
-Custom Code and Code Tests run CPython 3.14 in a fresh [Eryx](https://github.com/eryx-org/eryx)
-WebAssembly sandbox, with the standard library but no host files, packages or network. A run gets 5
-seconds (Code Tests allows up to 60), 512 MiB of memory, and 1 MiB each of output and result.
+Custom Code, Custom Code for a Group and Code Tests run CPython 3.14 in a fresh
+[Eryx](https://github.com/eryx-org/eryx) WebAssembly sandbox, with the standard library but no host
+files, packages or network. A run gets 5 seconds and 512 MiB of memory unless its check sets up to 60
+seconds and 1 GiB, and 1 MiB each of output and returned values.
 
 ## Adding to the library
 
@@ -399,7 +405,7 @@ Built-in methods are in `src/gradeflow_core/methods/`, in `answers/`, `text/`, `
 - **Coded method:** a subclass of `AnswerMethod` or `Method`, an instance in `PYTHON_METHODS`, its name in
   `CATALOGUE_ORDER`, and its examples in `<method-name>.examples.yaml` beside it.
 - **Question type:** a subclass of `Question` implementing `read` and `python_type`, added to
-  `AnyQuestion` in `questions/__init__.py` and to `QuestionType`.
+  `AnyQuestion` in `questions/__init__.py` and to `QuestionType` in `questions/types.py`.
 
 The tests check that each built-in's examples get the results they declare.
 

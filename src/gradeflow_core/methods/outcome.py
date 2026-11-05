@@ -8,7 +8,7 @@ FULL_MARKS_PROPORTION = 1 - 1e-9
 NO_MARKS_PROPORTION = 1e-9
 """A proportion this close to 0 is no marks, so 0.1 + 0.2 - 0.3 in a sum gives none."""
 ROUNDING_TOLERANCE = 1e-6
-"""Numbers this close count as equal, so rounding in sums such as 9.81 + 0.05 doesn't matter."""
+"""Marks this close count as equal."""
 
 type Effect = Literal[
     "earned", "partial", "no_marks", "penalty", "uncounted", "met", "not_met", "unmarked"

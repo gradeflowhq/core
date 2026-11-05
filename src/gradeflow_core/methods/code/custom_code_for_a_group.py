@@ -1,5 +1,4 @@
 from collections.abc import Iterator, Mapping
-from typing import Any
 
 from pydantic import Field
 
@@ -13,14 +12,15 @@ from ..method import Method
 from ..outcome import Outcome
 from ..position import Position
 from ..settings import Settings, literal, specialized
+from . import runner
 from .custom_code import (
     MEMORY_LIMIT_FIELD,
     RESULT_VARIABLES_HELP,
     TIME_LIMIT_FIELD,
+    code_error_outcome,
     code_failure,
     code_problems,
     outcome_from_variables,
-    run_failure,
 )
 from .parameters import PARAMETERS_FIELD, Parameter, ParameterName, parameter_values
 
@@ -106,20 +106,24 @@ class CustomCodeForAGroup(Method[CustomCodeForAGroupSettings]):
         answers = {
             question_id: context.answers.get(question_id) for question_id in settings.questions
         }
-        variables: dict[str, Any] = {
+        variables = {
             "answers": {
                 question_id: None if isinstance(answer, Unreadable) else answer
                 for question_id, answer in answers.items()
             },
             **parameter_values(settings.parameters),
         }
-        if (
-            error := run_failure(
-                settings.code, variables, settings.time_limit, settings.memory_limit
+        try:
+            returned = runner.run(
+                settings.code,
+                variables,
+                ("results",),
+                time_limit_s=settings.time_limit,
+                memory_limit_mb=settings.memory_limit,
             )
-        ) is not None:
-            return dict.fromkeys(settings.questions, code_failure(error))
-        results = variables.get("results")
+        except runner.CodeError as error:
+            return dict.fromkeys(settings.questions, code_error_outcome(error))
+        results = returned.get("results")
         if not isinstance(results, Mapping):
             return dict.fromkeys(
                 settings.questions,

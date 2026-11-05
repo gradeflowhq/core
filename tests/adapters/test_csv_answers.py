@@ -114,3 +114,32 @@ def test_csv_adapter_marks_may_have_spaces() -> None:
         student_id_column="student_id", answer_columns=["q1"], marks_columns={"q1": "marks"}
     ).read("student_id,q1,marks\ns1,answer, 1.5 \n")
     assert submissions[0].marks == {"q1": 1.5}
+
+
+def test_csv_adapter_reads_a_file_starting_with_a_byte_order_mark() -> None:
+    submissions = AnswersCsv(student_id_column="student_id", answer_columns=["q1"]).read(
+        "\ufeffstudent_id,q1\ns1,a\n"
+    )
+    assert submissions[0].student_id == "s1"
+
+
+def test_csv_adapter_refuses_a_column_written_twice() -> None:
+    with pytest.raises(GradeFlowError) as caught:
+        AnswersCsv(student_id_column="id", answer_columns=["q1"]).read("id,q1,q2,q1\ns1,a,b,c\n")
+    assert str(caught.value) == "The “q1” column is written twice."
+
+
+@pytest.mark.parametrize(
+    "text", ['id,q1\ns1,"' + "x" * 200_000 + '"\n', "x" * 200_000 + "\n"], ids=["answer", "header"]
+)
+def test_csv_adapter_refuses_a_cell_too_long(text: str) -> None:
+    with pytest.raises(GradeFlowError) as caught:
+        AnswersCsv(student_id_column="id", answer_columns=["q1"]).read(text)
+    assert str(caught.value) == "A cell is too long to read. A quote mark left open can cause this."
+
+
+def test_csv_adapter_reads_a_lone_carriage_return_as_a_line_break() -> None:
+    submissions = AnswersCsv(student_id_column="id", answer_columns=["q1"]).read(
+        'id,q1\rs1,"two\rlines"\rs2,b\r'
+    )
+    assert [submission.answers["q1"] for submission in submissions] == ["two\rlines", "b"]

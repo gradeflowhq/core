@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from typing import IO, Any
 
 import eryx
@@ -24,7 +25,7 @@ MIN_MEMORY_LIMIT_MB = 32
 """Enough for the sandbox to start, which takes about 16 MiB, and some code."""
 MAX_MEMORY_LIMIT_MB = 1024
 OUTPUT_LIMIT_MB = 1
-"""Each stream's, as Eryx truncates one at 1 MiB."""
+"""For stdout and stderr together, as Eryx truncates each at 1 MiB."""
 VARIABLES_LIMIT_MB = 1
 _WORKER_GRACE_S = 5
 """How long the host waits beyond the time limit for a worker, which may first have to start."""
@@ -39,22 +40,16 @@ def encode_set(value):
 def decode_set(value):
     return set(value["__set__"]) if value.keys() == {"__set__"} else value
 
-def is_encodable(value):
-    try:
-        json.dumps(value, default=encode_set)
-        return True
-    except (TypeError, ValueError, RecursionError):
-        return False
-
-def execute(code, variables):
+def execute(code, variables, return_names):
     scope = json.loads(variables, object_hook=decode_set)
     exec(compile(code, "<code>", "exec"), scope)
-    returned_variables = {
-        name: value
-        for name, value in scope.items()
-        if name != "__builtins__" and is_encodable(value)
-    }
-    return json.dumps(returned_variables, default=encode_set)
+    returned = {name: scope[name] for name in return_names if name in scope}
+    for name, value in returned.items():
+        try:
+            json.dumps(value, default=encode_set)
+        except (TypeError, ValueError, RecursionError):
+            raise TypeError(f"{name} isn't a JSON value or a set") from None
+    return json.dumps(returned, default=encode_set)
 """
 
 
@@ -64,6 +59,12 @@ class CodeError(GradeFlowError):
     def __init__(self, reason: str) -> None:
         self.reason = shortened_reason(reason)
         super().__init__(self.reason)
+
+
+def syntax_error_text(error: SyntaxError, line: int | None) -> str:
+    """``error`` as Python shows it, with ``line`` if it is 1 or more."""
+    line_note = f" (line {line})" if line and line > 0 else ""
+    return f"{type(error).__name__}: {error.msg}{line_note}"
 
 
 def _encode_set(value: object) -> object:
@@ -81,24 +82,23 @@ def _timeout_error(time_limit_s: int) -> CodeError:
 
 
 def _returned_variables(execution: eryx.ExecuteResult) -> str:
-    """The variables the guest returned, as JSON. The guest encodes them itself, as Eryx's
+    """The guest's JSON of the variables it returned. The guest encodes them itself, as Eryx's
     encoding refuses NaN and infinity."""
     if execution.result_error:
         raise CodeError(execution.result_error)
     if execution.result_json is None:
         # Eryx ends a run whose code raises SystemExit(None) or SystemExit(0) as a success.
         raise CodeError("SystemExit")
-    encoded = json.loads(execution.result_json)
-    if not isinstance(encoded, str):
-        raise CodeError("Code returned invalid variables.")
-    if len(encoded.encode()) > VARIABLES_LIMIT_MB * 1024**2:
+    if len(execution.result_json.encode()) > VARIABLES_LIMIT_MB * 1024**2:
         raise CodeError(f"result exceeded {VARIABLES_LIMIT_MB} MiB")
-    return encoded
+    return execution.result_json
 
 
 def _decode(encoded: str) -> dict[str, Any]:
+    """``encoded`` read with nested sets. Code can break the guest's encoding, so a failure is the
+    code's own error."""
     try:
-        variables = json.loads(encoded, object_hook=_decode_set)
+        variables = json.loads(json.loads(encoded), object_hook=_decode_set)
     except (TypeError, ValueError, RecursionError) as error:
         raise CodeError("Code returned invalid variables.") from error
     if not isinstance(variables, dict):
@@ -106,10 +106,13 @@ def _decode(encoded: str) -> dict[str, Any]:
     return variables
 
 
-def _execute(code: str, variables: str, time_limit_s: int, memory_limit_mb: int) -> str:
-    """Runs ``code`` in a fresh sandbox with ``variables``, as JSON, and returns its variables as
-    JSON. Runs in a worker, as a sandbox can abort the process running it."""
-    source = f"{_GUEST_PROGRAM}\nresult = execute({code!r}, {variables!r})\n"
+def _execute(
+    code: str, variables: str, return_names: list[str], time_limit_s: int, memory_limit_mb: int
+) -> str:
+    """Runs ``code`` in a fresh sandbox with ``variables``, as JSON, and returns those of
+    ``return_names`` it set, as JSON. Runs in a worker, as a sandbox can abort the process running
+    it."""
+    source = f"{_GUEST_PROGRAM}\nresult = execute({code!r}, {variables!r}, {return_names!r})\n"
     cancel = eryx.CancelToken()
     output_bytes = 0
 
@@ -250,21 +253,22 @@ atexit.register(_worker.close)
 
 def run(
     code: str,
-    variables: dict[str, Any],
+    variables: Mapping[str, Any],
+    return_names: tuple[str, ...],
     *,
     time_limit_s: int = TIME_LIMIT_S,
     memory_limit_mb: int = MEMORY_LIMIT_MB,
-) -> None:
-    """Run Python in a sandbox, without network access, and update variables with its JSON
-    values and nested sets.
+) -> dict[str, Any]:
+    """Run Python in a sandbox, without network access, with ``variables``, and return those of
+    ``return_names`` it set. Values in and out are JSON values and nested sets.
 
-    Unsupported output values are omitted. Variables are updated only on success.
     Sandboxes run one at a time in a worker process, so one that aborts its process fails only
     its own run.
     """
     request = {
         "code": code,
         "variables": json.dumps(variables, default=_encode_set),
+        "return_names": return_names,
         "time_limit_s": time_limit_s,
         "memory_limit_mb": memory_limit_mb,
     }
@@ -274,7 +278,7 @@ def run(
         raise GradeFlowError(response["sandbox_error"])
     if "code_error" in response:
         raise CodeError(response["code_error"])
-    variables.update(_decode(response["variables"]))
+    return _decode(response["variables"])
 
 
 if __name__ == "__main__":

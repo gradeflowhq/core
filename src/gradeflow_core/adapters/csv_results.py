@@ -5,8 +5,9 @@ from io import StringIO
 from natsort import natsorted
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..common.exceptions import GradeFlowError
 from ..common.problems import invalid_errors
-from ..common.text import format_marks
+from ..common.text import format_marks, quoted
 from ..marking.results import MarkedSubmission
 from ..questions.question_set import QuestionSet
 
@@ -49,10 +50,15 @@ class ResultsCsv(BaseModel):
             return cls.model_validate(data)
 
     def write(self, questions: QuestionSet, marked: Iterable[MarkedSubmission]) -> str:
-        """The marked submissions as CSV text, a row for each student in natural ID order."""
+        """The marked submissions as CSV text, a row for each student in natural ID order. Raises
+        ``GradeFlowError`` when two columns would share a name, such as a question named “Q1 marks”
+        and Q1's marks."""
+        header = self._header(questions)
+        if repeated := next((column for column in header if header.count(column) > 1), None):
+            raise GradeFlowError(f"The {quoted(repeated)} column would be written twice.")
         buffer = StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(self._header(questions))
+        writer.writerow(header)
         for submission in natsorted(marked, key=lambda submission: submission.student_id):
             writer.writerow(self._row(submission, questions))
         return buffer.getvalue()

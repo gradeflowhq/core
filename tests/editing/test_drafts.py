@@ -59,6 +59,29 @@ def test_checks_are_added_moved_and_removed() -> None:
     ]
 
 
+def test_a_check_moves_past_the_others_and_stops_at_either_end() -> None:
+    draft = combination_draft()
+    draft.add("with.checks.2", "gradeflow/full-marks@1")
+    draft.move("with.checks.0", 2)
+    assert [check["uses"] for check in draft.data["with"]["checks"]] == [
+        "gradeflow/key-points@1",
+        "gradeflow/full-marks@1",
+        "gradeflow/accepted-answers@1",
+    ]
+    draft.move("with.checks.2", -5)
+    assert draft.data["with"]["checks"][0]["uses"] == "gradeflow/accepted-answers@1"
+
+
+def test_a_key_no_check_has_is_kept_and_is_a_problem() -> None:
+    draft = combination_draft()
+    data = draft.data
+    data["with"]["checks"][0]["nmae"] = "Typo"
+    draft = MarkingDraft(data, QUESTIONS, "Q1")
+    draft.update("with.checks.0", {"weight": 2})
+    assert list(draft.data["with"]["checks"][0]) == ["nmae", "weight", "uses", "with"]
+    assert ("with.checks.0", ("nmae",), "Unknown setting.") in located(draft.problems)
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -132,6 +155,14 @@ def test_optional_settings_left_empty_are_not_written() -> None:
     code_uses_draft.update("", {"looks_for": "loop", "function": "", "module": ""})
     assert code_uses_draft.data["with"] == {"looks_for": "loop"}
     assert code_uses_draft.problems == []
+    defaulted_draft = combination_draft()
+    defaulted_draft.update("", {"combine": ""})
+    defaulted_draft.update("with.checks.0", {"answers": ["x"], "match": None, "tolerance": None})
+    assert defaulted_draft.data["with"]["checks"][0]["with"] == {"answers": ["x"]}
+    assert "combine" not in defaulted_draft.data["with"]
+    custom_code_draft = MarkingDraft.new("gradeflow/custom-code@1", code_questions, "Q1")
+    custom_code_draft.update("", {"code": ""})
+    assert custom_code_draft.data["with"] == {"code": ""}
 
 
 def test_a_condition_names_the_checks_it_reads_by_path_and_gives_them_ids() -> None:

@@ -7,7 +7,7 @@ from dataclasses import dataclass, fields, replace
 from itertools import chain, count
 from typing import Any, Literal, TypeGuard
 
-from pydantic import ConfigDict, ValidationError, create_model
+from pydantic import ConfigDict, TypeAdapter, ValidationError, create_model
 from pydantic_core import PydanticUndefined
 
 from ..common.documents import as_plain_data, load_yaml_with_lines, with_line
@@ -310,14 +310,18 @@ class MarkingDraft:
 
     def update(self, path: str, values: Mapping[str, Any]) -> None:
         """Sets fields of the check at ``path``; those not given stay. An optional setting left
-        empty is unset; a required one stays empty, for its problem to say so. A key a check has
-        is left out when empty or at its default there. A ``Condition`` names the checks it reads
-        by their paths, which get IDs."""
+        empty is unset, unless its type takes the empty value, as text does; a required one stays
+        empty, for its problem to say so. A key a check has is left out when empty or at its default
+        there, and a key it doesn't have is kept. A ``Condition`` names the checks it reads by their
+        paths, which get IDs."""
         node = self._check_data(path)
+        schema = self.schema(path)
         merged = {**self.values(path), **values}
         if isinstance(condition := merged.get("if"), Condition):
             merged["if"] = self._condition_template(path, condition)
-        schema = self.schema(path)
+        setting_fields = (
+            self._method(node["uses"]).settings_model_at(self.position(path)).model_fields
+        )
         defaults = {
             key: property_schema.get("default")
             for key, property_schema in schema["properties"].items()
@@ -327,20 +331,32 @@ class MarkingDraft:
             for key, value in merged.items()
             if value in EMPTY
             and key not in schema.get("required", ())
-            and defaults.get(key) is None
+            and (
+                defaults.get(key) is None
+                or (
+                    key in setting_fields
+                    and not _type_accepts(setting_fields[key].annotation, value)
+                )
+            )
         }
-        check = {
-            "uses": node["uses"],
-            "with": {
-                key: value for key, value in merged.items() if key not in (*CHECK_KEYS, *unset_keys)
+        kept = {key: value for key, value in node.items() if key not in CHECK_KEYS}
+        self._put_check(
+            path,
+            {
+                **kept,
+                "uses": node["uses"],
+                "with": {
+                    key: value
+                    for key, value in merged.items()
+                    if key not in (*CHECK_KEYS, *kept, *unset_keys)
+                },
+                **{
+                    key: value
+                    for key, value in merged.items()
+                    if key in CHECK_FIELDS and value not in (*EMPTY, defaults.get(key))
+                },
             },
-            **{
-                key: value
-                for key, value in merged.items()
-                if key in CHECK_FIELDS and value not in (*EMPTY, defaults.get(key))
-            },
-        }
-        self._put(path, {key: check[key] for key in CHECK_KEYS if key in check})
+        )
 
     def change_method(self, path: str, reference: str) -> None:
         """Gives the check at ``path`` another method, keeping where it is. When the new method
@@ -395,13 +411,17 @@ class MarkingDraft:
         siblings = get(self._data, parent)
         if not self.is_check(path) or not isinstance(index, int) or not isinstance(siblings, list):
             raise EditingError(f"{path} isn't a check in a list.")
-        if 0 <= (other_index := index + offset) < len(siblings):
-            siblings[index], siblings[other_index] = siblings[other_index], siblings[index]
-            self._cached_validation = None
+        siblings.insert(max(0, min(index + offset, len(siblings) - 1)), siblings.pop(index))
+        self._cached_validation = None
 
     def _put(self, path: str, value: Any) -> None:
         set_at(self._data, path, value)
         self._cached_validation = None
+
+    def _put_check(self, path: str, check: Mapping[str, Any]) -> None:
+        """Puts ``check`` at ``path``, its keys in ``CHECK_KEYS`` order after any others."""
+        others = {key: value for key, value in check.items() if key not in CHECK_KEYS}
+        self._put(path, others | {key: check[key] for key in CHECK_KEYS if key in check})
 
     def checks_settings(self, path: str) -> list[ChecksSetting]:
         """The settings of the check at ``path`` that hold checks."""
@@ -694,8 +714,7 @@ class MarkingDraft:
         stem = re.sub(r"\W+", "_", self.label(path).lower()).strip("_") or "check"
         stem = stem if stem[0].isalpha() else f"check_{stem}"
         name = first_unused_name(stem, taken)
-        node = {**self._check_data(path), "id": name}
-        set_at(self._data, path, {key: node[key] for key in CHECK_KEYS if key in node})
+        self._put_check(path, {**self._check_data(path), "id": name})
         return name
 
 
@@ -707,6 +726,15 @@ def _yaml_location(problem: Problem, data: JsonDict) -> Location:
         return (*path_parts(problem.check), "uses")
     is_check_key = field[0] in CHECK_KEYS or (isinstance(node, Mapping) and field[0] in node)
     return (*path_parts(problem.check), *(field if is_check_key else ("with", *field)))
+
+
+def _type_accepts(annotation: Any, value: Any) -> bool:
+    """Whether ``value`` is of type ``annotation``, ignoring its constraints."""
+    try:
+        TypeAdapter[Any](annotation).validate_python(value)
+    except ValidationError:
+        return False
+    return True
 
 
 def _not_a_check(path: str) -> EditingError:

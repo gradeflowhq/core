@@ -41,6 +41,10 @@ def test_text_ignores_punctuation_when_configured() -> None:
     assert TextQuestion().read("(LL)") == "(ll)"
 
 
+def test_a_combining_accent_reads_as_the_precomposed_letter() -> None:
+    assert TextQuestion().read("cafe\u0301") == TextQuestion().read("caf\u00e9") == "caf\u00e9"
+
+
 def test_a_text_answer_is_written_whole() -> None:
     question = TextQuestion()
     assert question.answer_schema() == {"type": "string"}

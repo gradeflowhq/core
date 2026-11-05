@@ -90,3 +90,38 @@ def test_only_a_question_of_several_values_has_a_question_for_each() -> None:
         NumberQuestion,
     ]
     assert (values.value_question(3), TextQuestion().value_question(1)) == (None, None)
+
+
+@pytest.mark.parametrize(
+    ("question", "answer", "normalized"),
+    [
+        (
+            ValuesQuestion(value_types=["number", "text"], reading=ListReading(separator="~")),
+            "3.0~East",
+            "3~ east",
+        ),
+        (
+            ChoiceQuestion(
+                options=frozenset({"a", "b"}),
+                allow_multiple=True,
+                reading=ListReading(separator=";"),
+            ),
+            "B;A",
+            "a; b",
+        ),
+        (
+            ChoiceQuestion(
+                options=frozenset({"a", "b"}),
+                allow_multiple=True,
+                reading=ListReading(trim_spaces=False),
+            ),
+            "B,A",
+            "a,b",
+        ),
+    ],
+)
+def test_a_normalized_answer_reads_as_the_answer_does(
+    question: Question, answer: str, normalized: str
+) -> None:
+    assert question.normalize(answer) == normalized
+    assert question.read(question.normalize(answer)) == question.read(answer)

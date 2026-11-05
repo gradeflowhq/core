@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable
 from typing import Self
 
@@ -9,7 +10,7 @@ from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
 from ..method import AnswerMethod
-from ..outcome import CORRECT, ROUNDING_TOLERANCE, Outcome
+from ..outcome import CORRECT, Outcome
 from ..settings import Settings, check_limits_in_order
 
 
@@ -70,12 +71,9 @@ class NumberRange(AnswerMethod[NumberRangeSettings]):
         self, settings: NumberRangeSettings, answer: Answer, question: Question
     ) -> Outcome:
         assert isinstance(answer, int | float)  # number questions read numbers
-        too_low = (
-            settings.min_value is not None and answer < settings.min_value - ROUNDING_TOLERANCE
-        )
-        too_high = (
-            settings.max_value is not None and answer > settings.max_value + ROUNDING_TOLERANCE
-        )
+        low, high = settings.min_value, settings.max_value
+        too_low = low is not None and answer < low and not math.isclose(answer, low)
+        too_high = high is not None and answer > high and not math.isclose(answer, high)
         if not (too_low or too_high):
             return Outcome(1.0, CORRECT)
         expected = settings.range_phrase(format_number)

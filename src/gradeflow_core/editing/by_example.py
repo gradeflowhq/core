@@ -255,8 +255,6 @@ def _without_answers(
         ]
         if remaining:
             return {**check, "with": {**settings, "answers": remaining}}
-        if set(check) <= _METHOD_AND_WEIGHT_KEYS:
-            return deepcopy(rules.no_marks_check)
         return {**check, **deepcopy(rules.no_marks_check)}
     if rules.uses_method(check, NOT_ALLOWED):
         inner = _without_answers(settings.get("check") or {}, chosen, rules, cancel=cancel, key=key)

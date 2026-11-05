@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, FiniteFloat
 
 from .types import QuestionId
 
@@ -9,7 +9,7 @@ class AnswerSheet(BaseModel):
     """Answers as written, by question, and any marks they were already given."""
 
     answers: dict[QuestionId, str]
-    marks: dict[QuestionId, float] = Field(
+    marks: dict[QuestionId, FiniteFloat] = Field(
         default_factory=dict,
         description=(
             "Marks already given, such as by an exam system, used for questions no marking marks"

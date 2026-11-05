@@ -20,6 +20,7 @@ from .parameters import PARAMETERS_FIELD, Parameter, ParameterName, parameter_va
 RESULT_VARIABLES_HELP = (
     "correct (True or False) or proportion (from 0 to 1), and feedback if you like"
 )
+RESULT_VARIABLES = ("correct", "proportion", "feedback")
 STARTER_CODE = 'correct = False\nfeedback = ""\n'
 
 
@@ -91,15 +92,9 @@ def code_failure(reason: str) -> Outcome:
     return Outcome(0.0, reason, marked=False)
 
 
-def run_failure(
-    code: str, variables: dict[str, Any], time_limit_s: int, memory_limit_mb: int
-) -> str | None:
-    """Runs ``code``, which may change ``variables``; why it failed, if it did."""
-    try:
-        runner.run(code, variables, time_limit_s=time_limit_s, memory_limit_mb=memory_limit_mb)
-    except runner.CodeError as error:
-        return as_sentence(f"Your code failed: {error.reason}")
-    return None
+def code_error_outcome(error: runner.CodeError) -> Outcome:
+    """No marks, left for a person, as the marker's code failed."""
+    return code_failure(as_sentence(f"Your code failed: {error.reason}"))
 
 
 def code_problems(code: str) -> Iterator[Problem]:
@@ -144,11 +139,14 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
     def _mark_answer(
         self, settings: CustomCodeSettings, answer: Answer, question: Question
     ) -> Outcome:
-        variables: dict[str, Any] = {"answer": answer, **parameter_values(settings.parameters)}
-        if (
-            error := run_failure(
-                settings.code, variables, settings.time_limit, settings.memory_limit
+        try:
+            returned = runner.run(
+                settings.code,
+                {"answer": answer, **parameter_values(settings.parameters)},
+                RESULT_VARIABLES,
+                time_limit_s=settings.time_limit,
+                memory_limit_mb=settings.memory_limit,
             )
-        ) is not None:
-            return code_failure(error)
-        return outcome_from_variables(variables)
+        except runner.CodeError as error:
+            return code_error_outcome(error)
+        return outcome_from_variables(returned)

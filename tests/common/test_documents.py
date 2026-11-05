@@ -36,3 +36,25 @@ def test_text_that_isnt_yaml_is_refused_at_its_line(text: str, message: str) -> 
     with pytest.raises(InvalidError) as caught:
         load_yaml(text)
     assert str(caught.value) == message
+
+
+@pytest.mark.parametrize(
+    ("text", "line"),
+    [
+        ("a: &a [x, x]\nb: &b [*a, *a]\nc: [*b, *b]\n", 2),
+        ("a: &a {x: 1}\nb: *a\n", 2),
+        ("&a [*a]\n", 1),
+        ("a: &a 1\nb: *a\n", 2),
+        ("a: &a text\nb: [*a]\n", 2),
+    ],
+)
+def test_aliases_are_refused_at_their_line(text: str, line: int) -> None:
+    with pytest.raises(InvalidError) as caught:
+        load_yaml(text)
+    assert str(caught.value) == f"Line {line}: Anchors and aliases aren't supported."
+
+
+def test_a_value_used_twice_is_written_twice_so_it_loads_back() -> None:
+    check = {"uses": "gradeflow/accepted-answers@1"}
+    data = {"checks": [check, check]}
+    assert load_yaml(dump_yaml(data)) == data

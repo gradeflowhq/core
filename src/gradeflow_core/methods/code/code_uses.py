@@ -12,10 +12,11 @@ from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
 from ..method import AnswerMethod
-from ..outcome import Outcome
+from ..outcome import Detail, Outcome
 from ..position import Position
 from ..settings import IDENTIFIER, Settings
 from .code_fixes import CodeFixes, best_fixed_outcome, fixes_field
+from .runner import syntax_error_text
 
 Construct = Literal["call", "import", "loop", "comprehension", "recursion"]
 CONSTRUCT_LABELS = {
@@ -57,7 +58,7 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
         "**Use it when:** Code must use a construct, such as a loop, recursion or a call to a "
         "function.\n\n"
         "**How it marks:** The code is read as written, not run, so comments and strings don't "
-        "count. Code that can't be read gets no marks and is left for a person to look at. "
+        "count. Code that can't be read gets no marks. "
         "**Fix code** can fix common errors first.\n\n"
         "**Related:** To forbid a construct, put it in Not Allowed. To check what the code does, "
         "use Code Tests."
@@ -105,9 +106,11 @@ def _outcome(settings: CodeUsesSettings, code: str) -> Outcome:
     try:
         tree = ast.parse(code)
     except SyntaxError as error:
-        line_note = f" on line {error.lineno}" if error.lineno else ""
+        on_line = f" on line {error.lineno}" if error.lineno else ""
         return Outcome(
-            0.0, as_sentence(f"Couldn't read the code: {error.msg}{line_note}"), marked=False
+            0.0,
+            as_sentence(f"Couldn't read the code: {error.msg}{on_line}"),
+            details=(Detail("Error", syntax_error_text(error, error.lineno), "error"),),
         )
     nodes = list(ast.walk(tree))
     match settings.looks_for:

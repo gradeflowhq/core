@@ -34,7 +34,23 @@ def test_expressions_of_several_variables_and_functions() -> None:
         1,
         0,
     ]
-    assert proportions(mark_all(equivalent_expression("ln(x^2)"), ["2ln(x)", "2log(x)"])) == [1, 0]
+    assert proportions(mark_all(equivalent_expression("2ln(x)"), ["ln(x^2)", "2log(x)"])) == [1, 0]
+
+
+def test_expressions_are_compared_at_negative_values_too() -> None:
+    assert proportions(mark_all(equivalent_expression("abs(x)"), ["x", "sqrt(x^2)"])) == [0, 1]
+    assert proportions(mark_all(equivalent_expression("x"), ["sqrt(x^2)", "abs(x)"])) == [0, 0]
+    assert proportions(mark_all(equivalent_expression("ln(x^2)"), ["2ln(x)", "2ln(abs(x))"])) == [
+        0,
+        1,
+    ]
+    assert proportions(mark_all(equivalent_expression("abs(x y)"), ["x y", "abs(x) abs(y)"])) == [
+        0,
+        1,
+    ]
+    assert proportions(mark_all(equivalent_expression("ln(x)"), ["ln(x)"])) == [1]
+    assert proportions(mark_all(equivalent_expression("sqrt(x)"), ["sqrt(x)", "x^0.5"])) == [1, 1]
+    assert problems_of(equivalent_expression("ln(x)", "sqrt(-x)", "sqrt(x) sqrt(y) sqrt(z)")) == []
 
 
 def test_one_of_several_accepted_expressions_is_enough() -> None:
@@ -102,17 +118,28 @@ def test_describes_the_accepted_expressions() -> None:
 
 def test_accepted_expressions_must_parse_and_be_worked_out() -> None:
     assert problems_of(equivalent_expression("2x + 2")) == []
-    assert problems_of(equivalent_expression("x", "2x +", "sqrt(-x)", "1/0")) == [
+    assert problems_of(equivalent_expression("x", "2x +", "sqrt(-1 - x^2)", "1/0")) == [
         ("", ("answers", 1), "Couldn't read “2x +” as an expression."),
-        ("", ("answers", 2), "Can't be worked out for most values of its variables."),
-        ("", ("answers", 3), "Can't be worked out for most values of its variables."),
+        ("", ("answers", 2), "Can't be worked out for enough values of its variables."),
+        ("", ("answers", 3), "Can't be worked out for enough values of its variables."),
     ]
     with pytest.raises(InvalidError, match="Add at least one"):
         problems_of(equivalent_expression())
 
 
 def test_accepted_expressions_are_checked_as_the_question_reads_them() -> None:
+    assert proportions(mark_all(equivalent_expression("x + X"), ["2x"])) == [1]
+    case_sensitive = TextQuestion(reading=TextReading(ignore_case=False))
+    assert proportions(mark_all(equivalent_expression("x + X"), ["2x"], case_sensitive)) == [0]
+
+
+def test_a_question_ignoring_punctuation_is_a_problem() -> None:
     question = TextQuestion(reading=TextReading(ignore_punctuation=True))
-    assert problems_of(equivalent_expression("x - 1"), question) == [
-        ("", ("answers", 0), "Couldn't read “x  1” as an expression.")
+    assert problems_of(equivalent_expression("2(x + 1)"), question) == [
+        (
+            "",
+            ("with",),
+            "The question ignores punctuation, which removes the brackets and signs "
+            "expressions need.",
+        )
     ]

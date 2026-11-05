@@ -1,7 +1,7 @@
 """How methods match answers: the choices, cut-offs and tolerance they share, and reading the
 answers they expect."""
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Hashable, Iterator, Sequence
 from typing import Literal
 
 from pydantic import Field
@@ -12,7 +12,6 @@ from ..common.hints import hint
 from ..common.problems import Problem
 from ..ml import MISSING_MODEL_MESSAGE, nli
 from ..questions.base import Question
-from .outcome import ROUNDING_TOLERANCE
 
 type Match = Literal["exact", "spelling", "meaning"]
 type Strictness = Literal["lenient", "normal", "strict"]
@@ -76,7 +75,8 @@ TOLERANCE_FIELD = Field(
 
 
 def within(answer: float, expected: float, tolerance: float) -> bool:
-    return abs(answer - expected) <= tolerance + ROUNDING_TOLERANCE
+    """Whether ``answer`` is within ``tolerance`` of ``expected``, with slack for rounding."""
+    return abs(answer - expected) <= tolerance + 1e-9 * max(abs(answer), abs(expected))
 
 
 def expected_text(expected: str, tolerance: float) -> str:
@@ -96,6 +96,19 @@ def unreadable_problems(
             continue
         if answer is None:
             yield Problem("It reads as a blank answer.", field=(field, index))
+
+
+def duplicate_problems(
+    texts: Sequence[str], read: Callable[[str], Hashable], field: str
+) -> Iterator[Problem]:
+    """A problem at each item that reads the same as an earlier one."""
+    first_item_numbers: dict[Hashable, int] = {}
+    for index, text in enumerate(texts):
+        if (value := read_or_none(read, text)) is None:
+            continue
+        first = first_item_numbers.setdefault(value, index + 1)
+        if first != index + 1:
+            yield Problem(f"It reads the same as item {first}.", field=(field, index))
 
 
 def read_or_none[T](read: Callable[[str], T], text: str) -> T | None:

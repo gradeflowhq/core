@@ -45,6 +45,21 @@ def fix_descriptions(fixed_code: FixedCode | None) -> tuple[str, ...]:
             "for i in range(3):  # count\n    print(i)\n",
             "line 1, added “:” after “for i in range(3)”",
         ),
+        (
+            "async def f()\n    pass\n",
+            "async def f():\n    pass\n",
+            "line 1, added “:” after “async def f()”",
+        ),
+        (
+            "async def f():\n    async for x in g()\n        pass\n",
+            "async def f():\n    async for x in g():\n        pass\n",
+            "line 2, added “:” after “async for x in g()”",
+        ),
+        (
+            "async def f():\n    async with g() as h\n        pass\n",
+            "async def f():\n    async with g() as h:\n        pass\n",
+            "line 2, added “:” after “async with g() as h”",
+        ),
         ('print("hi"\nx = 1\n', 'print("hi")\nx = 1\n', "line 1, closed “(”"),
         ("total = sum([1, 2\n", "total = sum([1, 2])\n", "line 1, closed “([”"),
         (

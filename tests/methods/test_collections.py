@@ -91,7 +91,7 @@ def test_duplicate_references_are_rejected() -> None:
     with pytest.raises(MethodFileError, match=f"Duplicate method {BUILTINS[0].ref}."):
         Methods([*BUILTINS, BUILTINS[0]])
     files = [("sample/same", method_file("gradeflow/full-marks@1"))] * 2
-    with pytest.raises(MethodFileError, match=re.escape("Duplicate method sample/same@1.")):
+    with pytest.raises(MethodFileError, match=re.escape("sample/same@1: Duplicate method.")):
         BUILTINS.with_files(files)
 
 
@@ -109,7 +109,7 @@ def test_missing_dependencies_and_cycles_are_reported() -> None:
                 ("sample/inner", method_file("gradeflow/full-marks@1")),
             ]
         )
-    with pytest.raises(MethodFileError, match="can't use itself"):
+    with pytest.raises(MethodFileError, match="sample/outer@1: Can't use itself"):
         BUILTINS.with_files(
             [
                 ("sample/outer", method_file("sample/inner@1")),

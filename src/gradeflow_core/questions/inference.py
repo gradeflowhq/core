@@ -10,7 +10,7 @@ from .choice import ChoiceQuestion
 from .code import CodeQuestion
 from .layouts import guess_layouts
 from .number import NumberQuestion, reads_as_number
-from .reading import ListReading, Reading, read_code, read_list
+from .reading import ListReading, Reading, is_blank, read_code, read_list
 from .text import TextQuestion
 from .types import QuestionType, ValueType
 from .values import EXAMSOFT_SEPARATOR, ValuesQuestion
@@ -89,7 +89,9 @@ def _distinct_values(answers: list[str], reading: ListReading) -> set[str]:
 
 
 def _mostly_numbers(texts: list[str]) -> bool:
-    return sum(map(reads_as_number, texts)) > len(texts) / 2
+    """Whether most answered ``texts`` read as numbers."""
+    answered = [text for text in texts if not is_blank(text.strip(), Reading())]
+    return sum(map(reads_as_number, answered)) > len(answered) / 2
 
 
 def _mostly_code(answers: list[str]) -> bool:
@@ -108,9 +110,7 @@ def _value_types(answers: list[str], reading: ListReading, value_count: int) -> 
         values for values in _split_answers(answers, reading) if len(values) == value_count
     ]
     return [
-        "number"
-        if _mostly_numbers([values[i] for values in with_value_count if values[i]])
-        else "text"
+        "number" if _mostly_numbers([values[i] for values in with_value_count]) else "text"
         for i in range(value_count)
     ]
 

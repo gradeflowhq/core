@@ -3,7 +3,13 @@ import zlib
 
 import pytest
 
-from gradeflow_core import GradeFlowError, Question, QuestionSet, read_question_document
+from gradeflow_core import (
+    GradeFlowError,
+    InvalidError,
+    Question,
+    QuestionSet,
+    read_question_document,
+)
 from gradeflow_core.adapters.rtf import MAX_GROUP_DEPTH
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
@@ -249,12 +255,19 @@ def test_text_that_reads_as_markdown_is_escaped() -> None:
     )
 
 
-def test_a_weight_that_isnt_a_number_is_left_out() -> None:
+@pytest.mark.parametrize("weight", ["N/A", "-1", "nan", "inf", "1e400"])
+def test_a_weight_that_isnt_marks_is_left_out(weight: str) -> None:
     questions_read = read_question_document(
-        _document(_item(4, r"\pard\plain How many?\par", "N/A")), QUESTIONS
+        _document(_item(4, r"\pard\plain How many?\par", weight)), QUESTIONS
     )
 
     assert questions_read["Q4"].max_marks == 5
+
+
+def test_a_question_that_cant_be_set_up_says_why() -> None:
+    item = _item(1, r"\pard\plain Pick one\par" + _choice("A", "x") + _choice("B", "y") * 2)
+    with pytest.raises(InvalidError, match=r"^Q1\.options: .*“b” appears twice\.$"):
+        read_question_document(_document(item), QUESTIONS)
 
 
 def test_only_questions_in_both_are_described() -> None:

@@ -9,20 +9,20 @@ chunk, each in a paragraph of its own, and blanks are underlined numbers, also o
 A question's text becomes Markdown, its formulas LaTeX between ``$`` signs.
 """
 
+import math
 import re
 import struct
 from dataclasses import dataclass
+from typing import Any
 from xml.etree.ElementTree import ParseError
 
 from ..common.exceptions import GradeFlowError
 from ..questions.base import Question
 from ..questions.choice import ChoiceQuestion
-from ..questions.number import NumberQuestion, reads_as_number
+from ..questions.number import reads_as_number
 from ..questions.question_set import QuestionSet
-from ..questions.reading import ListReading
-from ..questions.text import TextQuestion
 from ..questions.types import QuestionId, ValueType
-from ..questions.values import EXAMSOFT_SEPARATOR, ValuesQuestion
+from ..questions.values import EXAMSOFT_SEPARATOR
 from .errors import file_read_errors
 from .mathml import mathml_to_latex
 from .rtf import ParagraphPart, paragraphs
@@ -59,48 +59,44 @@ def read_question_document(data: bytes, questions: QuestionSet) -> QuestionSet:
     choice question, one blank a number or text question, several a multiple-values question.
     Its text is their description and its weight their maximum marks. A question with neither
     choices nor blanks keeps its type, and a choice question that allows several options still
-    does.
+    does. Raises ``InvalidError`` for a question it can't set up, such as one with a choice twice.
     """
     items = _document_questions(data)
-    return QuestionSet(
+    return QuestionSet.load(
         {
-            key: _question(item, question)
+            key: _question_data(item, question)
             for key, question in questions.items()
             if (item := items.get(key)) is not None
         }
     )
 
 
-def _question(item: _DocumentQuestion, existing: Question) -> Question:
+def _question_data(item: _DocumentQuestion, existing: Question) -> dict[str, Any]:
     common_fields = {
         "description": item.description,
         "max_marks": existing.max_marks if item.max_marks is None else item.max_marks,
     }
     if item.choices:
         allows_multiple = isinstance(existing, ChoiceQuestion) and existing.allow_multiple
-        return ChoiceQuestion.model_validate(
-            {
-                **common_fields,
-                "options": item.choices,
-                "allow_multiple": allows_multiple or item.correct_choice_count > 1,
-            }
-        )
+        return {
+            "type": "choice",
+            **common_fields,
+            "options": item.choices,
+            "allow_multiple": allows_multiple or item.correct_choice_count > 1,
+        }
     if not item.blanks:
-        return existing.model_copy(update=common_fields)
+        return existing.dump() | common_fields
     value_types: list[ValueType] = [
         "number" if _all_numbers(blank) else "text" for blank in item.blanks
     ]
     if len(value_types) > 1:
-        return ValuesQuestion.model_validate(
-            {
-                **common_fields,
-                "reading": ListReading(separator=EXAMSOFT_SEPARATOR),
-                "value_types": value_types,
-            }
-        )
-    return (NumberQuestion if value_types == ["number"] else TextQuestion).model_validate(
-        common_fields
-    )
+        return {
+            "type": "values",
+            **common_fields,
+            "reading": {"separator": EXAMSOFT_SEPARATOR},
+            "value_types": value_types,
+        }
+    return {"type": "number" if value_types == ["number"] else "text", **common_fields}
 
 
 def _all_numbers(accepted: tuple[str, ...]) -> bool:
@@ -151,7 +147,7 @@ def _document_question(lines: list[str]) -> _DocumentQuestion:
         ]
     description = "\n\n".join(map(_escaped_paragraph, stem_lines))
     return _DocumentQuestion(
-        description, _float_or_none(fields.get("Weight", "")), choices, correct_choice_count, blanks
+        description, _marks_or_none(fields.get("Weight", "")), choices, correct_choice_count, blanks
     )
 
 
@@ -165,11 +161,12 @@ def _choice_letter(line: str) -> str | None:
     return match[1] if (match := _CHOICE.fullmatch(line)) else None
 
 
-def _float_or_none(text: str) -> float | None:
+def _marks_or_none(text: str) -> float | None:
     try:
-        return float(text)
+        marks = float(text)
     except ValueError:
         return None
+    return marks if math.isfinite(marks) and marks >= 0 else None
 
 
 def _split_accepted_answers(lines: list[str]) -> tuple[list[str], tuple[tuple[str, ...], ...]]:

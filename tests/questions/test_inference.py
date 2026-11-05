@@ -175,6 +175,7 @@ def test_infer_choice_allows_multiple_when_counts_not_all_single_token() -> None
         ["6.02 x 10^23", "6.0×10²³", "6e23"],
         ["37 °C", "36.6 °C", "N/A"],
         ["1/2", "0.5", "twelve"],
+        ["3.5", "4.1", "", " ", "N/A"],
     ],
 )
 def test_numbers_are_inferred_as_a_number_question_reads_them(answers: list[str]) -> None:

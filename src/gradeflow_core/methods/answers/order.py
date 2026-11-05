@@ -2,7 +2,7 @@ from collections.abc import Callable, Iterator
 from itertools import pairwise
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field
 from rapidfuzz.distance import LCSseq
 
 from ...common.hints import hint
@@ -13,7 +13,7 @@ from ...questions.types import Answer, Value
 from ...questions.values import ValuesQuestion
 from ..check import Check
 from ..example import examples_beside
-from ..matching import unreadable_problems
+from ..matching import duplicate_problems, unreadable_problems
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
@@ -38,13 +38,6 @@ class OrderSettings(Settings):
         title="Marks for",
         json_schema_extra=hint(labels=MARKS_FOR_LABELS),
     )
-
-    @field_validator("order")
-    @classmethod
-    def _check_unique(cls, order: list[str]) -> list[str]:
-        if len(set(order)) < len(order):
-            raise ValueError("Each item must be different.")
-        return order
 
 
 class Order(AnswerMethod[OrderSettings]):
@@ -117,7 +110,9 @@ class Order(AnswerMethod[OrderSettings]):
                 "The question's values must all be text or all numbers.", field=("order",)
             )
             return
-        yield from unreadable_problems(order, _item_reader(question), "order")
+        read = _item_reader(question)
+        yield from unreadable_problems(order, read, "order")
+        yield from duplicate_problems(order, read, "order")
 
 
 def _item_reader(question: ValuesQuestion) -> Callable[[str], Value]:

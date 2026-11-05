@@ -164,6 +164,20 @@ def test_an_input_without_a_default_must_be_filled_in() -> None:
     assert method.settings.model_fields["minimum"].is_required()
 
 
+def test_an_input_may_be_used_inside_a_settings_template() -> None:
+    method_file = METHOD_FILE_HEADER + (
+        "inputs:\n  term: {title: Term}\n  topic: {title: Topic}\n"
+        "checks:\n  - uses: gradeflow/accepted-answers@1\n"
+        '    with: {answers: ["the {{ inputs.term }}"]}\n'
+        "  - uses: gradeflow/key-point@1\n"
+        '    with: {point: "Mentions {{ inputs.topic }}"}\n'
+    )
+    methods = BUILTINS.with_files([("sample/term", method_file)])
+    marking = {"uses": "sample/term@1", "with": {"term": "cell", "topic": "cells"}}
+    [result] = mark_all(marking, ["a cell"], methods=methods)
+    assert result.feedback == "Expected “the cell”.\nMissing “Mentions cells”."
+
+
 @pytest.mark.parametrize(
     ("method_file", "message"),
     [
@@ -225,6 +239,12 @@ def test_an_input_without_a_default_must_be_filled_in() -> None:
         (
             "inputs:\n  first: {}\n"
             "checks:\n  - uses: gradeflow/key-point@1\n"
+            '    with: {point: "{{ inputs.first + }}"}\n',
+            "Line 9: Can't read this reference.",
+        ),
+        (
+            "inputs:\n  first: {}\n"
+            "checks:\n  - uses: gradeflow/key-point@1\n"
             '    with: {point: "{{ inputs.first | upper }}"}\n',
             "Line 9: A setting takes an input as it is, such as {{ inputs.name }}.",
         ),
@@ -271,6 +291,29 @@ def test_an_input_without_a_default_must_be_filled_in() -> None:
             "checks:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n",
             "Line 5: inputs has no terms.",
         ),
+        *(
+            (
+                'inputs:\n  terms: {}\nchecks:\n  - for_each: "{{ inputs.terms }}"\n'
+                f'    name: "Term {{{{ {expression} }}}}"\n'
+                '    uses: gradeflow/key-point@1\n    with: {point: "{{ item }}"}\n',
+                f"Line 9: {message}",
+            )
+            for expression, message in [
+                ("bogus", "There's no bogus."),
+                ("item.__class__", "There's no __class__."),
+                (
+                    "index + 1",
+                    "A template can't do arithmetic; use a filter, such as "
+                    "{{ proportion | percent }}.",
+                ),
+            ]
+        ),
+        (
+            "inputs:\n  term: {}\n"
+            "checks:\n  - uses: gradeflow/accepted-answers@1\n"
+            '    with: {answers: ["the {{ inputs.term }}", " "]}\n',
+            "Line 9: Can't be blank.",
+        ),
         (
             "checks:\n  - uses: gradeflow/key-point@1\n"
             '    with: {point: "Has {{ checks.x.feedback }}"}\n',
@@ -307,7 +350,7 @@ def test_composed_methods_may_use_each_other_but_not_in_a_cycle() -> None:
     )
     with pytest.raises(
         MethodFileError,
-        match=re.escape("sample/a@1 can't use itself: sample/a@1 → sample/b@1 → sample/a@1."),
+        match=re.escape("sample/a@1: Can't use itself: sample/a@1 → sample/b@1 → sample/a@1."),
     ):
         with_sample_files(a=method_a, b=method_b)
     with pytest.raises(MethodFileError, match="^" + re.escape("sample/a: Line 2: expected")):

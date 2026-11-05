@@ -203,6 +203,14 @@ def test_a_combination_needs_a_check() -> None:
     assert problems_of(combination("all")) == [("", ("checks",), "Add at least one check.")]
 
 
+@pytest.mark.parametrize("combine", ["all", "none"])
+def test_a_weight_where_weights_arent_used_is_a_problem(combine: str) -> None:
+    check = combination(combine, key_point("a"), key_point("b", weight=0.5))
+    label = {"all": "All must be correct", "none": "None may be correct"}[combine]
+    assert problems_of(check) == [("with.checks.1", ("weight",), f"“{label}” doesn't use weights.")]
+    assert problems_of({**check, "with": {**check["with"], "combine": "any"}}) == []
+
+
 def test_a_part_left_unmarked_says_why_even_when_it_would_be_a_penalty() -> None:
     failing = {
         "uses": "gradeflow/custom-code@1",
@@ -220,6 +228,16 @@ def test_a_part_left_unmarked_says_why_when_none_may_be_correct() -> None:
     assert not result.is_marked
     assert "Your code failed: ValueError: bad." in result.feedback
     assert "Correct." not in result.feedback
+
+
+def test_any_one_is_left_unmarked_while_an_unmarked_check_could_give_more() -> None:
+    failing = {"uses": "gradeflow/custom-code@1", "with": {"code": "raise ValueError('bad')"}}
+    unmarked_first = mark(combination("any", failing, key_point("a", weight=0.5)), "a")
+    assert (unmarked_first.proportion, unmarked_first.is_marked) == (0.5, False)
+    assert "Your code failed: ValueError: bad." in unmarked_first.feedback
+    worth_less = mark(combination("any", key_point("a"), {**failing, "weight": 0.5}), "a")
+    assert (worth_less.proportion, worth_less.is_marked) == (1, True)
+    assert worth_less.feedback == "Has “a”."
 
 
 @pytest.mark.parametrize("combine", ["total", "proportional"])

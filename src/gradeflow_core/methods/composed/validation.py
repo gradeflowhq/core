@@ -19,7 +19,7 @@ from ..templates import (
     template_errors,
     validate,
 )
-from .file import MethodFile, MethodFileFieldError
+from .file import TEMPLATE_KEYS, MethodFile, MethodFileFieldError
 
 
 def _template_shape(annotation: Any) -> Shape:
@@ -97,7 +97,9 @@ def _validate_entry(
         }
     for location, error in template_errors(entry, {**entry_scope, "checks": earlier_results}):
         raise MethodFileFieldError(str(error), (*path, *location))
-    _validate_value(entry.get("with"), (*path, "with"), entry_scope, earlier_results)
+    for key, value in entry.items():
+        if key not in TEMPLATE_KEYS:
+            _validate_value(value, (*path, key), entry_scope, earlier_results)
 
 
 def _validate_value(

@@ -4,6 +4,7 @@ from io import StringIO
 import pytest
 
 from gradeflow_core import (
+    GradeFlowError,
     InvalidError,
     MarkedSubmission,
     Problem,
@@ -74,3 +75,16 @@ def test_the_student_id_column_needs_a_name(name: str) -> None:
     with pytest.raises(InvalidError) as caught:
         ResultsCsv.load({"student_id_column": name})
     assert caught.value.problems == [Problem("Required.", field=("student_id_column",))]
+
+
+@pytest.mark.parametrize(
+    ("questions", "column"),
+    [
+        (QuestionSet({"Q1": TextQuestion(), "Q1 marks": TextQuestion()}), "Q1 marks"),
+        (QuestionSet({"student_id": TextQuestion()}), "student_id"),
+    ],
+)
+def test_a_column_name_used_twice_is_refused(questions: QuestionSet, column: str) -> None:
+    with pytest.raises(GradeFlowError) as caught:
+        ResultsCsv().write(questions, [])
+    assert str(caught.value) == f"The “{column}” column would be written twice."

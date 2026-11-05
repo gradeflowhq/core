@@ -102,7 +102,8 @@ class MethodChecksDraft(MarkingDraft):
         bound_inputs = {
             key: name
             for key, value in fields.items()
-            if key not in TEMPLATE_KEYS and (name := input_reference(value)) in self._inputs
+            if key not in (*TEMPLATE_KEYS, "for_each")
+            and (name := input_reference(value)) in self._inputs
         }
         defaults: dict[str, Any] = {}
         for key, name in bound_inputs.items():
@@ -111,14 +112,14 @@ class MethodChecksDraft(MarkingDraft):
             if name in defaults and defaults[name] != values[key]:
                 raise EditingError(f"Fields sharing input {name} must have the same default.")
             defaults[name] = values[key]
-        for name, value in defaults.items():
-            self._inputs[name].pop("default", None)
-            if not is_empty(value):
-                self._inputs[name]["default"] = deepcopy(value)
         super().update(path, values)
         node = self._check_data(path)
         for key in bound_inputs:
             set_at(node, field_path("", key), fields[key])
+        for name, value in defaults.items():
+            self._inputs[name].pop("default", None)
+            if not is_empty(value):
+                self._inputs[name]["default"] = deepcopy(value)
 
     @property
     def _template_names(self) -> Mapping[str, Shape]:

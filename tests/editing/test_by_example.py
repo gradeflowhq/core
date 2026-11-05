@@ -299,6 +299,26 @@ def test_an_empty_combination_does_not_award_other_answers_full_marks() -> None:
     assert answer_proportions(marked_by_example(empty, ["10"], "partial_marks")) == [0, 0, 0, 0.5]
 
 
+def test_cancelling_the_answers_of_a_weighted_check_keeps_its_weight() -> None:
+    marking = {
+        "question": "Q1",
+        "uses": "gradeflow/combination@1",
+        "with": {
+            "combine": "proportional",
+            "checks": [
+                {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["9.81"]}},
+                {
+                    "uses": "gradeflow/accepted-answers@1",
+                    "with": {"answers": ["10"]},
+                    "weight": 0.25,
+                },
+            ],
+        },
+    }
+    assert answer_proportions(marking) == [0.8, 0, 0, 0.2]
+    assert answer_proportions(marked_by_example(marking, ["10"], "cancel")) == [0.8, 0, 0, 0]
+
+
 def test_changing_an_answer_preserves_other_answers_in_conjunctions() -> None:
     marking = {
         "question": "Q1",

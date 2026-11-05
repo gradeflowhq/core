@@ -44,7 +44,7 @@ class Position:
             value = value_of(question.read(answer), self.value)
         except ValueError:
             return ""
-        return write_answer(value)
+        return write_answer(value, question.reading)
 
     def for_check(self, question: QuestionId | None, value: int | None) -> Position:
         """The position of what a check naming ``question`` and ``value`` reads."""
