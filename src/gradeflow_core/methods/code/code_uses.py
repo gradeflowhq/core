@@ -8,6 +8,7 @@ from ...common.hints import hint
 from ...common.problems import Problem
 from ...common.text import as_sentence, code_span
 from ...questions.base import Question
+from ...questions.code_files import python_files, split_answer
 from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
@@ -102,17 +103,21 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
 
 
 def _outcome(settings: CodeUsesSettings, code: str) -> Outcome:
-    """Whether ``code`` uses the construct."""
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as error:
-        on_line = f" on line {error.lineno}" if error.lineno else ""
-        return Outcome(
-            0.0,
-            as_sentence(f"Couldn't read the code: {error.msg}{on_line}"),
-            details=(Detail("Error", syntax_error_text(error, error.lineno), "error"),),
-        )
-    nodes = list(ast.walk(tree))
+    """Whether any Python file of ``code`` uses the construct. Only the main file must parse."""
+    nodes: list[ast.AST] = []
+    for index, (path, source) in enumerate(python_files(split_answer(code)).items()):
+        is_main = index == 0
+        try:
+            nodes += ast.walk(ast.parse(source))
+        except SyntaxError as error:
+            if not is_main:
+                continue
+            on_line = f" on line {error.lineno}" if error.lineno else ""
+            return Outcome(
+                0.0,
+                as_sentence(f"Couldn't read {path or 'the code'}: {error.msg}{on_line}"),
+                details=(Detail("Error", syntax_error_text(error, error.lineno, path), "error"),),
+            )
     match settings.looks_for:
         case "call":
             uses_construct = any(

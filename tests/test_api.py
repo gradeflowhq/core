@@ -59,6 +59,7 @@ def test_scripting_needs_only_these_names() -> None:
         "Submission",
         "TextQuestion",
         "ValuesQuestion",
+        "answer_from_files",
         "best_models",
         "compare_answers",
         "mark",

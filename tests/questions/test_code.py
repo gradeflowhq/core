@@ -20,7 +20,19 @@ def test_code_reads_as_typed_without_surrounding_blank_lines_or_shared_indentati
     )
 
 
-@pytest.mark.parametrize("answer", ["", "  \n", "N/A"])
+def test_code_of_several_files_reads_file_by_file() -> None:
+    answer = "-- game.py --\n\n    import board  \n-- board.py --\n  x = 1\n\n"
+    assert CodeQuestion().read(answer) == "-- game.py --\nimport board\n-- board.py --\nx = 1\n"
+
+
+def test_code_that_reads_as_a_file_marker_is_unreadable() -> None:
+    with pytest.raises(ValueError, match=r"a\.py line 1 looks like a file marker"):
+        CodeQuestion().read("-- a.py --\n-- b.py -- \n")
+
+
+@pytest.mark.parametrize(
+    "answer", ["", "  \n", "N/A", "-- a.py --\n\n-- b.py --\n  \n", "-- a.py --\nN/A"]
+)
 def test_blank_code_reads_as_blank(answer: str) -> None:
     assert CodeQuestion().read(answer) is None
 
@@ -46,6 +58,11 @@ def test_answers_that_are_programs_make_a_code_question() -> None:
     )
 
 
+def test_answers_whose_first_file_is_a_program_make_a_code_question() -> None:
+    answers = [f"-- main.py --\n{code}\n-- notes.txt --\nTo do" for code in [INDENTED_CODE] * 2]
+    assert isinstance(infer_question(answers), CodeQuestion)
+
+
 @pytest.mark.parametrize(
     "answers",
     [
@@ -60,6 +77,7 @@ def test_answers_that_are_programs_make_a_code_question() -> None:
             "x",
         ],
         ["Light is absorbed.\nWater is split.", "It makes sugar.\nIt needs light."],
+        ["-- a --\n-- b -- \n", "-- c --\nNotes"],
     ],
 )
 def test_words_and_prose_are_not_code(answers: list[str]) -> None:

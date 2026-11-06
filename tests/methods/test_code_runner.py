@@ -147,3 +147,25 @@ class TestRun:
             "scope": {1, 2},
             "return_names": [],
         }
+
+    @pytest.mark.parametrize(
+        ("code", "module_files"),
+        [
+            ("from board import size", {"board.py": "size = 3"}),
+            ("import pkg.board\nsize = pkg.board.size", {"pkg/board.py": "size = 3"}),
+            ("from pkg import board\nsize = board.size", {"pkg/board.py": "size = 3"}),
+            (
+                "from pkg import size",
+                {"pkg/__init__.py": "from .board import size", "pkg/board.py": "size = 3"},
+            ),
+        ],
+    )
+    def test_modules_can_be_imported_by_their_paths(
+        self, code: str, module_files: dict[str, str]
+    ) -> None:
+        assert run(code, {}, ("size",), module_files=module_files) == {"size": 3}
+
+    def test_a_module_that_doesnt_parse_is_named_in_the_error(self) -> None:
+        with pytest.raises(CodeError) as excinfo:
+            run("import board", {}, (), module_files={"board.py": "x = 1\n  y = 2"})
+        assert excinfo.value.reason == "IndentationError: unexpected indent (board.py, line 2)"

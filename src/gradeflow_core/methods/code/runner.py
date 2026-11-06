@@ -30,7 +30,37 @@ VARIABLES_LIMIT_MB = 1
 _WORKER_GRACE_S = 5
 """How long the host waits beyond the time limit for a worker, which may first have to start."""
 _GUEST_PROGRAM = """
-import json
+import importlib.util, json, sys
+
+class SourceFinder:
+    def __init__(self, module_files):
+        self.modules = {}
+        for path, source in module_files.items():
+            names = path.removesuffix(".py").split("/")
+            is_package = names[-1] == "__init__"
+            if is_package:
+                names.pop()
+            for depth in range(1, len(names)):
+                package = "/".join(names[:depth])
+                self.modules.setdefault(package.replace("/", "."), (package, "", True))
+            self.modules[".".join(names)] = (path, source, is_package)
+
+    def find_spec(self, name, path=None, target=None):
+        if name in self.modules:
+            origin, _, is_package = self.modules[name]
+            return importlib.util.spec_from_loader(name, self, origin=origin, is_package=is_package)
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        path, source, _ = self.modules[module.__name__]
+        try:
+            code = compile(source, path, "exec")
+        except SyntaxError as error:
+            # A traceback's last line leaves out the file and line, so the message says them.
+            raise type(error)(f"{error.msg} ({path}, line {error.lineno})") from None
+        exec(code, module.__dict__)
 
 def encode_set(value):
     if isinstance(value, (set, frozenset)):
@@ -40,7 +70,8 @@ def encode_set(value):
 def decode_set(value):
     return set(value["__set__"]) if value.keys() == {"__set__"} else value
 
-def execute(code, variables, return_names):
+def execute(code, variables, return_names, module_files):
+    sys.meta_path.insert(0, SourceFinder(module_files))
     scope = json.loads(variables, object_hook=decode_set)
     exec(compile(code, "<code>", "exec"), scope)
     returned = {name: scope[name] for name in return_names if name in scope}
@@ -61,10 +92,10 @@ class CodeError(GradeFlowError):
         super().__init__(self.reason)
 
 
-def syntax_error_text(error: SyntaxError, line: int | None) -> str:
-    """``error`` as Python shows it, with ``line`` if it is 1 or more."""
-    line_note = f" (line {line})" if line and line > 0 else ""
-    return f"{type(error).__name__}: {error.msg}{line_note}"
+def syntax_error_text(error: SyntaxError, line: int | None, path: str = "") -> str:
+    """``error`` as Python shows it, with ``path`` if any and ``line`` if it is 1 or more."""
+    location = ", ".join(filter(None, (path, f"line {line}" if line and line > 0 else "")))
+    return f"{type(error).__name__}: {error.msg}" + (f" ({location})" if location else "")
 
 
 def _encode_set(value: object) -> object:
@@ -107,12 +138,20 @@ def _decode(encoded: str) -> dict[str, Any]:
 
 
 def _execute(
-    code: str, variables: str, return_names: list[str], time_limit_s: int, memory_limit_mb: int
+    code: str,
+    variables: str,
+    return_names: list[str],
+    module_files: dict[str, str],
+    time_limit_s: int,
+    memory_limit_mb: int,
 ) -> str:
-    """Runs ``code`` in a fresh sandbox with ``variables``, as JSON, and returns those of
-    ``return_names`` it set, as JSON. Runs in a worker, as a sandbox can abort the process running
-    it."""
-    source = f"{_GUEST_PROGRAM}\nresult = execute({code!r}, {variables!r}, {return_names!r})\n"
+    """Runs ``code`` in a fresh sandbox with ``variables``, as JSON, and ``module_files``, and
+    returns those of ``return_names`` it set, as JSON. Runs in a worker, as a sandbox can abort the
+    process running it."""
+    source = (
+        f"{_GUEST_PROGRAM}\n"
+        f"result = execute({code!r}, {variables!r}, {return_names!r}, {module_files!r})\n"
+    )
     cancel = eryx.CancelToken()
     output_bytes = 0
 
@@ -256,11 +295,14 @@ def run(
     variables: Mapping[str, Any],
     return_names: tuple[str, ...],
     *,
+    module_files: Mapping[str, str] | None = None,
     time_limit_s: int = TIME_LIMIT_S,
     memory_limit_mb: int = MEMORY_LIMIT_MB,
 ) -> dict[str, Any]:
     """Run Python in a sandbox, without network access, with ``variables``, and return those of
-    ``return_names`` it set. Values in and out are JSON values and nested sets.
+    ``return_names`` it set. Values in and out are JSON values and nested sets. The code can import
+    ``module_files``, Python sources by path: ``pkg/util.py`` as ``pkg.util`` and
+    ``pkg/__init__.py`` as ``pkg``.
 
     Sandboxes run one at a time in a worker process, so one that aborts its process fails only
     its own run.
@@ -269,6 +311,7 @@ def run(
         "code": code,
         "variables": json.dumps(variables, default=_encode_set),
         "return_names": return_names,
+        "module_files": dict(module_files or {}),
         "time_limit_s": time_limit_s,
         "memory_limit_mb": memory_limit_mb,
     }

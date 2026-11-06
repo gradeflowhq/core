@@ -12,8 +12,10 @@ from typing import Any
 from natsort import natsorted, ns
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..common.exceptions import InvalidError
 from ..common.hints import ADVANCED_HINT
 from ..common.text import as_text, quoted
+from .code_files import join_answer, split_answer
 from .types import Answer
 
 
@@ -94,9 +96,17 @@ def read_text(answer: str, reading: TextReading) -> str | None:
 
 
 def read_code(answer: str, reading: Reading) -> str | None:
-    """The code as typed, without indentation every line shares."""
-    code = textwrap.dedent("\n".join(line.rstrip() for line in answer.splitlines()).strip("\n"))
-    return None if is_blank(code, reading) else code
+    """The code as typed, without indentation every line of a file shares."""
+    files = {
+        path: textwrap.dedent("\n".join(line.rstrip() for line in source.splitlines()).strip("\n"))
+        for path, source in split_answer(answer).items()
+    }
+    if all(is_blank(source, reading) for source in files.values()):
+        return None
+    try:
+        return join_answer(files)
+    except InvalidError as error:
+        raise ValueError(str(error)) from None
 
 
 def read_list(answer: str, reading: ListReading) -> list[str] | None:

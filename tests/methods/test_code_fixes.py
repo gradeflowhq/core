@@ -2,6 +2,7 @@ from typing import get_args
 
 import pytest
 
+from gradeflow_core import answer_from_files
 from gradeflow_core.common.hints import hint_of
 from gradeflow_core.methods.code.code_fixes import (
     MAX_INDENTATIONS_TRIED,
@@ -269,3 +270,26 @@ def test_fixes_default_to_unset_with_no_penalty(kind: str) -> None:
 
 def test_no_fix_is_on_by_default() -> None:
     assert CodeFixes().enabled_kinds == frozenset()
+
+
+def test_each_python_file_is_fixed_on_its_own() -> None:
+    answer = answer_from_files(
+        {
+            "main.py": "def add(a, b)\n    return a + b",
+            "notes.txt": "if x",
+            "board.py": "if x\n    y",
+        }
+    )
+    fixed = first_fixed_version(answer, kinds=frozenset({"colons"}))
+    assert fixed is not None
+    assert fixed.code == answer_from_files(
+        {
+            "main.py": "def add(a, b):\n    return a + b",
+            "notes.txt": "if x",
+            "board.py": "if x:\n    y",
+        }
+    )
+    assert fix_descriptions(fixed) == (
+        "in main.py, line 1, added “:” after “def add(a, b)”",
+        "in board.py, line 1, added “:” after “if x”",
+    )

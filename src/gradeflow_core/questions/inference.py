@@ -9,6 +9,7 @@ from . import new_question
 from .base import Question
 from .choice import ChoiceQuestion
 from .code import CodeQuestion
+from .code_files import split_answer
 from .layouts import guess_layouts
 from .number import NumberQuestion, reads_as_number
 from .reading import ListReading, Reading, is_blank, read_code, read_list, sorted_options
@@ -96,11 +97,10 @@ def _mostly_numbers(texts: list[str]) -> bool:
 
 
 def _mostly_code(answers: list[str]) -> bool:
-    """Whether most answers are programs: several lines that some layout compiles. A single word
-    compiles too, as a name, and prose rarely does."""
-    code_answers = [
-        code for answer in answers if (code := read_code(answer, Reading())) is not None
-    ]
+    """Whether most answers are programs: several lines, in the file that runs, that some layout
+    compiles. A single word compiles too, as a name, and prose rarely does."""
+    main_files = (next(iter(split_answer(answer).values())) for answer in answers)
+    code_answers = [code for file in main_files if (code := read_code(file, Reading())) is not None]
     program_count = sum("\n" in code and bool(guess_layouts(code, 1)) for code in code_answers)
     return program_count > len(code_answers) / 2
 

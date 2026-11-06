@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
+from gradeflow_core import answer_from_files
 from gradeflow_core.methods.code import code_tests as code_tests_module
 from gradeflow_core.methods.code import runner
 
@@ -406,3 +407,32 @@ def test_unindented_code_gets_the_marks_of_its_best_indentation() -> None:
     )
     assert result.proportion == 0.9
     assert result.feedback.startswith("Fixed before marking:\n- Rebuilt the indentation (-10%).\n")
+
+
+def test_the_first_file_runs_and_imports_the_others() -> None:
+    files = {"main.py": "from helpers import f", "helpers.py": "def f():\n    return 1"}
+    assert mark(code_tests(F_GIVES_1), answer_from_files(files), CODE_QUESTION).proportion == 1
+
+
+def test_a_main_file_that_doesnt_parse_isnt_run() -> None:
+    files = {"main.py": "def f(:", "board.py": ""}
+    result = mark(code_tests(F_GIVES_1), answer_from_files(files), CODE_QUESTION)
+    assert result.feedback == "Couldn't run the code: SyntaxError: invalid syntax (line 1)."
+
+
+def test_an_imported_file_that_doesnt_parse_is_named() -> None:
+    files = {"main.py": "import board\ndef f():\n    return 1", "board.py": "x = ("}
+    result = mark(code_tests(F_GIVES_1), answer_from_files(files), CODE_QUESTION)
+    assert result.feedback == (
+        "f() failed: SyntaxError: '(' was never closed (board.py, line 1). Expected 1."
+    )
+
+
+def test_a_file_never_imported_neednt_parse() -> None:
+    files = {"main.py": "def f():\n    return 1", "scratch.py": "x = ("}
+    assert mark(code_tests(F_GIVES_1), answer_from_files(files), CODE_QUESTION).proportion == 1
+
+
+def test_files_that_arent_python_arent_run() -> None:
+    files = {"main.py": "def f():\n    return 1", "notes.txt": "Not code ("}
+    assert mark(code_tests(F_GIVES_1), answer_from_files(files), CODE_QUESTION).proportion == 1

@@ -18,6 +18,7 @@ from .methods.outcome import Detail
 from .questions.base import Question
 from .questions.choice import ChoiceQuestion
 from .questions.code import CodeQuestion
+from .questions.code_files import answer_from_files
 from .questions.grouping import AnswerComparison, compare_answers
 from .questions.number import NumberQuestion
 from .questions.question_set import QuestionSet
@@ -57,6 +58,7 @@ __all__ = [
     "Submission",
     "TextQuestion",
     "ValuesQuestion",
+    "answer_from_files",
     "best_models",
     "compare_answers",
     "mark",

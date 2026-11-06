@@ -146,6 +146,16 @@ question.answer_values("3, east")  # {"value_1": "3", "value_2": "east"}
 question.answer_from({"value_1": "4", "value_2": "west"})  # "4,west"
 ```
 
+A code answer of several files is one string in txtar format. Code Tests runs the first file, which
+can import the others:
+
+```python
+from gradeflow_core import answer_from_files
+
+answer = answer_from_files({"game.py": "from board import Board", "board.py": "class Board: ..."})
+assert answer == "-- game.py --\nfrom board import Board\n-- board.py --\nclass Board: ...\n"
+```
+
 ## Methods and checks
 
 A `Method` is a way of marking, named with a version: `gradeflow/key-points@1`. A check is a method

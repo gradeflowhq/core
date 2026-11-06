@@ -15,6 +15,7 @@ from ...common.text import (
     quoted,
 )
 from ...questions.base import Question
+from ...questions.code_files import python_files, split_answer
 from ...questions.types import Answer
 from ..check import Check
 from ..example import examples_beside
@@ -125,7 +126,8 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
         "share. **Fix code** also tests the code with common errors fixed, such as lost "
         "indentation. Each fix can carry a **Penalty**.\n\n"
         "**Good to know:** Test an ordinary case and an edge case, such as an empty list or "
-        "zero. Each test has a time limit, under **Test setup**.\n\n"
+        "zero. Each test has a time limit, under **Test setup**. In an answer of several files, "
+        "the first runs and the others can be imported.\n\n"
         "**Related:** To check how the code is written, not what it does, use Code Uses."
     )
     level = "advanced"
@@ -165,9 +167,10 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
 
 def _tests_outcome(settings: CodeTestsSettings, code: str, max_marks: float) -> Outcome:
     """The tests run on ``code``, combined."""
+    (_, main_source), *module_files = python_files(split_answer(code)).items()
     weighted = []
     for test in settings.tests:
-        outcome = _outcome_of_test(code, test, settings.setup)
+        outcome = _outcome_of_test(main_source, dict(module_files), test, settings.setup)
         weighted.append((test.weight, replace(outcome, title=_test_title(test))))
     combine = settings.combine
     proportion, test_outcomes = proportion_and_parts(combine, weighted, max_marks)
@@ -292,8 +295,10 @@ passed = bool(nested_types(output) <= expected_types and output == expected_valu
 holds only its types, ints and floats counting as one."""
 
 
-def _outcome_of_test(code: str, test: Test, setup: TestSetup) -> Outcome:
-    """How ``code`` does on ``test``, run inside ``setup``."""
+def _outcome_of_test(
+    code: str, module_files: dict[str, str], test: Test, setup: TestSetup
+) -> Outcome:
+    """How ``code``, able to import ``module_files``, does on ``test``, run inside ``setup``."""
     program = setup.program_for(code)
     test_details = (Detail("Expression", test.expression, "code"),)
     if (syntax_error := _syntax_error(program, setup)) is not None:
@@ -313,6 +318,7 @@ def _outcome_of_test(code: str, test: Test, setup: TestSetup) -> Outcome:
                 "max_length": MAX_SHOWN_LENGTH + 1,
             },
             ("printed", "output_repr", "expected_repr", "passed"),
+            module_files=module_files,
             time_limit_s=setup.time_limit,
             memory_limit_mb=setup.memory_limit,
         )

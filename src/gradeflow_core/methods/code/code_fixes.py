@@ -17,6 +17,7 @@ from rapidfuzz.distance import OSA
 
 from ...common.hints import ADVANCED_HINT, hint
 from ...common.text import capitalized, format_number, quoted
+from ...questions.code_files import join_answer, python_files, split_answer
 from ...questions.layouts import BRACKETS, CLOSERS, COMPOUND, OPENERS, guess_layouts
 from ..outcome import Detail, Outcome
 from ..settings import Settings
@@ -209,8 +210,46 @@ def _fix_feedback(fix: Fix, penalty: float) -> str:
 
 
 def fixed_versions(code: str, kinds: frozenset[FixKind], setup: str) -> tuple[FixedCode, ...]:
-    """``code`` fixed with ``kinds`` of fixes, once for each likely indentation. Empty when it
-    can't be fixed. Names defined in ``setup`` count as defined."""
+    """``code`` fixed with ``kinds`` of fixes, each Python file on its own, once for each likely
+    indentation. Empty when it can't be fixed. Names defined in ``setup`` count as defined in the
+    file that runs."""
+    files = split_answer(code)
+    sources = python_files(files)
+    versions_by_file = []
+    for index, (path, source) in enumerate(sources.items()):
+        is_main = index == 0
+        file_versions = _fixed_file_versions(source, kinds, setup if is_main else "")
+        versions_by_file.append(
+            [_located_in_file(path, version) for version in file_versions]
+            or [FixedCode(source, ())]
+        )
+    versions = []
+    # The files' best versions together, then their second best, and so on.
+    for rank in range(max(map(len, versions_by_file), default=0)):
+        versions_at_rank = [
+            file_versions[min(rank, len(file_versions) - 1)] for file_versions in versions_by_file
+        ]
+        if fixes := tuple(fix for version in versions_at_rank for fix in version.fixes):
+            fixed_sources = dict(
+                zip(sources, (version.code for version in versions_at_rank), strict=True)
+            )
+            versions.append(FixedCode(join_answer({**files, **fixed_sources}), fixes))
+    return tuple(versions)
+
+
+def _located_in_file(path: str, version: FixedCode) -> FixedCode:
+    """``version`` with each fix naming the file at ``path``, if there is one."""
+    if not path:
+        return version
+    fixes = tuple(
+        fix._replace(description=f"in {path}, {fix.description}") for fix in version.fixes
+    )
+    return FixedCode(version.code, fixes)
+
+
+def _fixed_file_versions(code: str, kinds: frozenset[FixKind], setup: str) -> tuple[FixedCode, ...]:
+    """``code`` of one file fixed with ``kinds`` of fixes, once for each likely indentation. Empty
+    when it can't be fixed. Names defined in ``setup`` count as defined."""
     line_fixes: list[Fix] = []
     while next_fix := _first_fix(code, kinds):
         edit, fix = next_fix

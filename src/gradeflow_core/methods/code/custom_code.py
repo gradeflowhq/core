@@ -117,7 +117,8 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
         "True or False, or `proportion` to a number from 0 to 1. It may also set `feedback`, which "
         "students see as plain text.\n\n"
         "**Good to know:** Put values you may change in **Parameters**, so you can change them "
-        "without editing the code.\n\n"
+        "without editing the code. A code answer of several files comes as one string, each file "
+        "after a line such as `-- board.py --`.\n\n"
         "**Related:** To mark several questions together in code, use Custom Code for a Group."
     )
     level = "advanced"

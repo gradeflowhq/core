@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core import InvalidError
+from gradeflow_core import InvalidError, answer_from_files
 
 from .helpers import CODE_QUESTION, describe, mark, mark_all, problems_of, proportions
 
@@ -205,4 +205,26 @@ def test_fix_code_lets_unreadable_code_be_checked() -> None:
     assert (result.proportion, result.is_marked) == (0.5, True)
     assert result.feedback == (
         "Fixed before marking:\n- Rebuilt the indentation (-50%).\nUses recursion."
+    )
+
+
+def test_every_python_file_that_parses_is_checked() -> None:
+    files = {
+        "main.py": "import board",
+        "board.py": "for x in xs:\n    pass",
+        "scratch.py": "while (",
+        "a.txt": "for",
+    }
+    assert mark(code_uses("loop"), answer_from_files(files), CODE_QUESTION).proportion == 1
+
+
+def test_a_main_file_that_doesnt_parse_is_named() -> None:
+    files = {"main.py": "import board\nfor x in xs", "board.py": "x = 1"}
+    answer = answer_from_files(files)
+    assert mark(code_uses("loop"), answer, CODE_QUESTION).feedback == (
+        "Couldn't read main.py: expected ':' on line 2."
+    )
+    not_allowed = {"uses": "gradeflow/not-allowed@1", "with": {"check": code_uses("loop")}}
+    assert mark(not_allowed, answer, CODE_QUESTION).feedback == (
+        "Couldn't check the answer: SyntaxError: expected ':' (main.py, line 2)."
     )
