@@ -22,9 +22,9 @@ class Hint(BaseModel):
     """An option most people leave at its default."""
     labels: dict[str, str] | None = None
     """Plain labels for enum values."""
-    applies_when: dict[str, JsonValue] | None = None
-    """The field applies only when sibling fields of the same object have these values; a list
-    means any of them."""
+    applies_when: dict[str, list[JsonValue]] | None = None
+    """The field applies only when each named sibling field of the same object has one of the
+    values listed for it."""
     lists_answers: bool = False
     """The field lists accepted or model answers."""
     item_label: str | None = None

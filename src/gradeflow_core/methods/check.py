@@ -80,7 +80,7 @@ class Check(BaseModel):
     ``with`` holds that method's settings. Fields are in the order YAML shows them, as in a
     workflow step: what the check is, then its method, then its feedback."""
 
-    model_config = ConfigDict(extra="forbid", validate_by_name=True, serialize_by_alias=True)
+    model_config = ConfigDict(extra="forbid", serialize_by_alias=True)
 
     method: ClassVar[Method[Any]]
 
@@ -289,7 +289,7 @@ CHECK_FIELDS = {
 class CheckData(BaseModel):
     """What a check looks like before its method is known, for its JSON schema."""
 
-    model_config = ConfigDict(validate_by_name=True, title="Check")
+    model_config = ConfigDict(title="Check")
 
     uses: str
     with_: dict[str, Any] = Field(default_factory=dict, alias="with")

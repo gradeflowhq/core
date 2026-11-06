@@ -244,19 +244,18 @@ def _with_input_conditions(
     does: a condition on a setting filled from the same place names what fills it, and one on a
     fixed setting holds or refuses the file."""
     hint = hint_of(info)
-    conditions: dict[str, JsonValue] = {}
+    conditions: dict[str, list[JsonValue]] = {}
     for key, values in (hint.applies_when or {}).items():
         sibling = model.model_fields[key]
         value = siblings.get(key, sibling.get_default(call_default_factory=True))
-        options = values if isinstance(values, list) else [values]
         if (expression := reference(value)) is not None:
             scope, _, name = expression.partition(".")
             if scope == source and name:
                 conditions[name] = values
-        elif not has_template(value) and getattr(value, "value", value) not in options:
+        elif not has_template(value) and getattr(value, "value", value) not in values:
             labels = hint_of(sibling).labels or {}
             allowed_values = quoted_join(
-                [labels.get(str(option), option) for option in options], conjunction="or"
+                [labels.get(str(option), option) for option in values], conjunction="or"
             )
             raise MethodFileFieldError(
                 f"{info.title} applies when {sibling.title} is {allowed_values}.", path

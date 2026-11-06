@@ -43,7 +43,7 @@ class Input(BaseModel):
     choices: list[str] | None = None
     """Fewer choices than the setting it fills allows."""
     labels: dict[str, str] | None = None
-    applies_when: dict[str, JsonValue] | None = None
+    applies_when: dict[str, list[JsonValue]] | None = None
     """The input applies only when other inputs have these values, as a setting's hint says."""
     examples: list[JsonValue] | None = None
     items: dict[str, ItemField] | None = None

@@ -136,7 +136,7 @@ def test_an_input_applies_when_the_setting_it_fills_applies() -> None:
     )[-2:]
     assert hint_of(fixed_strictness.settings.model_fields["strictness"]).applies_when is None
     assert hint_of(renamed_inputs.settings.model_fields["only_whole_words"]).applies_when == {
-        "how_to_match": "exact"
+        "how_to_match": ["exact"]
     }
 
 
@@ -361,3 +361,15 @@ def test_a_composed_method_describes_itself_and_marks_like_a_built_in_one() -> N
     key_points = {"uses": "gradeflow/key-points@1", "with": {"points": ["a"]}}
     assert describe(key_points) == "Includes `a`."
     assert mark(key_points, "a").method_label == "Key Points"
+
+
+def test_an_input_applies_for_a_list_of_values_not_one() -> None:
+    method_file = METHOD_FILE_HEADER + (
+        "inputs:\n  match: {default: exact}\n"
+        "  whole_words: {default: false, applies_when: {match: exact}}\n"
+        "checks:\n  - uses: gradeflow/key-point@1\n"
+        '    with: {point: a, match: "{{ inputs.match }}",'
+        ' whole_words: "{{ inputs.whole_words }}"}\n'
+    )
+    with pytest.raises(MethodFileError, match="list"):
+        with_sample_files(single=method_file)

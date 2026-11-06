@@ -38,13 +38,13 @@ class CodeUsesSettings(Settings):
         pattern=IDENTIFIER,
         title="Function",
         examples=["sum"],
-        json_schema_extra=hint(applies_when={"looks_for": "call"}),
+        json_schema_extra=hint(applies_when={"looks_for": ["call"]}),
     )
     module: str | None = Field(
         default=None,
         title="Module",
         examples=["numpy"],
-        json_schema_extra=hint(applies_when={"looks_for": "import"}),
+        json_schema_extra=hint(applies_when={"looks_for": ["import"]}),
     )
     fixes: CodeFixes = fixes_field()
 

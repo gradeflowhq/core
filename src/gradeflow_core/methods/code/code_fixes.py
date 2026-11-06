@@ -102,7 +102,7 @@ def _penalty_field(kind: FixKind) -> Any:
         le=1,
         title="Penalty",
         examples=[0.1, 0.25, 0.5],
-        json_schema_extra=hint(applies_when={kind: True}),
+        json_schema_extra=hint(applies_when={kind: [True]}),
     )
 
 

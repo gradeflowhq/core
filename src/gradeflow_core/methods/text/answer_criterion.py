@@ -75,7 +75,7 @@ class AnswerCriterionSettings(Settings):
         le=1,
         title="Confidence needed",
         description="Fast decisions less sure than this get a careful second look.",
-        json_schema_extra=hint(advanced=True, applies_when={"decide_with": "fast_then_careful"}),
+        json_schema_extra=hint(advanced=True, applies_when={"decide_with": ["fast_then_careful"]}),
     )
     careful_effort: Literal["automatic", "low", "medium", "high"] = Field(
         default="automatic",

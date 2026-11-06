@@ -39,7 +39,7 @@ class KeyPointSettings(Settings):
         default=False,
         title="Whole words only",
         description="So “for” doesn't match “format”.",
-        json_schema_extra=hint(advanced=True, applies_when={"match": "exact"}),
+        json_schema_extra=hint(advanced=True, applies_when={"match": ["exact"]}),
     )
 
 
