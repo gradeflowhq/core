@@ -3,7 +3,7 @@ import pytest
 from gradeflow_core import QuestionSet
 from gradeflow_core.editing import Position
 
-QUESTIONS = QuestionSet.model_validate(
+QUESTIONS = QuestionSet.load(
     {
         "Q1": {"type": "number"},
         "Q2": {"type": "values", "value_types": ["number", "text"]},

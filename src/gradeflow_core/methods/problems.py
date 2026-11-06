@@ -167,7 +167,7 @@ def _position_kind(position: Position) -> str:
 def _template_problems(
     check: Check, location: Location, scope: Mapping[str, Shape], earlier: Mapping[str, Shape]
 ) -> Iterator[tuple[Location, Problem]]:
-    if check._from_method_file:  # noqa: SLF001
+    if check._scope:  # noqa: SLF001
         return
     templates = check.model_dump(mode="json", by_alias=True, include={"if_", "feedback"})
     for template_location, error in template_errors(templates, {**scope, "checks": dict(earlier)}):

@@ -7,6 +7,7 @@ Each method is one version of a method: checks name it by ``Method.ref``, such a
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from graphlib import CycleError, TopologicalSorter
+from operator import attrgetter
 from types import MappingProxyType
 from typing import Any, Self
 
@@ -50,11 +51,8 @@ class Methods(tuple[Method[Any], ...]):
         """The highest version of each method, in the order each name first appears."""
         latest_by_name: dict[str, Method[Any]] = {}
         for method in self:
-            if (
-                method.name not in latest_by_name
-                or method.version > latest_by_name[method.name].version
-            ):
-                latest_by_name[method.name] = method
+            latest = latest_by_name.setdefault(method.name, method)
+            latest_by_name[method.name] = max(latest, method, key=attrgetter("version"))
         return Methods(latest_by_name.values())
 
     def with_files(self, files: Sequence[tuple[str, str]]) -> Methods:

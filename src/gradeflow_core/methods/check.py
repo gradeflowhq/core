@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal
 
 from pydantic import (
     BaseModel,
@@ -134,8 +134,8 @@ class Check(BaseModel):
     )
 
     _scope: dict[str, Any] = PrivateAttr(default_factory=dict)
-    _from_method_file: bool = PrivateAttr(default=False)
-    """Whether a method file made it, whose templates and lists were checked when it loaded."""
+    """What its templates also see when a method file made it: the file's inputs and item. The
+    file's templates and lists were checked when it loaded."""
     _methods: Mapping[str, Method[Any]] = PrivateAttr(default_factory=dict)
 
     @classmethod
@@ -146,13 +146,6 @@ class Check(BaseModel):
 
         with invalid_errors(data):
             return check_of(data, (BUILTINS if methods is None else methods).by_ref)
-
-    def scoped(self, scope: Mapping[str, Any]) -> Self:
-        """This check as a method file makes it, its templates also seeing the file's inputs and
-        item in ``scope``."""
-        check = self.model_copy()
-        check._scope, check._from_method_file = dict(scope), True
-        return check
 
     def describe(self) -> str:
         """What it checks, in a sentence or two of markdown."""

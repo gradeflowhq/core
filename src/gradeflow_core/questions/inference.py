@@ -1,6 +1,7 @@
 """Questions worked out from their answers."""
 
 import re
+import statistics
 from collections import Counter
 from collections.abc import Iterable, Iterator
 
@@ -148,10 +149,6 @@ def _values_question(answers: list[str]) -> ValuesQuestion:
     """Read with the default separator, which a person may change: as many values as answers
     most often have, and at least two."""
     reading = ListReading()
-    value_counts = Counter(
-        value_count
-        for values in _split_answers(answers, reading)
-        if (value_count := len(values)) > 1
-    )
-    value_count = value_counts.most_common(1)[0][0] if value_counts else 2
+    value_counts = [len(values) for values in _split_answers(answers, reading) if len(values) > 1]
+    value_count = statistics.mode(value_counts) if value_counts else 2
     return ValuesQuestion(reading=reading, value_types=_value_types(answers, reading, value_count))

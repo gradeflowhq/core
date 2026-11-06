@@ -85,30 +85,23 @@ def _operands(node: nodes.Node, operator: type[nodes.BinExpr]) -> list[nodes.Nod
 
 
 def _condition_row(node: nodes.Node) -> ConditionRow | None:
-    if isinstance(node, nodes.Not):
-        check = _check_id_read(node.node, "correct")
-        return ConditionRow(check, "incorrect") if check else None
-    if isinstance(node, nodes.Compare):
-        (operand,) = node.ops if len(node.ops) == 1 else (None,)
-        is_half_test = (
-            operand is not None and operand.op == "gteq" and _is_constant(operand.expr, 0.5)
-        )
-        check = _check_id_read(node.expr, "proportion") if is_half_test else None
-        return ConditionRow(check, "half_correct") if check else None
-    check = _check_id_read(node, "correct")
-    return ConditionRow(check, "correct") if check else None
-
-
-def _is_constant(node: nodes.Node, value: object) -> bool:
-    return isinstance(node, nodes.Const) and node.value == value
+    test: ConditionTest
+    match node:
+        case nodes.Not(node=inner):
+            check, test = _check_id_read(inner, "correct"), "incorrect"
+        case nodes.Compare(expr=inner, ops=[nodes.Operand(op="gteq", expr=nodes.Const(value=0.5))]):
+            check, test = _check_id_read(inner, "proportion"), "half_correct"
+        case _:
+            check, test = _check_id_read(node, "correct"), "correct"
+    return ConditionRow(check, test) if check else None
 
 
 def _check_id_read(node: nodes.Node, attribute: str) -> str | None:
     """The ID of the check whose result ``node`` reads ``attribute`` of, as in
     ``checks.<id>.correct``."""
-    if not (isinstance(node, nodes.Getattr) and node.attr == attribute):
-        return None
-    owner = node.node
-    if isinstance(owner, nodes.Getattr) and isinstance(owner.node, nodes.Name):
-        return owner.attr if owner.node.name == "checks" else None
+    match node:
+        case nodes.Getattr(
+            node=nodes.Getattr(node=nodes.Name(name="checks"), attr=check_id), attr=read
+        ):
+            return check_id if read == attribute else None
     return None

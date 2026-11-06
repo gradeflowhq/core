@@ -2,9 +2,8 @@
 
 from collections.abc import Iterator, Mapping
 from dataclasses import replace
+from functools import cached_property
 from typing import Any, cast
-
-from pydantic import PrivateAttr
 
 from ...common.paths import Location
 from ...questions.types import ALL_TYPES, QuestionId
@@ -21,16 +20,12 @@ from .validation import validate_templates
 
 
 class ComposedCheck(Check):
-    _expanded_check: Check | None = PrivateAttr(default=None)
-    """The Combination it is, with its inputs filled in, once worked out."""
-
+    @cached_property
     def expanded(self) -> Check:
         """The Combination it is, with its inputs filled in."""
-        if self._expanded_check is None:
-            assert isinstance(self.method, ComposedMethod)  # its model is a composed method's
-            scope = {"inputs": dict(self.with_)}
-            self._expanded_check = expand(self.method.file.combination(), scope, self._methods)
-        return self._expanded_check
+        assert isinstance(self.method, ComposedMethod)  # its model is a composed method's
+        scope = {"inputs": dict(self.with_)}
+        return cast(Check, expand(self.method.file.combination(), scope, self._methods))
 
 
 class ComposedMethod(Method[Settings]):
@@ -69,7 +64,7 @@ class ComposedMethod(Method[Settings]):
         }
 
     def describe(self, check: Check) -> str:
-        expanded = cast(ComposedCheck, check).expanded()
+        expanded = cast(ComposedCheck, check).expanded
         if self.file.description is None:
             return expanded.describe()
         parts = [part.describe() for _, part, _ in expanded.method.inner_checks(expanded)]
@@ -84,7 +79,7 @@ class ComposedMethod(Method[Settings]):
         question: QuestionId | None,
         value: int | None,
     ) -> dict[QuestionId, Outcome]:
-        outcomes = cast(ComposedCheck, check).expanded().mark(context, question, value)
+        outcomes = cast(ComposedCheck, check).expanded.mark(context, question, value)
         template = self.file.feedback
         scope = {"inputs": dict(self._settings_of(check))}
         # A method file with a description is titled by it, not by the checks it is written as.
@@ -106,4 +101,4 @@ class ComposedMethod(Method[Settings]):
         return True  # its file's checks run in order, as a Combination's do
 
     def expanded_checks(self, check: Check) -> Iterator[tuple[Location, Check, bool]]:
-        yield ("generated", self.name), cast(ComposedCheck, check).expanded(), False
+        yield ("generated", self.name), cast(ComposedCheck, check).expanded, False

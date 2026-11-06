@@ -60,7 +60,7 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "PT", "C90", "FURB"
 allowed-confusables = ["×"]  # 6.02 × 10^23
 
 [tool.ruff.lint.per-file-ignores]
-"src/gradeflow_core/methods/check.py" = ["SLF001"]  # a scoped copy's _scope, a validated check's _methods
+"src/gradeflow_core/methods/check.py" = ["SLF001"]  # a validated check's _methods
 "tests/**" = ["SLF001"]  # tests access internals
 
 [tool.mypy]

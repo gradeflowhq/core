@@ -37,7 +37,9 @@ def expand(node: Any, scope: Mapping[str, Any], methods_by_ref: Mapping[str, Met
             for name, value in node.items()
         }
         with invalid_errors(expanded):
-            return check_of(expanded, methods_by_ref).scoped(scope)
+            check = check_of(expanded, methods_by_ref)
+        check._scope = dict(scope)  # noqa: SLF001
+        return check
     return node
 
 

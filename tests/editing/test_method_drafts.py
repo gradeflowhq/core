@@ -29,10 +29,8 @@ from gradeflow_core.methods import catalogue
 
 from .helpers import NUMBER_QUESTIONS, number_range_draft
 
-TWO_NUMBER_QUESTIONS = QuestionSet.model_validate(
-    {"Q1": {"type": "number"}, "Q2": {"type": "number"}}
-)
-TEXT_QUESTIONS = QuestionSet.model_validate({"Q1": {"type": "text"}})
+TWO_NUMBER_QUESTIONS = QuestionSet.load({"Q1": {"type": "number"}, "Q2": {"type": "number"}})
+TEXT_QUESTIONS = QuestionSet.load({"Q1": {"type": "text"}})
 
 
 def reopen(draft: MethodDraft, *, version: int = 1) -> MethodDraft:
@@ -50,19 +48,19 @@ def example_rows(*answers: str) -> list[ExampleRow]:
 def try_rows(
     draft: MethodDraft, examples: list[ExampleRow], methods: Methods = BUILTINS
 ) -> list[RowResult]:
+    method = draft.finalized()
     return mark_rows(
-        draft.ref,
+        method.ref,
         questions=draft.questions,
         question=draft.question,
         inputs=draft.test_values,
         rows=examples,
-        methods=Methods([*methods, draft.finalized()]),
+        methods=Methods([*methods, method]),
     )
 
 
 def test_a_new_draft_is_an_empty_combination_written_with_its_version_first() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="empty", version=3, label="Empty")
-    assert draft.ref == "empty@3"
     assert draft.checks.data == {
         "question": "Q1",
         "uses": "gradeflow/combination@1",
@@ -95,10 +93,8 @@ def test_a_files_checks_are_edited_as_their_combination_which_keeps_its_method()
 
 def test_bound_settings_follow_moved_checks_and_examples_never_change_defaults() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Lower limit", default=10)
-    draft.bind_new_input(
-        "with.checks.0.with.max_value", label="Upper limit", description="Inclusive."
-    )
+    draft.bind_new_input("with.checks.0.with.min_value")
+    draft.bind_new_input("with.checks.0.with.max_value")
     draft.checks.add("with.checks.1", "gradeflow/full-marks@1")
     draft.checks.move("with.checks.0", 1)
     text = draft.to_yaml()
@@ -112,17 +108,17 @@ def test_bound_settings_follow_moved_checks_and_examples_never_change_defaults()
     )
     assert reopened.checks.values("with.checks.1")["max_value"] == 20
     assert load_yaml(reopened.to_yaml())["inputs"]["max_value"]["default"] == 20
-    assert reopened.settings_schema["properties"]["min_value"]["title"] == "Lower limit"
+    assert reopened.settings_schema["properties"]["min_value"]["title"] == "From"
     version_4 = reopen(reopened, version=4)
     assert BUILTINS.with_files([("sample/range", version_4.to_yaml())])[-1].ref == "sample/range@4"
 
 
 def test_deletion_and_retyping_report_affected_inputs_and_allow_explicit_removal() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Lower limit", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.checks.remove("with.checks.0")
-    assert "Lower limit isn't used." in problem_messages(draft)
-    with pytest.raises(EditingError, match="Lower limit"):
+    assert "From isn't used." in problem_messages(draft)
+    with pytest.raises(EditingError, match="From"):
         draft.finalized()
     draft.remove_input("min_value")
     assert "inputs" not in load_yaml(draft.to_yaml())
@@ -236,8 +232,8 @@ def test_group_question_inputs_are_reusable_and_all_sample_answers_are_required(
     draft.checks.add("with.checks.1", "gradeflow/number-range@1", "Q2")
     draft.checks.update("with.checks.0", {"min_value": 10})
     draft.checks.update("with.checks.1", {"max_value": 20})
-    draft.bind_new_input("with.checks.0.question", label="First question", default="Q1")
-    draft.bind_new_input("with.checks.1.question", label="Second question", default="Q2")
+    draft.bind_new_input("with.checks.0.question")
+    draft.bind_new_input("with.checks.1.question")
     [result] = try_rows(draft, [ExampleRow(answers={"Q1": "15", "Q2": "25"})])
     assert result.total_marks == 1
     assert result.results["Q1"].correct
@@ -248,9 +244,9 @@ def test_group_question_inputs_are_reusable_and_all_sample_answers_are_required(
 
 def test_retyping_a_bound_check_refuses_to_rebind_it_to_the_new_method() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.checks.change_method("with.checks.0", "gradeflow/full-marks@1")
-    assert problem_messages(draft) == ["Minimum isn't used."]
+    assert problem_messages(draft) == ["From isn't used."]
     assert draft.inputs["min_value"]["default"] == 10
     draft.remove_input("min_value")
     assert draft.problems == []
@@ -302,7 +298,7 @@ def test_from_marking_keeps_braces_in_check_names_but_not_in_feedback() -> None:
 
 def test_invalid_input_defaults_are_rejected_even_when_test_values_are_valid() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     document = load_yaml(draft.to_yaml())
     document["inputs"]["min_value"]["default"] = "not a number"
     reopened = MethodDraft(
@@ -316,7 +312,7 @@ def test_unbinding_a_bound_setting_preserves_its_inherited_default() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="cat", version=1, label="Cat")
     draft.checks.add("with.checks.0", "gradeflow/key-points@1")
     draft.checks.update("with.checks.0", {"points": ["cat"]})
-    draft.bind_new_input("with.checks.0.with.whole_words", label="Whole words")
+    draft.bind_new_input("with.checks.0.with.whole_words")
     reopened = reopen(draft)
     assert reopened.checks.values("with.checks.0")["whole_words"] is False
     reopened.unbind("with.checks.0.with.whole_words")
@@ -325,7 +321,7 @@ def test_unbinding_a_bound_setting_preserves_its_inherited_default() -> None:
 
 def test_a_refused_change_to_a_bound_field_leaves_its_default() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     retired = MethodDraft.from_yaml(
         draft.to_yaml().replace("gradeflow/number-range@1", "gradeflow/retired@1"),
         NUMBER_QUESTIONS,
@@ -339,7 +335,7 @@ def test_a_refused_change_to_a_bound_field_leaves_its_default() -> None:
 
 def test_unbinding_an_input_without_a_default_leaves_the_setting_unset() -> None:
     draft = number_range_draft()
-    name = draft.bind_new_input("with.checks.0.weight", label="Weight")
+    name = draft.bind_new_input("with.checks.0.weight")
     draft.update_input(name, {"title": "Weight"})
     draft.remove_input(name)
     assert "weight" not in draft.checks.data["with"]["checks"][0]
@@ -348,7 +344,7 @@ def test_unbinding_an_input_without_a_default_leaves_the_setting_unset() -> None
 
 def test_opening_a_bound_definition_does_not_change_publishable_content() -> None:
     draft = reopen(number_range_draft(), version=3)
-    draft.bind_new_input("with.checks.0.with.min_value", label="Lower limit", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     text = draft.to_yaml()
     assert reopen(draft, version=3).to_yaml() == text
 
@@ -378,7 +374,7 @@ def test_a_new_version_may_use_the_previous_one_but_not_itself() -> None:
 
 def test_bound_setting_keeps_its_condition_reference_after_reload() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Lower limit", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.checks.add("with.checks.1", "gradeflow/full-marks@1")
     draft.checks.update(
         "with.checks.1", {"if": Condition((ConditionRow("with.checks.0", "correct"),))}
@@ -431,7 +427,7 @@ def test_two_questions_make_a_group_method_and_keep_bound_checks() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="range", version=1, label="Range")
     draft.checks.add("with.checks.0", "gradeflow/number-range@1")
     draft.checks.update("with.checks.0", {"min_value": 10})
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=5)
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.set_questions(TWO_NUMBER_QUESTIONS)
     assert (draft.question, draft.finalized().marks_question_group) == (None, True)
     assert draft.checks.values("with.checks.0")["question"] == "Q1"
@@ -466,13 +462,10 @@ def test_a_newly_bound_setting_uses_its_current_value_as_the_default() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="cat", version=1, label="Cat")
     draft.checks.add("with.checks.0", "gradeflow/key-points@1")
     draft.checks.update("with.checks.0", {"points": ["cat"]})
-    draft.bind_new_input("with.checks.0.with.whole_words", label="Whole words")
+    draft.bind_new_input("with.checks.0.with.whole_words")
     assert draft.test_values == {}
     assert "whole_words" not in draft.settings_schema.get("required", [])
     assert draft.finalized().settings.model_fields["whole_words"].default is False
-    draft.bind_new_input("with.checks.0.with.whole_words", label="Whole words", default=True)
-    assert draft.test_values == {}
-    assert draft.finalized().settings.model_fields["whole_words"].default is True
     draft.unbind("with.checks.0.with.whole_words")
     assert draft.test_values == {}
     assert not draft.finalized().settings.model_fields
@@ -507,7 +500,7 @@ def test_examples_publish_without_execution_or_fabricated_expectations(
 
 def test_changed_test_values_do_not_replace_defaults_and_fix_uses_authored_default() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.test_values = {"min_value": 15}
     assert draft.checks.values("with.checks.0")["min_value"] == 10
     assert load_yaml(draft.to_yaml())["inputs"]["min_value"]["default"] == 10
@@ -520,7 +513,7 @@ def test_changed_test_values_do_not_replace_defaults_and_fix_uses_authored_defau
 
 def test_a_bound_check_reads_its_question_when_a_second_is_added() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.set_questions(TWO_NUMBER_QUESTIONS)
     assert draft.finalized().marks_question_group
     check = load_yaml(draft.to_yaml())["checks"][0]
@@ -579,8 +572,8 @@ def test_saving_a_one_question_group_as_a_method_is_reusable_for_another_questio
     )
     method = draft.finalized()
     results = mark_rows(
-        draft.ref,
-        questions=QuestionSet.model_validate({"Q5": {"type": "number"}}),
+        method.ref,
+        questions=QuestionSet.load({"Q5": {"type": "number"}}),
         question="Q5",
         inputs={},
         rows=[ExampleRow(answers={"Q5": "12"}), ExampleRow(answers={"Q5": "8"})],
@@ -597,7 +590,7 @@ def test_incomplete_method_yaml_reports_plain_field_errors() -> None:
 
 def test_missing_test_values_say_how_to_fix_them_naming_the_input() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Lower limit")
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.update_input("min_value", {"title": "Lower limit"})
     draft.test_values = {}
     assert problem_messages(draft) == ["Give “Lower limit” a test value or a default."]
@@ -609,34 +602,20 @@ def test_missing_test_values_say_how_to_fix_them_naming_the_input() -> None:
     assert "input_value" not in messages
 
 
-def test_complex_input_defaults_are_validated_before_changing_the_draft() -> None:
+def test_a_complex_setting_becomes_its_inputs_default() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
     draft.checks.add("with.checks.0", "gradeflow/custom-code@1")
-    original = draft.to_yaml()
-    with pytest.raises(EditingError, match="minimum: Must be an object"):
-        draft.bind_new_input(
-            "with.checks.0.with.parameters", label="Settings object", default={"minimum": 5}
-        )
-    assert draft.to_yaml() == original
-    assert draft.inputs == {}
     default = {"minimum": {"type": "integer", "value": 5}}
-    draft.bind_new_input("with.checks.0.with.parameters", label="Settings object", default=default)
+    draft.checks.update("with.checks.0", {"parameters": default})
+    draft.bind_new_input("with.checks.0.with.parameters")
     assert draft.test_values == {}
     assert draft.finalized().settings.model_fields["parameters"].default == default
     assert load_yaml(draft.to_yaml())["inputs"]["parameters"]["default"] == default
 
 
-def test_new_nullable_inputs_can_have_an_explicit_none_default() -> None:
-    draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=None)
-    assert draft.finalized().settings.model_fields["min_value"].default is None
-    assert draft.inputs["min_value"]["default"] is None
-    assert draft.test_values == {}
-
-
 def test_bound_defaults_and_input_metadata_survive_unrelated_edits() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum")
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.update_input(
         "min_value", {"title": "Limit", "default": 4, "advanced": True, "examples": [4, 8]}
     )
@@ -654,9 +633,10 @@ def test_bound_defaults_and_input_metadata_survive_unrelated_edits() -> None:
 
 def test_only_inputs_of_the_same_type_and_a_fitting_default_can_fill_a_setting() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
-    draft.bind_new_input("with.checks.0.with.max_value", label="Maximum", default=20)
-    draft.bind_new_input("with.checks.0.name", label="Name", default="Range")
+    draft.bind_new_input("with.checks.0.with.min_value")
+    draft.bind_new_input("with.checks.0.with.max_value")
+    draft.checks.update("with.checks.0", {"name": "Range"})
+    draft.bind_new_input("with.checks.0.name")
     assert draft.compatible_inputs("with.checks.0.with.min_value") == ["min_value", "max_value"]
     assert draft.compatible_inputs("with.checks.0.name") == ["name_input"]
     with pytest.raises(EditingError, match="isn't a setting an input can fill"):
@@ -677,12 +657,13 @@ def test_an_unused_input_can_fill_any_setting_its_default_fits() -> None:
 
 def test_a_new_input_for_a_setting_sharing_one_leaves_it_to_the_others() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Limit", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
+    draft.update_input("min_value", {"title": "To", "default": 10})
     draft.bind("with.checks.0.with.max_value", "min_value")
-    assert draft.bind_new_input("with.checks.0.with.max_value", label="Limit") == "max_value"
+    assert draft.bind_new_input("with.checks.0.with.max_value") == "max_value"
     assert draft.inputs == {
-        "min_value": {"title": "Limit", "default": 10},
-        "max_value": {"title": "Limit 2", "default": 10},
+        "min_value": {"title": "To", "default": 10},
+        "max_value": {"title": "To 2", "default": 10},
     }
     assert [field.bound_input for field in draft.configurable_fields() if field.bound_input] == [
         "min_value",
@@ -690,7 +671,7 @@ def test_a_new_input_for_a_setting_sharing_one_leaves_it_to_the_others() -> None
     ]
 
 
-def test_an_input_is_titled_as_the_setting_it_fills_unless_labelled() -> None:
+def test_an_input_is_titled_as_the_setting_it_fills() -> None:
     draft = number_range_draft()
     draft.bind_new_input("with.checks.0.with.min_value")
     [field] = [field for field in draft.configurable_fields() if field.bound_input]
@@ -800,7 +781,7 @@ def test_nested_template_values_require_whole_document_editing() -> None:
 
 def test_editing_a_checks_id_keeps_bound_fields_and_hides_generated_ids() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=1)
+    draft.bind_new_input("with.checks.0.with.min_value")
     assert "id" not in draft.checks.values("with.checks.0")
     draft.checks.update("with.checks.0", {"id": "minimum", "max_value": 30})
     document = load_yaml(draft.to_yaml())
@@ -814,7 +795,7 @@ def test_editing_a_checks_id_keeps_bound_fields_and_hides_generated_ids() -> Non
 
 def test_input_options_validate_known_default_before_mutation() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=1)
+    draft.bind_new_input("with.checks.0.with.min_value")
     before = draft.to_yaml()
     with pytest.raises(InvalidError, match="number"):
         draft.update_input("min_value", {"title": "Minimum", "default": {"bad": "value"}})
@@ -831,7 +812,7 @@ def test_input_options_validate_known_default_before_mutation() -> None:
 def test_packaged_composed_methods_preserve_yaml_and_still_execute(file: Path) -> None:
     original = load_yaml(file.read_text())
     first_example = original["examples"][0]
-    questions = QuestionSet.model_validate(first_example["questions"])
+    questions = QuestionSet.load(first_example["questions"])
     draft = MethodDraft.from_yaml(
         file.read_text(),
         questions,
@@ -859,7 +840,7 @@ def test_packaged_composed_methods_preserve_yaml_and_still_execute(file: Path) -
 
 def test_wrapping_a_bound_check_preserves_its_binding_source() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=1)
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.checks.change_method("with.checks.0", "gradeflow/combination@1")
     assert (
         load_yaml(draft.to_yaml())["checks"][0]["with"]["checks"][0]["with"]["min_value"]
@@ -922,7 +903,7 @@ def test_a_draft_reads_its_examples_without_results_and_keeps_those_it_is_given(
 
 def test_published_example_inputs_use_the_documented_yaml_alias() -> None:
     draft = number_range_draft()
-    draft.bind_new_input("with.checks.0.with.min_value", label="Minimum", default=10)
+    draft.bind_new_input("with.checks.0.with.min_value")
     draft.test_values = {"min_value": 12}
     draft.set_example(example_rows("15"), index=None)
     published = load_yaml(draft.to_yaml())
@@ -1019,7 +1000,7 @@ def test_metadata_set_to_none_is_unset() -> None:
 def test_a_name_an_input_fills_labels_its_check_with_its_default() -> None:
     draft = number_range_draft()
     draft.checks.update("with.checks.0", {"name": "In range"})
-    draft.bind_new_input("with.checks.0.name", label="Check name")
+    draft.bind_new_input("with.checks.0.name")
     assert draft.checks.label("with.checks.0") == "In range"
     draft.update_input("name_input", {"title": "Check name"})
     assert draft.checks.label("with.checks.0") == "Number Range"
@@ -1028,7 +1009,7 @@ def test_a_name_an_input_fills_labels_its_check_with_its_default() -> None:
 def test_a_setting_an_input_fills_has_its_problems_with_the_method() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="answers", version=1, label="Answers")
     draft.checks.add("with.checks.0", "gradeflow/accepted-answers@1")
-    draft.bind_new_input("with.checks.0.with.answers", label="Answers")
+    draft.bind_new_input("with.checks.0.with.answers")
     assert draft.checks.problems == []
     assert draft.problems
     with pytest.raises(EditingError):

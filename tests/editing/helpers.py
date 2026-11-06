@@ -9,7 +9,7 @@ from ..methods.helpers import accepted_answer, mark_all, proportions
 
 ACCEPTS_9_81 = accepted_answer("9.81", question="Q1")
 ANSWERS = ["9.81", "-9.81", "9.8", "10"]
-NUMBER_QUESTIONS = QuestionSet.model_validate({"Q1": {"type": "number", "max_marks": 2}})
+NUMBER_QUESTIONS = QuestionSet.load({"Q1": {"type": "number", "max_marks": 2}})
 
 
 def check_of(marking: Mapping[str, Any]) -> dict[str, Any]:

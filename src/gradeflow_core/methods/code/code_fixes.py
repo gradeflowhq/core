@@ -7,7 +7,7 @@ import keyword
 import symtable
 import tokenize
 import warnings
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, replace
 from tokenize import TokenInfo
 from typing import Any, Literal, NamedTuple, get_args
@@ -409,15 +409,7 @@ def _keyword_fix(statement: list[TokenInfo]) -> _LineFix | None:
     if first_token.type != tokenize.NAME or keyword.iskeyword(word) or keyword.issoftkeyword(word):
         return None
     is_capitalized = word.lower() in STATEMENT_KEYWORDS
-    matches = (
-        [word.lower()]
-        if is_capitalized
-        else [
-            match
-            for match in STATEMENT_KEYWORDS
-            if len(word) >= 3 and OSA.distance(word, match) == 1
-        ]
-    )
+    matches = [word.lower()] if is_capitalized else _one_edit_away(word, STATEMENT_KEYWORDS)
     if len(matches) != 1:
         return None
     [match] = matches
@@ -479,6 +471,13 @@ def _top_level_tokens(statement: list[TokenInfo]) -> Iterator[TokenInfo]:
         depth += token.string in OPENERS
 
 
+def _one_edit_away(word: str, candidates: Iterable[str]) -> list[str]:
+    """The candidates one edit from ``word``, if it has three letters or more."""
+    if len(word) < 3:
+        return []
+    return [candidate for candidate in candidates if OSA.distance(word, candidate) == 1]
+
+
 def _fixed_names(code: str, setup_names: Collection[str]) -> tuple[str, list[Fix]]:
     """``code`` with each name it uses but never defines read as the one defined name or builtin a
     single edit away, or as the constant it writes in lower case; and a fix for each, in order
@@ -499,11 +498,7 @@ def _fixed_names(code: str, setup_names: Collection[str]) -> tuple[str, list[Fix
         matches = (
             [LOWERCASE_CONSTANTS[name]]
             if name in LOWERCASE_CONSTANTS
-            else [
-                candidate
-                for candidate in defined_names
-                if len(name) >= 3 and OSA.distance(name, candidate) == 1
-            ]
+            else _one_edit_away(name, defined_names)
         )
         if len(matches) != 1:
             continue

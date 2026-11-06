@@ -118,11 +118,11 @@ def test_a_marking_saved_as_a_method_marks_like_it_with_its_fields_as_inputs() -
         label="Term, not look-alike",
         summary="The term, not its look-alike.",
     )
-    draft.bind_new_input("with.checks.0.with.points", label="Points", default=["term"])
-    draft.bind_new_input("with.checks.1.with.check.with.point", label="Look-alike", default="turm")
+    draft.bind_new_input("with.checks.0.with.points")
+    draft.bind_new_input("with.checks.1.with.check.with.point")
     methods = BUILTINS.with_files([(name, draft.to_yaml())])
-    saved = {"uses": draft.ref}
-    filled = {"uses": draft.ref, "with": {"points": ["photon"], "point": "foton"}}
+    saved = {"uses": draft.finalized().ref}
+    filled = {"uses": saved["uses"], "with": {"points": ["photon"], "point": "foton"}}
     assert proportions(mark_all(saved, ["the term", "a turm term"], methods=methods)) == [1, 0]
     assert proportions(mark_all(filled, ["a photon", "a foton photon"], methods=methods)) == [1, 0]
 
@@ -132,4 +132,4 @@ def test_exposing_a_setting_refuses_unknown_paths() -> None:
         Check.load(MARKING), QUESTIONS, name="x", version=1, label="X", summary="X."
     )
     with pytest.raises(EditingError, match="isn't a setting an input can fill"):
-        draft.bind_new_input("with.nope", label="Missing")
+        draft.bind_new_input("with.nope")

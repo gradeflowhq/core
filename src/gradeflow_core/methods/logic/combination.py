@@ -464,7 +464,7 @@ class Combination(Method[CombinationSettings]):
     def problems(self, check: Check, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(check)
         # Only a written list needs a check: a method file may fill one from an optional input.
-        if not settings.checks and not check._from_method_file:  # noqa: SLF001
+        if not settings.checks and not check._scope:  # noqa: SLF001
             yield Problem("Add at least one check.", field=("checks",), is_incomplete=True)
         yield from ignored_weight_problems(
             [inner.weight for inner in settings.checks], settings.combine, "checks"

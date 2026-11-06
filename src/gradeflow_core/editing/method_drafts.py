@@ -8,7 +8,6 @@ from typing import Any, get_args
 
 from pydantic import TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
-from pydantic_core import PydanticUndefined
 
 from ..common.documents import dump_yaml, load_yaml
 from ..common.error_formatting import IDENTIFIER_RULE
@@ -188,10 +187,6 @@ class MethodDraft:
     def checks(self) -> MarkingDraft:
         """The method's checks, edited as the marking of its questions."""
         return self._checks
-
-    @property
-    def ref(self) -> str:
-        return method_ref(self.name, self.version)
 
     def _fit_to_questions(self) -> None:
         """One question gives the method its question type; more make it a group method."""
@@ -442,37 +437,21 @@ class MethodDraft:
             raise EditingError(f"{path} isn't a setting an input can fill.")
         return field
 
-    def bind_new_input(
-        self,
-        path: str,
-        *,
-        label: str | None = None,
-        description: str = "",
-        default: Any = PydanticUndefined,
-    ) -> str:
-        """Bind a setting to a new input of its own, labelled as the setting unless given, whose
-        default is the setting's value unless given, numbered if another input has its label. The
-        input's name."""
+    def bind_new_input(self, path: str) -> str:
+        """Bind a setting to a new input of its own, labelled as the setting, numbered if another
+        input has its label, whose default is the setting's value. The input's name."""
         field = self._configurable_field(path)
-        has_default = default is not PydanticUndefined
-        if not has_default:
-            default = self._checks.values(field.check).get(
-                field.key, self._schema_of(field).get("default")
-            )
-        if (has_default or not is_empty(default)) and (
-            message := self._rejection_reason(field, default)
-        ):
+        default = self._checks.values(field.check).get(
+            field.key, self._schema_of(field).get("default")
+        )
+        if not is_empty(default) and (message := self._rejection_reason(field, default)):
             raise EditingError(message)
         self.unbind(path)
         stem = str(path_parts(path)[-1])
         name = first_unused_name(f"{stem}_input" if stem in CHECK_FIELDS else stem, self._inputs)
         titles = {declaration.get("title") for declaration in self._inputs.values()}
-        declaration: dict[str, Any] = {
-            "title": first_unused_name(label or field.title, titles, " ")
-        }
-        if description:
-            declaration["description"] = description
-        if has_default or not is_empty(default):
+        declaration: dict[str, Any] = {"title": first_unused_name(field.title, titles, " ")}
+        if not is_empty(default):
             declaration["default"] = deepcopy(default)
         self._checks.set_input(name, declaration)
         self._bind(path, name)
@@ -627,7 +606,9 @@ class MethodDraft:
         return method
 
     def _loaded_method(self) -> Method[Any]:
-        other_methods = Methods(method for method in self._methods if method.ref != self.ref).by_ref
+        other_methods = Methods(
+            method for method in self._methods if method.ref != method_ref(self.name, self.version)
+        ).by_ref
         return method_of(self.name, self._method_file(), other_methods)
 
     def _problems(self, method: Method[Any]) -> list[Problem]:

@@ -47,7 +47,7 @@ def test_a_point_is_found_anywhere_ignoring_capitals_or_as_whole_words() -> None
 
 @pytest.mark.parametrize("match", ["exact", "spelling"])
 def test_a_point_is_read_as_the_question_reads_answers(match: str) -> None:
-    question = TextQuestion.model_validate({"reading": {"ignore_punctuation": True}})
+    question = TextQuestion.load({"reading": {"ignore_punctuation": True}})
     check = {"uses": KEY_POINT, "with": {"point": "CO2.", "match": match}}
     found = mark(check, "Plants take in co2", question)
     assert (found.proportion, found.feedback) == (1, "Has “CO2”.")

@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from gradeflow_core import Question
+from gradeflow_core import InvalidError, Question
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.reading import ListReading, TextReading
@@ -16,9 +16,9 @@ def test_base_question_is_abstract() -> None:
 
 @pytest.mark.parametrize("max_marks", [-5, "nan", "inf"])
 def test_max_marks_is_a_finite_number_of_zero_or_more(max_marks: object) -> None:
-    with pytest.raises(ValidationError) as caught:
-        TextQuestion.model_validate({"max_marks": max_marks})
-    assert [error["loc"] for error in caught.value.errors()] == [("max_marks",)]
+    with pytest.raises(InvalidError) as caught:
+        TextQuestion.load({"max_marks": max_marks})
+    assert [problem.field for problem in caught.value.problems] == [("max_marks",)]
 
 
 def test_multiple_values_need_at_least_one_value() -> None:

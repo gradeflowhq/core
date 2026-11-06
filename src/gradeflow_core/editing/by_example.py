@@ -1,5 +1,6 @@
 """Change the marks of particular answers without accumulating previous decisions."""
 
+from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
@@ -132,12 +133,10 @@ def _decided_proportions(
     ]
     combine = settings.get("combine", _DEFAULT_COMBINE)
     weights = [inner.get("weight", _DEFAULT_WEIGHT) for inner in inner_checks]
-    weighted_proportions: dict[str, list[tuple[float, float]]] = {}
+    weighted_proportions: defaultdict[str, list[tuple[float, float]]] = defaultdict(list)
     for inner in inner_checks:
         for answer, proportion in _decided_proportions(inner, rules, key).items():
-            weighted_proportions.setdefault(answer, []).append(
-                (inner.get("weight", _DEFAULT_WEIGHT), proportion)
-            )
+            weighted_proportions[answer].append((inner.get("weight", _DEFAULT_WEIGHT), proportion))
     return {
         answer: clamped(combined_proportion(combine, pairs, weights, rules.max_marks))
         for answer, pairs in weighted_proportions.items()

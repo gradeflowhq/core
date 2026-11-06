@@ -505,20 +505,6 @@ class MarkingDraft:
     def earlier_checks(self, path: str) -> list[str]:
         """Paths of checks whose results the condition at ``path`` may read: those before it
         in its list, and in the lists holding it."""
-        checks = self._checks()
-        marking, problems = self._validation()
-        if marking is not None and not problems and (target := checks.get(path)) is not None:
-            preceding = _checks_run_before(marking, target, []) or []
-            paths = {id(check): check_path for check_path, check in checks.items()}
-            return [
-                check_path
-                for check in preceding
-                if (check_path := paths.get(id(check))) is not None
-            ]
-        return self._earlier_checks_as_written(path)
-
-    def _earlier_checks_as_written(self, path: str) -> list[str]:
-        """``earlier_checks`` as the data is written, for a marking that isn't a check yet."""
         return [
             sibling
             for written_check in self._walk()
@@ -634,8 +620,7 @@ class MarkingDraft:
             if not isinstance(condition, str):
                 continue
             earlier_ids = {
-                self._check_id(earlier)
-                for earlier in self._earlier_checks_as_written(written_check.path)
+                self._check_id(earlier) for earlier in self.earlier_checks(written_check.path)
             }
             for name in sorted(names_read(condition, "checks") - earlier_ids):
                 yield Problem(unknown_check_message(name), written_check.path, ("if",))
@@ -764,24 +749,6 @@ def _position_inside(method: Method[Any], position: Position, location: Location
     before its own place."""
     in_list = isinstance(location[-1], int)
     return method.inner_position(position.inner_position(None, None, in_list=in_list), location)
-
-
-def _checks_run_before(check: Check, target: Check, earlier: list[Check]) -> list[Check] | None:
-    if check is target:
-        return earlier
-    run_by_list: dict[Location, list[Check]] = {}
-    for location, inner, in_list in check.method.expanded_checks(check):
-        list_location = location[:-1] if in_list else location
-        siblings = run_by_list.setdefault(list_location, [])
-        earlier_checks = (
-            [*earlier, *siblings]
-            if check.method.reads_earlier_results(dict(check.with_))
-            else earlier
-        )
-        if (run_before := _checks_run_before(inner, target, earlier_checks)) is not None:
-            return run_before
-        siblings.append(inner)
-    return None
 
 
 def _new_check(method: Method[Any], position: Position, *, names_question: bool) -> JsonDict:

@@ -314,7 +314,7 @@ draft = MethodDraft.new(
 )
 draft.checks.add("with.checks.0", "gradeflow/number-range@1")
 draft.checks.update("with.checks.0", {"min_value": 10, "max_value": 20})
-draft.bind_new_input("with.checks.0.with.min_value", label="Lowest")
+draft.bind_new_input("with.checks.0.with.min_value")
 assert draft.problems == []
 print(draft.to_yaml())
 ```
