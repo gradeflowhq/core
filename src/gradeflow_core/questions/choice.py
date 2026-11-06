@@ -1,17 +1,12 @@
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Any, ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
-from natsort import natsorted
-from pydantic import Field, PlainSerializer, ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 
 from ..common.schemas import JsonDict, type_field
 from ..common.text import quoted
 from .base import Question
 from .reading import ListReading, is_blank, read_list, reading_field, sorted_options
-
-Options = Annotated[
-    frozenset[str], PlainSerializer(sorted, return_type=list[str], when_used="json")
-]
 
 
 class ChoiceQuestion(Question):
@@ -21,8 +16,11 @@ class ChoiceQuestion(Question):
 
     type: Literal["choice"] = type_field("choice")
     reading: ListReading = reading_field(ListReading)
-    options: Options = Field(
-        min_length=1, title="Options", description="The options students can choose from."
+    options: tuple[str, ...] = Field(
+        min_length=1,
+        strict=True,
+        title="Options",
+        description="The options students can choose from.",
     )
     allow_multiple: bool = Field(
         default=False,
@@ -34,9 +32,9 @@ class ChoiceQuestion(Question):
     @classmethod
     def _read_like_answers(cls, options: object, info: ValidationInfo) -> object:
         """Options are read like answers, so they compare equal to them."""
-        if not isinstance(options, list | tuple | set | frozenset) or not all(
-            isinstance(option, str) for option in options
-        ):
+        if isinstance(options, list):
+            options = tuple(options)
+        if not isinstance(options, tuple) or not all(isinstance(option, str) for option in options):
             return options
         reading = info.data.get("reading") or ListReading()
         read_options: list[str] = []
@@ -46,7 +44,7 @@ class ChoiceQuestion(Question):
             if option in read_options:
                 raise ValueError(f"Options must be different: {quoted(option)} appears twice.")
             read_options.append(option)
-        return frozenset(read_options)
+        return tuple(read_options)
 
     def python_type(self) -> str:
         return "set[str]"
@@ -61,7 +59,7 @@ class ChoiceQuestion(Question):
         )
 
     def answer_schema(self) -> JsonDict:
-        options = {"type": "string", "enum": sorted_options(self.options)}
+        options = {"type": "string", "enum": list(self.options)}
         if self.allow_multiple:
             property_schema = {
                 "type": "array",
@@ -74,7 +72,8 @@ class ChoiceQuestion(Question):
         return {"type": "object", "properties": {self._answer_property: property_schema}}
 
     def answer_values(self, answer: str) -> dict[str, Any]:
-        chosen_options = sorted_options((self.read(answer) or frozenset()) & self.options)
+        chosen = self.read(answer) or frozenset()
+        chosen_options = [option for option in self.options if option in chosen]
         if self.allow_multiple:
             return {self._answer_property: chosen_options}
         return {self._answer_property: chosen_options[0] if chosen_options else None}
@@ -82,7 +81,7 @@ class ChoiceQuestion(Question):
     def answer_from(self, values: Mapping[str, Any]) -> str:
         chosen_options = values.get(self._answer_property) or []
         options = [chosen_options] if isinstance(chosen_options, str) else chosen_options
-        return self.reading.separator.join(natsorted(options))
+        return self.reading.separator.join(option for option in self.options if option in options)
 
     @property
     def _answer_property(self) -> str:
@@ -92,4 +91,5 @@ class ChoiceQuestion(Question):
         answered_options = {
             option for answer in answers for option in self.read(answer) or () if option
         }
-        return self.model_copy(update={"options": self.options | answered_options})
+        new_options = sorted_options(answered_options.difference(self.options))
+        return self.model_copy(update={"options": (*self.options, *new_options)})

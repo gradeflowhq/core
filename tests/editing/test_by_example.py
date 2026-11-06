@@ -86,7 +86,7 @@ def test_questions_whose_markings_accept_answers_can_be_marked_by_example() -> N
     questions: list[Question] = [
         TextQuestion(),
         NumberQuestion(),
-        ChoiceQuestion(options=frozenset({"a"})),
+        ChoiceQuestion(options=("a",)),
         ValuesQuestion(value_types=["text", "text"]),
     ]
     assert [can_mark_by_example(question) for question in questions] == [

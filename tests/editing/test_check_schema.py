@@ -26,7 +26,7 @@ COMBINATION = "gradeflow/combination@1"
 QUESTIONS = QuestionSet(
     {
         "Q1": TextQuestion(),
-        "Q2": ChoiceQuestion(options=frozenset({"a", "b"})),
+        "Q2": ChoiceQuestion(options=("a", "b")),
         "Q3": ValuesQuestion(value_types=["text", "number"]),
         "Q4": NumberQuestion(),
     }

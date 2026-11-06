@@ -17,7 +17,7 @@ def test_answers_are_read_as_their_questions_read_them() -> None:
         {
             "Q1": TextQuestion(),
             "Q2": ChoiceQuestion(
-                options=frozenset({"a", "b", "c"}),
+                options=("a", "b", "c"),
                 reading=ListReading(separator="|"),
             ),
             "Q3": NumberQuestion(),
@@ -47,7 +47,7 @@ def test_updating_keeps_answered_questions_extends_choices_and_works_out_new_one
     questions = QuestionSet(
         {
             "Q1": TextQuestion(description="Custom prompt", max_marks=2.5),
-            "Q2": ChoiceQuestion(options=frozenset({"A"}), max_marks=3.0),
+            "Q2": ChoiceQuestion(options=("A",), max_marks=3.0),
             "Q3": TextQuestion(description="Remove me"),
         }
     )
@@ -62,7 +62,7 @@ def test_updating_keeps_answered_questions_extends_choices_and_works_out_new_one
     choice = updated["Q2"]
     assert isinstance(choice, ChoiceQuestion)
     assert (choice.options, choice.allow_multiple, choice.max_marks) == (
-        frozenset({"a", "b", "c"}),
+        ("a", "b", "c"),
         False,
         3.0,
     )
@@ -83,7 +83,7 @@ def test_a_new_question_is_out_of_the_highest_marks_given_for_it() -> None:
 
 def test_questions_dump_with_their_types_and_load_back() -> None:
     questions = QuestionSet(
-        {"Q1": TextQuestion(), "Q2": ChoiceQuestion(options=frozenset({"b", "a"}), max_marks=2)}
+        {"Q1": TextQuestion(), "Q2": ChoiceQuestion(options=("a", "b"), max_marks=2)}
     )
     assert questions.dump() == {
         "Q1": {"type": "text"},

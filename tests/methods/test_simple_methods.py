@@ -78,7 +78,7 @@ def test_only_full_marks_marks_blank_answers() -> None:
     ("method", "settings", "question"),
     [
         ("gradeflow/key-points@1", {"points": ["x"]}, NumberQuestion()),
-        ("gradeflow/number-range@1", {}, ChoiceQuestion(options=frozenset({"a"}))),
+        ("gradeflow/number-range@1", {}, ChoiceQuestion(options=("a",))),
         ("gradeflow/multiple-choice@1", {"correct": ["a"]}, ValuesQuestion(value_types=["text"])),
     ],
 )

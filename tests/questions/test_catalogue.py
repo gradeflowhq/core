@@ -71,7 +71,7 @@ def test_each_type_offers_a_question_to_start_from(question_type: QuestionType) 
 
 def test_a_question_of_a_type_is_set_up_as_its_schema_describes() -> None:
     choice = new_question("choice", {"options": ["A", "B", "C"]})
-    assert choice.model_dump()["options"] == {"a", "b", "c"}
+    assert choice.model_dump()["options"] == ("a", "b", "c")
     with pytest.raises(InvalidError) as caught:
         new_question("choice", {"options": []})
     assert caught.value.problems == [
@@ -81,7 +81,7 @@ def test_a_question_of_a_type_is_set_up_as_its_schema_describes() -> None:
 
 def test_a_question_loads_as_the_type_it_names_or_the_type_it_is_loaded_as() -> None:
     choice = Question.load({"type": "choice", "options": ["a"]})
-    assert choice == ChoiceQuestion(options=frozenset({"a"}))
+    assert choice == ChoiceQuestion(options=("a",))
     assert Question.load(choice.dump()) == choice
     assert choice.dump() == {"type": "choice", "options": ["a"]}
     assert NumberQuestion.load({"max_marks": 2}) == NumberQuestion(max_marks=2)

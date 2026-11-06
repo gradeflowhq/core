@@ -53,7 +53,7 @@ def test_code_reads_the_answer_as_the_question_reads_it() -> None:
     assert mark(
         custom_code("correct = answer == {'a', 'b'}"),
         "b, a",
-        ChoiceQuestion(options=frozenset({"a", "b"})),
+        ChoiceQuestion(options=("a", "b")),
     ).correct
 
 

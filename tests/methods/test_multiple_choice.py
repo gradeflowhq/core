@@ -8,7 +8,7 @@ from gradeflow_core.questions.choice import ChoiceQuestion
 
 from .helpers import describe, mark, mark_all, problems_of, proportions
 
-CHOICE = ChoiceQuestion(options=frozenset({"a", "b", "c", "d"}), allow_multiple=True)
+CHOICE = ChoiceQuestion(options=("a", "b", "c", "d"), allow_multiple=True)
 
 
 @pytest.mark.parametrize(
@@ -105,9 +105,7 @@ def test_the_correct_options_are_read_as_the_question_reads_its_own() -> None:
     check = {"uses": "gradeflow/multiple-choice@1", "with": {"correct": [" B", "C"]}}
     assert proportions(mark_all(check, ["b, c", "B, C", "b"], CHOICE)) == [1, 1, 0]
     assert problems_of(check, CHOICE) == []
-    case_sensitive = ChoiceQuestion.model_validate(
-        {"options": ["A", "b"], "reading": {"ignore_case": False}}
-    )
+    case_sensitive = ChoiceQuestion.load({"options": ["A", "b"], "reading": {"ignore_case": False}})
     assert problems_of({**check, "with": {"correct": ["a"]}}, case_sensitive) == [
         ("", ("correct", 0), "a isn't one of the options.")
     ]
@@ -122,3 +120,10 @@ def test_its_settings_schema_offers_the_questions_options() -> None:
     multiple_choice = BUILTINS.find("gradeflow/multiple-choice@1")
     schema = multiple_choice.settings_schema(Position(QuestionSet({"Q1": CHOICE}), "Q1"))
     assert schema["properties"]["correct"]["items"]["enum"] == ["a", "b", "c", "d"]
+
+
+def test_its_settings_schema_offers_the_options_in_the_questions_order() -> None:
+    question = ChoiceQuestion.load({"options": ["d", "b", "c"]})
+    multiple_choice = BUILTINS.find("gradeflow/multiple-choice@1")
+    schema = multiple_choice.settings_schema(Position(QuestionSet({"Q1": question}), "Q1"))
+    assert schema["properties"]["correct"]["items"]["enum"] == ["d", "b", "c"]

@@ -2,13 +2,11 @@ import math
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
 from gradeflow_core import (
     Check,
     InvalidError,
 )
-from gradeflow_core.common.error_formatting import error_message
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.reading import ListReading
 
@@ -176,11 +174,9 @@ def test_checks_accept_settings_at_their_limits(check: dict[str, Any]) -> None:
 
 
 def test_messages_keep_the_reason_a_question_gives() -> None:
-    with pytest.raises(ValidationError) as caught:
-        ChoiceQuestion.model_validate({"options": ["a", "A"], "reading": {"ignore_case": True}})
-    [error] = caught.value.errors()
-    assert error_message(error) == "Options must be different: “a” appears twice."
-    case_sensitive = ChoiceQuestion(
-        options=frozenset({"a", "A"}), reading=ListReading(ignore_case=False)
-    )
-    assert case_sensitive.options == {"a", "A"}
+    with pytest.raises(InvalidError) as caught:
+        ChoiceQuestion.load({"options": ["a", "A"], "reading": {"ignore_case": True}})
+    [problem] = caught.value.problems
+    assert problem.message == "Options must be different: “a” appears twice."
+    case_sensitive = ChoiceQuestion(options=("A", "a"), reading=ListReading(ignore_case=False))
+    assert case_sensitive.options == ("A", "a")

@@ -6,52 +6,51 @@ import sys
 import pytest
 from pydantic import ValidationError
 
+from gradeflow_core import InvalidError, Problem
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.reading import ListReading
 
 
 def test_choice_reads_options_ignoring_capitals_unless_set_otherwise() -> None:
-    question = ChoiceQuestion(options=frozenset({"A", "b", "c"}))
-    assert question.options == {"a", "b", "c"}
+    question = ChoiceQuestion(options=("A", "b", "c"))
+    assert question.options == ("a", "b", "c")
     assert question.read("A, B, C") == frozenset({"a", "b", "c"})
 
 
 def test_choice_reads_with_a_custom_separator() -> None:
-    question = ChoiceQuestion(
-        options=frozenset({"a", "b", "c"}), reading=ListReading(separator="|")
-    )
+    question = ChoiceQuestion(options=("a", "b", "c"), reading=ListReading(separator="|"))
     options = question.read("Yes|NO|  Maybe ")
     assert options == frozenset({"yes", "no", "maybe"})
 
 
 def test_choice_rejects_empty_option() -> None:
     with pytest.raises(ValidationError, match="Options can't be blank") as caught:
-        ChoiceQuestion(options=frozenset({"A", ""}))
+        ChoiceQuestion(options=("", "A"))
     assert caught.value.errors()[0]["loc"] == ("options",)
 
 
 @pytest.mark.parametrize("options", [["A", "a"], ["a", " a "], ["a", "a"]])
 def test_choice_rejects_options_read_alike(options: list[str]) -> None:
-    with pytest.raises(ValidationError) as caught:
-        ChoiceQuestion.model_validate({"options": options})
-    [error] = caught.value.errors()
-    assert error["loc"] == ("options",)
-    assert error["msg"] == "Value error, Options must be different: “a” appears twice."
+    with pytest.raises(InvalidError) as caught:
+        ChoiceQuestion.load({"options": options})
+    assert caught.value.problems == [
+        Problem("Options must be different: “a” appears twice.", field=("options",))
+    ]
 
 
 def test_choice_options_are_read_like_answers() -> None:
-    question = ChoiceQuestion(options=frozenset({" A", "b "}))
-    assert question.options == {"a", "b"}
+    question = ChoiceQuestion(options=(" A", "b "))
+    assert question.options == ("a", "b")
 
 
 @pytest.mark.parametrize("kwargs", [{}, {"options": []}, {"options": set()}])
 def test_choice_requires_at_least_one_option(kwargs: dict[str, object]) -> None:
-    with pytest.raises(ValidationError):
-        ChoiceQuestion.model_validate(kwargs)
+    with pytest.raises(InvalidError):
+        ChoiceQuestion.load(kwargs)
 
 
 def test_a_choice_answer_is_written_by_choosing_options() -> None:
-    question = ChoiceQuestion(options=frozenset({"b", "a", "c"}))
+    question = ChoiceQuestion(options=("a", "b", "c"))
     option_schema = question.answer_schema()["properties"]["option"]
     assert option_schema["enum"] == ["a", "b", "c"]
     assert question.answer_values("B") == {"option": "b"}
@@ -61,7 +60,7 @@ def test_a_choice_answer_is_written_by_choosing_options() -> None:
 
 
 def test_a_choice_of_several_options_takes_them_in_order() -> None:
-    question = ChoiceQuestion(options=frozenset({"a", "b", "c"}), allow_multiple=True)
+    question = ChoiceQuestion(options=("a", "b", "c"), allow_multiple=True)
     option_schema = question.answer_schema()["properties"]["options"]
     assert (
         option_schema["type"],
@@ -78,10 +77,12 @@ def test_a_choice_of_several_options_takes_them_in_order() -> None:
 
 
 @pytest.mark.parametrize("seed", ["1", "2", "3"])
-def test_options_that_sort_alike_come_out_in_one_order_across_hash_seeds(seed: str) -> None:
+def test_chosen_options_that_sort_alike_are_written_in_one_order_across_hash_seeds(
+    seed: str,
+) -> None:
     code = (
         "import json; from gradeflow_core import ChoiceQuestion; "
-        "q = ChoiceQuestion(options=frozenset({'1', '01', '001'}), allow_multiple=True); "
+        "q = ChoiceQuestion(options=('1', '01', '001'), allow_multiple=True); "
         "print(json.dumps([q.normalize('1, 01, 001'), q.answer_values('1, 01, 001'), "
         "q.answer_schema()['properties']['options']['items']['enum']]))"
     )
@@ -90,14 +91,34 @@ def test_options_that_sort_alike_come_out_in_one_order_across_hash_seeds(seed: s
     )
     assert json.loads(output) == [
         "001, 01, 1",
-        {"options": ["001", "01", "1"]},
-        ["001", "01", "1"],
+        {"options": ["1", "01", "001"]},
+        ["1", "01", "001"],
     ]
 
 
 def test_choice_ignores_punctuation_when_set() -> None:
-    question = ChoiceQuestion.model_validate(
+    question = ChoiceQuestion.load(
         {"options": ["(a)", "b."], "reading": {"ignore_punctuation": True}}
     )
-    assert question.options == {"a", "b"}
+    assert question.options == ("a", "b")
     assert question.read("(A), b") == frozenset({"a", "b"})
+
+
+def test_options_keep_the_order_they_are_listed_in() -> None:
+    question = ChoiceQuestion.load({"options": ["c", "A", "b"], "allow_multiple": True})
+    assert question.options == ("c", "a", "b")
+    assert question.dump()["options"] == ["c", "a", "b"]
+    assert question.answer_schema()["properties"]["options"]["items"]["enum"] == ["c", "a", "b"]
+    assert question.answer_values("B, C") == {"options": ["c", "b"]}
+    assert question.answer_from({"options": ["b", "c"]}) == "c,b"
+
+
+def test_options_must_be_listed() -> None:
+    with pytest.raises(InvalidError) as caught:
+        ChoiceQuestion.load({"options": {"a", "b"}})
+    assert caught.value.problems == [Problem("Must be a list.", field=("options",))]
+
+
+def test_options_first_answered_come_after_the_listed_ones() -> None:
+    question = ChoiceQuestion.load({"options": ["c", "a"]})
+    assert question.accepting(["z, b", "a"]).options == ("c", "a", "b", "z")

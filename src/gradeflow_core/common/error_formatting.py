@@ -29,6 +29,7 @@ _ERROR_MESSAGES = {
     "less_than": "Must be less than {lt}.",
     "list_type": "Must be a list.",
     "set_type": "Must be a list.",
+    "tuple_type": "Must be a list.",
     "dict_type": "Must be an object.",
     "model_type": "Must be an object.",
     "model_attributes_type": "Must be an object.",

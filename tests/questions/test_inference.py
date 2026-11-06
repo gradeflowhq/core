@@ -30,7 +30,7 @@ def test_infer_choice_from_few_distinct_values() -> None:
         ["red, blue, green", "blue , yellow", "green, purple", "red, blue", "yellow"]
     )
     assert isinstance(question, ChoiceQuestion)
-    assert question.options == {"red", "blue", "green", "yellow", "purple"}
+    assert question.options == ("blue", "green", "purple", "red", "yellow")
     options = question.read("blue,  yellow ,  purple")
     assert options == frozenset({"blue", "yellow", "purple"})
 
@@ -38,7 +38,7 @@ def test_infer_choice_from_few_distinct_values() -> None:
 def test_infer_choice_ignores_capitals() -> None:
     question = _inferred_question(["A,B,C", "B,D", "C,E,A"])
     assert isinstance(question, ChoiceQuestion)
-    assert question.options == {"a", "b", "c", "d", "e"}
+    assert question.options == ("a", "b", "c", "d", "e")
     assert question.read("B,E,A") == frozenset({"b", "e", "a"})
 
 
@@ -138,7 +138,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
     questions = QuestionSet({}).updated_from(submissions)
 
     assert isinstance(questions["choice_question"], ChoiceQuestion)
-    assert questions["choice_question"].options == {"red", "blue", "green"}
+    assert questions["choice_question"].options == ("blue", "green", "red")
 
     assert isinstance(questions["values_question"], ValuesQuestion)
     assert isinstance(questions["number_question"], NumberQuestion)
@@ -202,7 +202,7 @@ def test_infer_blank_answers_as_text_not_an_empty_choice() -> None:
 
 
 def test_updating_keeps_choice_options_when_every_answer_is_blank() -> None:
-    choice = ChoiceQuestion(options=frozenset({"a", "b"}))
+    choice = ChoiceQuestion(options=("a", "b"))
     assert _inferred_question(BLANK_ANSWERS, choice) == choice
 
 
@@ -229,13 +229,13 @@ def test_a_chosen_type_takes_its_settings_from_the_answers() -> None:
     assert question.read("3, -2") == [3, -2]
     choice = converted_question(TextQuestion(), "choice", ["A", "b", "A,C"])
     assert isinstance(choice, ChoiceQuestion)
-    assert choice.options == {"a", "b", "c"}
+    assert choice.options == ("a", "b", "c")
     assert choice.allow_multiple
     assert isinstance(converted_question(NumberQuestion(), "text", ["x"]), TextQuestion)
 
 
 def test_a_chosen_type_keeps_what_every_question_has() -> None:
-    choice = ChoiceQuestion(options=frozenset({"a"}), max_marks=3, description="Pick one")
+    choice = ChoiceQuestion(options=("a",), max_marks=3, description="Pick one")
     question = converted_question(choice, "number", ["1", "2"])
     assert (question.type, question.max_marks, question.description) == ("number", 3, "Pick one")
 

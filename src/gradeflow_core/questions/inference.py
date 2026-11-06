@@ -11,7 +11,7 @@ from .choice import ChoiceQuestion
 from .code import CodeQuestion
 from .layouts import guess_layouts
 from .number import NumberQuestion, reads_as_number
-from .reading import ListReading, Reading, is_blank, read_code, read_list
+from .reading import ListReading, Reading, is_blank, read_code, read_list, sorted_options
 from .text import TextQuestion
 from .types import QuestionType, ValueType
 from .values import EXAMSOFT_SEPARATOR, ValuesQuestion
@@ -140,7 +140,7 @@ def _looks_like_choices(answers: list[str]) -> bool:
 def _choice_question(answers: list[str]) -> ChoiceQuestion:
     reading = ListReading()
     return ChoiceQuestion(
-        options=frozenset(_distinct_values(answers, reading)),
+        options=tuple(sorted_options(_distinct_values(answers, reading))),
         allow_multiple=_value_counts(answers, reading) != {1},
     )
 

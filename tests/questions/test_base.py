@@ -39,7 +39,7 @@ def test_separator_is_not_empty() -> None:
         (NumberQuestion(), ["42", "42.0", " 42 ", "4.2e1", "42 kg"], "42"),
         (NumberQuestion(), ["9.81 m/s^2", "9.81"], "9.81"),
         (
-            ChoiceQuestion(options=frozenset({"b", "d"})),
+            ChoiceQuestion(options=("b", "d")),
             ["B,D", "d, b"],
             "b, d",
         ),
@@ -69,7 +69,7 @@ def test_answers_read_differently_normalize_differently() -> None:
     [
         (TextQuestion(), "str | None"),
         (NumberQuestion(), "int | float | None"),
-        (ChoiceQuestion(options=frozenset({"a"})), "set[str]"),
+        (ChoiceQuestion(options=("a",)), "set[str]"),
         (
             ValuesQuestion(value_types=["text", "number"]),
             "list[str | int | float | None], in order: text, number",
@@ -102,7 +102,7 @@ def test_only_a_question_of_several_values_has_a_question_for_each() -> None:
         ),
         (
             ChoiceQuestion(
-                options=frozenset({"a", "b"}),
+                options=("a", "b"),
                 allow_multiple=True,
                 reading=ListReading(separator=";"),
             ),
@@ -111,7 +111,7 @@ def test_only_a_question_of_several_values_has_a_question_for_each() -> None:
         ),
         (
             ChoiceQuestion(
-                options=frozenset({"a", "b"}),
+                options=("a", "b"),
                 allow_multiple=True,
                 reading=ListReading(trim_spaces=False),
             ),

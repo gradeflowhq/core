@@ -378,7 +378,7 @@ def test_a_method_that_cant_mark_the_question_says_so_before_its_finished() -> N
 
 
 def test_a_checks_values_are_read_as_its_question_reads_them() -> None:
-    choice_questions = QuestionSet({"Q1": ChoiceQuestion(options=frozenset({"a", "b"}))})
+    choice_questions = QuestionSet({"Q1": ChoiceQuestion(options=("a", "b"))})
     marking = {"question": "Q1", "uses": "gradeflow/multiple-choice@1", "with": {"correct": ["B"]}}
     draft = MarkingDraft(marking, choice_questions, "Q1")
     assert draft.values("")["correct"] == ["b"]

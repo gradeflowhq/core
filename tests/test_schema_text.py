@@ -56,7 +56,7 @@ def _schemas() -> Iterator[dict[str, Any]]:
     question_set = QuestionSet(
         {
             "Q1": TextQuestion(),
-            "Q2": ChoiceQuestion(options=frozenset({"a"})),
+            "Q2": ChoiceQuestion(options=("a",)),
             "Q3": ValuesQuestion(value_types=["text", "number"]),
         }
     )

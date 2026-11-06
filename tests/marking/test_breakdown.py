@@ -400,7 +400,7 @@ PART_A_OR_B = {
 
 def test_a_conditional_shows_its_branch_with_marks_only_at_the_top() -> None:
     questions = {
-        "Q1": ChoiceQuestion(options=frozenset({"a", "b"})),
+        "Q1": ChoiceQuestion(options=("a", "b")),
         "Q2": TextQuestion(max_marks=2),
     }
     result = mark_group(PART_A_OR_B, {"Q1": "a", "Q2": "animals make oxygen"}, questions)["Q2"]

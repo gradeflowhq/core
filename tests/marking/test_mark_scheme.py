@@ -25,7 +25,7 @@ QUESTIONS = QuestionSet(
         "Q1": TextQuestion(),
         "Q2": NumberQuestion(),
         "Q3": ValuesQuestion(value_types=["text", "number"]),
-        "Q4": ChoiceQuestion(options=frozenset({"a", "b"})),
+        "Q4": ChoiceQuestion(options=("a", "b")),
     }
 )
 

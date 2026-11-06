@@ -132,9 +132,9 @@ A `QuestionSet` maps question IDs to questions, in the order they are given.
 | `values` | `ValuesQuestion` | Several values |
 | `code` | `CodeQuestion` | Code, as written |
 
-`updated_from(sheets)` adds questions for new answers, adds the options students chose, and drops
-questions nobody answered. Code Tests and Code Uses can fix minor errors before marking, such as
-lost indentation, with `fixes`.
+`updated_from(sheets)` adds questions for new answers, adds the options students chose after those
+listed, and drops questions nobody answered. Options keep the order they're listed in. Code Tests
+and Code Uses can fix minor errors before marking, such as lost indentation, with `fixes`.
 
 Answers are always strings. A values question converts to and from its values:
 

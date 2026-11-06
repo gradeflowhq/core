@@ -83,7 +83,7 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         question = position.question_model
         if not isinstance(question, ChoiceQuestion):
             return self.settings
-        options = literal(sorted(question.options))
+        options = literal(question.options)
         return specialized(self.settings, correct={"annotation": list[options]})  # type: ignore[valid-type]
 
     def settings_read_at(self, settings: Mapping[str, Any], position: Position) -> dict[str, Any]:

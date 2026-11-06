@@ -134,7 +134,7 @@ def test_choices_make_a_choice_question_with_every_option() -> None:
     questions_read = read_question_document(DOCUMENT, QUESTIONS)
 
     assert questions_read["Q1"] == ChoiceQuestion(
-        options=frozenset({"a", "b", "c"}),
+        options=("a", "b", "c"),
         allow_multiple=True,
         max_marks=2,
         description="1A. [2 marks] Which state $(r,k)$ is reached first?\n\n"
@@ -146,7 +146,7 @@ def test_choices_make_a_choice_question_with_every_option() -> None:
     ("existing", "allow_multiple"),
     [
         (QUESTIONS["Q1"], False),
-        (ChoiceQuestion(options=frozenset({"a", "e"}), allow_multiple=True), True),
+        (ChoiceQuestion(options=("a", "e"), allow_multiple=True), True),
     ],
 )
 def test_one_correct_choice_keeps_whether_several_are_allowed(
@@ -159,7 +159,7 @@ def test_one_correct_choice_keeps_whether_several_are_allowed(
         _document(one_correct_item), QuestionSet({"Q1": existing})
     )
     assert questions_read["Q1"] == ChoiceQuestion(
-        options=frozenset({"a", "b"}),
+        options=("a", "b"),
         allow_multiple=allow_multiple,
         max_marks=2,
         description="Pick\n\nA. x\n\nB. y",
