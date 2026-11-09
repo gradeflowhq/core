@@ -198,8 +198,8 @@ question_types: [text]
 inputs:
   rules:
     default:
-      - uses: gradeflow/answer-criterion@1
-        with: {criterion: Names a cell.}
+      - uses: gradeflow/answer-criteria@1
+        with: {criteria: [{text: Names a cell.}]}
 checks: "{{ inputs.rules }}"
 """
     methods = BUILTINS.with_files([("sample/wrapper", wrapper_file)])

@@ -19,7 +19,7 @@ from .logic.combination import Combination
 from .logic.full_marks import FullMarks
 from .method import Method
 from .names import BUILTIN_NAMESPACE
-from .text.answer_criterion import AnswerCriterion
+from .text.answer_criteria import AnswerCriteria
 from .text.key_point import KeyPoint
 from .text.length import Length
 from .text.pattern import Pattern
@@ -36,7 +36,7 @@ PYTHON_METHODS: tuple[Method[Any], ...] = (
     Combination(),
     Pattern(),
     KeyPoint(),
-    AnswerCriterion(),
+    AnswerCriteria(),
     CodeUses(),
     CustomCode(),
     FormulaOfAnswers(),
@@ -65,7 +65,6 @@ CATALOGUE_ORDER = (
     "gradeflow/formula-of-answers",
     "gradeflow/custom-code-for-a-group",
     "gradeflow/key-point",
-    "gradeflow/answer-criterion",
 )
 """Every built-in method's name, in catalogue order: basic methods, then advanced ones, then those
 for question groups. A name no Python method has is composed from its YAML file."""

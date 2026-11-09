@@ -14,7 +14,7 @@ from gradeflow_core import (
     try_models,
 )
 from gradeflow_core.editing import list_models, try_model
-from gradeflow_core.methods.text.answer_criterion import Role
+from gradeflow_core.methods.text.answer_criteria import Role
 from gradeflow_core.questions.text import TextQuestion
 from tests.fake_models import (
     ENDPOINT,
@@ -32,9 +32,9 @@ SCHEME = MarkScheme.load(
             "uses": "gradeflow/answer-criteria@1",
             "with": {
                 "criteria": [
-                    {"criterion": "Correct total", "marks": 2},
-                    {"criterion": "Shows the working", "marks": 1},
-                    {"criterion": "Forgot to sum", "marks": -1},
+                    {"text": "Correct total", "marks": 2},
+                    {"text": "Shows the working", "marks": 1},
+                    {"text": "Forgot to sum", "marks": -1},
                 ]
             },
         }
@@ -95,7 +95,7 @@ def test_each_question_keeps_its_own_decisions(fake_models: InstallFakeModels) -
             {
                 "question": question,
                 "uses": "gradeflow/answer-criteria@1",
-                "with": {"criteria": [{"criterion": "Correct total", "marks": 1}]},
+                "with": {"criteria": [{"text": "Correct total", "marks": 1}]},
             }
             for question in ("Q1", "Q2")
         ]
@@ -130,12 +130,12 @@ def test_trying_models_tries_each_as_the_fast_model_then_the_careful_one(
         (trial.model, trial.role, trial.rows_matched, trial.rows_tried, trial.failure)
         for trial in trials
     ] == [
-        ("careless", "fast", 0, 9, "Missed 9 of 9 example answers."),
-        ("decider", "fast", 9, 9, None),
+        ("careless", "fast", 1, 12, "Missed 11 of 12 example answers."),
+        ("decider", "fast", 12, 12, None),
         ("reasoner", "fast", 0, 0, "Doesn't return token probabilities."),
-        ("careless", "careful", 0, 9, "Missed 9 of 9 example answers."),
-        ("decider", "careful", 9, 9, None),
-        ("reasoner", "careful", 9, 9, None),
+        ("careless", "careful", 1, 12, "Missed 11 of 12 example answers."),
+        ("decider", "careful", 12, 12, None),
+        ("reasoner", "careful", 12, 12, None),
     ]
     assert all(trial.seconds >= 0 for trial in trials)
 
@@ -262,5 +262,5 @@ def test_trying_one_model_says_how_it_did(fake_models: InstallFakeModels) -> Non
     fake = fake_models(example_verdicts)
     fake.without_logprobs = {"reasoner"}
     trial = try_model(ENDPOINT, "fast", "decider")
-    assert (trial.rows_matched, trial.rows_tried, trial.failure) == (9, 9, None)
+    assert (trial.rows_matched, trial.rows_tried, trial.failure) == (12, 12, None)
     assert try_model(ENDPOINT, "fast", "reasoner").failure == "Doesn't return token probabilities."

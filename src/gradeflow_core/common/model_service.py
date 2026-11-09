@@ -1,7 +1,9 @@
 """Language models a person brings: any OpenAI-compatible endpoint and its token."""
 
+import itertools
 import math
 import re
+from collections.abc import Collection
 from functools import lru_cache
 from typing import TYPE_CHECKING, Literal
 
@@ -12,6 +14,7 @@ from .exceptions import GradeFlowError
 if TYPE_CHECKING:
     import openai
     from openai.types.chat import ChatCompletion
+    from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenLogprob
 
 TIMEOUT_SECONDS = 600
 MAX_RETRIES = 5
@@ -127,24 +130,47 @@ def ask(
         ) from None
 
 
+def _normalized_probabilities(
+    token: ChatCompletionTokenLogprob, options: Collection[str]
+) -> dict[str, float]:
+    """The probability of each of ``options`` at ``token``, normalized over its alternatives."""
+    probabilities = dict.fromkeys(options, 0.0)
+    for alternative in token.top_logprobs:
+        option = alternative.token.strip().lower()
+        if option in probabilities:
+            probabilities[option] += math.exp(alternative.logprob)
+    total = sum(probabilities.values())
+    token_text = token.token.strip().lower()
+    return {
+        option: probabilities[option] / total if total else float(option == token_text)
+        for option in options
+    }
+
+
 def yes_probabilities(reply: ChatCompletion) -> list[float]:
-    """P(yes) at each Yes or No the reply wrote, in order, from the logprobs of the tokens it
-    could have written there."""
+    """P(yes) at each Yes or No the reply wrote, in order."""
     logprobs = reply.choices[0].logprobs
-    probabilities = []
-    for token in (logprobs.content or []) if logprobs else []:
-        if token.token.strip().lower() not in ("yes", "no"):
-            continue
-        probability = {"yes": 0.0, "no": 0.0}
-        for alternative in token.top_logprobs:
-            word = alternative.token.strip().lower()
-            if word in probability:
-                probability[word] += math.exp(alternative.logprob)
-        total = probability["yes"] + probability["no"]
-        probabilities.append(
-            probability["yes"] / total if total else float(token.token.strip().lower() == "yes")
-        )
-    return probabilities
+    return [
+        _normalized_probabilities(token, ("yes", "no"))["yes"]
+        for token in ((logprobs.content or []) if logprobs else [])
+        if token.token.strip().lower() in ("yes", "no")
+    ]
+
+
+def option_probabilities(
+    reply: ChatCompletion, options: Collection[str]
+) -> list[tuple[str, float]]:
+    """The option written after each colon, and its probability."""
+    logprobs = reply.choices[0].logprobs
+    tokens = [
+        token for token in ((logprobs.content or []) if logprobs else []) if token.token.strip()
+    ]
+    return [
+        (option, _normalized_probabilities(token, options)[option])
+        for previous, token in itertools.pairwise(tokens)
+        if previous.token.strip().endswith(":")
+        and (option := token.token.strip().lower()) in options
+    ]
 
 
 def reply_text(reply: ChatCompletion) -> str:

@@ -46,7 +46,7 @@ def as_sentence(text: str) -> str:
     return text if text.rstrip('`”" ').endswith((".", "?", "!")) else f"{text}."
 
 
-def plural(noun: str, count: int) -> str:
+def plural(noun: str, count: float) -> str:
     """``noun`` as it reads after ``count``: “cell” after 1, “cells” after any other number."""
     return noun if count == 1 else f"{noun}s"
 

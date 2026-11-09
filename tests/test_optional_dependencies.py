@@ -48,7 +48,7 @@ def test_marking_and_editing_without_the_llm_extra() -> None:
             for mode in ("fast", "careful", "fast_then_careful"):
                 scheme = MarkScheme.load([
                     {"question": "Q1", "uses": "gradeflow/answer-criteria@1",
-                     "with": {"criteria": [{"criterion": "Says hello", "marks": 1}],
+                     "with": {"criteria": [{"text": "Says hello", "marks": 1}],
                               "decide_with": mode}},
                 ])
                 [marked] = mark(questions, scheme, submissions, model_endpoint=endpoint)

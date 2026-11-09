@@ -89,9 +89,13 @@ class FakeModels:
             if question_match
             else self.verdicts
         )
-        if body.get("logprobs"):
-            return self._fast_reply(verdicts, model, criteria, answers, logprobs)
-        return self._careful_reply(verdicts, model, criteria, answers)
+        if "best describes" in body["messages"][0]["content"]:
+            return self._best_fit_reply(verdicts, model, criteria, answers, logprobs)
+        return (
+            self._fast_reply(verdicts, model, criteria, answers, logprobs)
+            if body.get("logprobs")
+            else self._careful_reply(verdicts, model, criteria, answers)
+        )
 
     def _fast_reply(
         self,
@@ -128,6 +132,33 @@ class FakeModels:
                 reason_suffix = f" ({reason.strip()})" if reason else ""
                 lines.append(f"{label} {number}: {word.capitalize()}{reason_suffix}")
         return reply("<think>Looking at each answer.</think>\n" + "\n".join(lines), [])
+
+    def _best_fit_reply(
+        self,
+        verdicts: VerdictFunction,
+        model: str,
+        criteria: dict[str, str],
+        answers: list[tuple[str, str, str]],
+        logprobs: bool,
+    ) -> httpx2.Response:
+        """For each answer, the first criterion whose verdict isn't "no", or 0."""
+        lines, tokens = [], []
+        for label, text, _ in answers:
+            option, verdict = next(
+                (
+                    (number, verdict)
+                    for number in sorted(criteria, key=int)
+                    if (verdict := verdicts(model, text, criteria[number])) != "no"
+                ),
+                ("0", "yes"),
+            )
+            if isinstance(verdict, str) and verdict.startswith("unsure"):
+                lines.append(f"{label}: Unsure ({verdict.partition(':')[2].strip()})")
+                continue
+            lines.append(f"{label}: {option}")
+            tokens += [_token(label, 1.0), _token(":", 1.0), _token(" ", 1.0)]
+            tokens.append(_option_token(option, _probability(verdict)))
+        return reply("\n".join(lines), tokens if logprobs else [])
 
 
 def _probability(verdict: Verdict) -> float:
@@ -170,6 +201,11 @@ CRITERIA_MET_BY_EXAMPLE_ANSWERS = {
         "Works when every number is negative",
         "Uses max",
     },
+    "As the Moon orbits Earth, we see different amounts of its sunlit half.": {
+        "Explains that we see different amounts of the sunlit half as the Moon orbits"
+    },
+    "Because the Moon moves around Earth.": {"Says the orbit of the Moon causes the phases"},
+    "Because clouds cover the Moon.": set(),
 }
 """Which criteria fit each answer of Answer Criteria's examples."""
 
@@ -184,6 +220,19 @@ def _token(text: str, probability: float) -> dict[str, Any]:
         "top_logprobs": [
             {"token": " Yes", "logprob": yes_logprob, "bytes": None},
             {"token": " No", "logprob": no_logprob, "bytes": None},
+        ],
+    }
+
+
+def _option_token(option: str, probability: float) -> dict[str, Any]:
+    other_option = "1" if option == "0" else "0"
+    return {
+        "token": option,
+        "logprob": math.log(probability),
+        "bytes": None,
+        "top_logprobs": [
+            {"token": option, "logprob": math.log(probability), "bytes": None},
+            {"token": other_option, "logprob": math.log(1 - probability), "bytes": None},
         ],
     }
 

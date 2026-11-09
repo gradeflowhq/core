@@ -1,46 +1,3 @@
-version: 1
-label: Answer Criteria
-summary: Marks for each criterion the answer meets.
-question_types: [text, code]
-guide: |-
-  **Use it when:** An answer needs a marker's judgement, such as a calculation whose working earns marks.
-
-  **How it marks:** AI decides which **Criteria** fit the answer, and each one that fits gives its marks, or a penalty when negative. **How to decide** chooses fast, careful, which leaves answers it is unsure about for you, or careful only where a fast decision is unsure.
-
-  **Good to know:** Answers are sent to your AI service, and careful decisions take minutes where fast ones take seconds. Each criterion gives marks of the question, or a penalty when negative, and the total stays between zero and full marks, so give marks for what's correct as well as penalties for mistakes.
-
-  **Related:** To look only for what the answer says, use Key Points.
-inputs:
-  criteria:
-    title: Criteria
-    description: What to look for in an answer, and the question's marks it gives, or a penalty when negative.
-    items:
-      marks:
-        title: Marks
-        description: ""
-        examples: [2, 1, 0.5, -0.5, -1]
-  model_answer:
-    default: null
-  decide_with:
-    default: fast
-  confidence_needed:
-    default: 0.9
-  careful_effort:
-    default: automatic
-combine: total
-checks:
-  - for_each: "{{ inputs.criteria }}"
-    name: "{{ item.criterion }}"
-    weight: "{{ item.marks }}"
-    uses: gradeflow/answer-criterion@1
-    with:
-      criterion: "{{ item.criterion }}"
-      model_answer: "{{ inputs.model_answer }}"
-      decide_with: "{{ inputs.decide_with }}"
-      confidence_needed: "{{ inputs.confidence_needed }}"
-      careful_effort: "{{ inputs.careful_effort }}"
-description: |-
-  AI checks the answer for {% for each in inputs.criteria %}{% if loop.length > 1 %}{% if loop.first %}each of these:{% endif %}{{ "\n" }}- {% endif %}{{ each.criterion | escaped }} ({{ each.marks }} mark{% if each.marks not in [1, -1] %}s{% endif %}){% if loop.length == 1 %}.{% endif %}{% endfor %}
 examples:
   - title: Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working.
     description: |-
@@ -52,9 +9,9 @@ examples:
       Q1: {type: text, max_marks: 3, description: "Pens cost $2 and books $5. What do 3 pens and 2 books cost? Show your working."}
     with:
       criteria:
-        - {criterion: Correct total, marks: 2}
-        - {criterion: Shows the working, marks: 1}
-        - {criterion: Forgot to sum, marks: -1}
+        - {text: Correct total, marks: 2}
+        - {text: Shows the working, marks: 1}
+        - {text: Forgot to sum, marks: -1}
       model_answer: 3 × 2 = 6 and 2 × 5 = 10, so 6 + 10 = $16
     rows:
       - answers:
@@ -92,9 +49,9 @@ examples:
       Q1: {type: text, max_marks: 2, description: Why does ice float on water?}
     with:
       criteria:
-        - {criterion: Says ice is less dense than water, marks: 1}
-        - {criterion: Explains that water expands as it freezes, marks: 1}
-        - {criterion: Says ice is denser than water, marks: -1}
+        - {text: Says ice is less dense than water, marks: 1}
+        - {text: Explains that water expands as it freezes, marks: 1}
+        - {text: Says ice is denser than water, marks: -1}
     rows:
       - answers:
           Q1: Water expands as it freezes, so ice is less dense than liquid water.
@@ -131,9 +88,9 @@ examples:
       Q1: {type: code, max_marks: 2, description: "Write largest(numbers), which returns the largest number in a non-empty list."}
     with:
       criteria:
-        - {criterion: Compares each number with the largest so far, marks: 1}
-        - {criterion: Works when every number is negative, marks: 1}
-        - {criterion: Uses max, marks: -2}
+        - {text: Compares each number with the largest so far, marks: 1}
+        - {text: Works when every number is negative, marks: 1}
+        - {text: Uses max, marks: -2}
     rows:
       - answers:
           Q1: |-
@@ -174,3 +131,36 @@ examples:
               Compares each number with the largest so far: Not met.
               Works when every number is negative.
               Penalty: Uses max.
+  - title: Why does the Moon show phases?
+    description: |-
+      AI picks the criterion that best fits the answer:
+      - Explains that we see different amounts of the sunlit half as the Moon orbits (3 marks)
+      - Says the orbit of the Moon causes the phases (2 marks)
+      - Mentions sunlight (1 mark)
+    questions:
+      Q1: {type: text, max_marks: 3, description: Why does the Moon show phases?}
+    with:
+      combine: best_fit
+      criteria:
+        - {text: Explains that we see different amounts of the sunlit half as the Moon orbits, marks: 3}
+        - {text: Says the orbit of the Moon causes the phases, marks: 2}
+        - {text: Mentions sunlight, marks: 1}
+    rows:
+      - answers:
+          Q1: As the Moon orbits Earth, we see different amounts of its sunlit half.
+        expected:
+          Q1:
+            marks: 3.0
+            feedback: Explains that we see different amounts of the sunlit half as the Moon orbits.
+      - answers:
+          Q1: Because the Moon moves around Earth.
+        expected:
+          Q1:
+            marks: 2.0
+            feedback: Says the orbit of the Moon causes the phases.
+      - answers:
+          Q1: Because clouds cover the Moon.
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: Fits no criterion.

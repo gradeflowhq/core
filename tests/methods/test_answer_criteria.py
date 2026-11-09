@@ -3,9 +3,16 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core import BUILTINS, ModelEndpoint, Progress, QuestionResult, QuestionSet
+from gradeflow_core import (
+    BUILTINS,
+    InvalidError,
+    ModelEndpoint,
+    Progress,
+    QuestionResult,
+    QuestionSet,
+)
 from gradeflow_core.editing import Position, compatible_methods
-from gradeflow_core.methods.text.answer_criterion import CONCURRENT_REQUESTS
+from gradeflow_core.methods.text.answer_criteria import CONCURRENT_REQUESTS
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 from tests.fake_models import (
@@ -23,9 +30,9 @@ QUESTION = TextQuestion(
     max_marks=3, description="Pens cost $2 and books $5. What do 3 pens and 2 books cost?"
 )
 CRITERIA = [
-    {"criterion": "Correct total", "marks": 2},
-    {"criterion": "Shows the working", "marks": 1},
-    {"criterion": "Forgot to sum", "marks": -1},
+    {"text": "Correct total", "marks": 2},
+    {"text": "Shows the working", "marks": 1},
+    {"text": "Forgot to sum", "marks": -1},
 ]
 CORRECT_ANSWER = "3 × 2 = 6 and 2 × 5 = 10, so 6 + 10 = $16"
 UNSUMMED_ANSWER = "3 × 2 = 6 and 2 × 5 = 10, so she pays $6 and $10"
@@ -41,7 +48,7 @@ def test_criteria_are_listed_as_written_with_their_marks() -> None:
         "AI checks the answer for each of these:\n"
         "- Correct total (2 marks)\n- Shows the working (1 mark)\n- Forgot to sum (-1 mark)"
     )
-    one_criterion = [{"criterion": "States that the complexity is O(n log n)", "marks": 0.5}]
+    one_criterion = [{"text": "States that the complexity is O(n log n)", "marks": 0.5}]
     assert describe(answer_criteria(criteria=one_criterion)) == (
         "AI checks the answer for States that the complexity is O\\(n log n\\) (0.5 marks)."
     )
@@ -116,7 +123,7 @@ def test_a_request_holds_several_distinct_answers_and_every_criterion(
     )
     assert len(fake.requests) == 2
     prompt = fake.requests[0]["messages"][-1]["content"]
-    assert all(criterion["criterion"] in prompt for criterion in CRITERIA)
+    assert all(criterion["text"] in prompt for criterion in CRITERIA)
     assert QUESTION.description in prompt
     assert fake.requests[0]["logprobs"] is True
 
@@ -194,7 +201,7 @@ def test_the_fast_model_alone_always_decides(fake_models: InstallFakeModels) -> 
 def test_without_an_endpoint_answers_are_left_unmarked() -> None:
     [result] = mark_with_criteria(CORRECT_ANSWER, endpoint=None)
     assert not result.is_marked
-    assert "Couldn't decide: no AI service is set up." in result.feedback
+    assert "Couldn't decide (no AI service is set up)." in result.feedback
 
 
 def test_a_reply_that_cant_be_read_is_asked_again(fake_models: InstallFakeModels) -> None:
@@ -358,3 +365,148 @@ def test_a_value_of_an_answer_cant_be_marked_by_criteria() -> None:
     assert "gradeflow/answer-criteria" not in [
         method.name for method in compatible_methods(Position(questions, "Q1", 1))
     ]
+
+
+LEVELS = [
+    {"text": "Complete and correct", "marks": 3},
+    {"text": "Right idea without detail", "marks": 2},
+    {"text": "Partly relevant", "marks": 1},
+]
+
+
+def best_fit(**settings: Any) -> dict[str, Any]:
+    return {
+        "uses": "gradeflow/answer-criteria@1",
+        "with": {"criteria": LEVELS, "combine": "best_fit", **settings},
+    }
+
+
+def fits_second_level(model: str, answer: str, criterion: str) -> Verdict:
+    return "yes" if criterion == "Right idea without detail" else "no"
+
+
+def mark_best_fit(
+    *answers: str,
+    endpoint: ModelEndpoint | None = FAST_AND_CAREFUL_ENDPOINT,
+    **settings: Any,
+) -> list[QuestionResult]:
+    return mark_all(best_fit(**settings), list(answers), QUESTION, model_endpoint=endpoint)
+
+
+def test_best_fit_description_lists_each_criterion_with_its_marks() -> None:
+    assert describe(best_fit()) == (
+        "AI picks the criterion that best fits the answer:\n"
+        "- Complete and correct (3 marks)\n"
+        "- Right idea without detail (2 marks)\n"
+        "- Partly relevant (1 mark)"
+    )
+
+
+def test_best_fit_gives_only_the_marks_of_the_criterion_chosen(
+    fake_models: InstallFakeModels,
+) -> None:
+    fake_models(fits_second_level)
+    [result] = mark_best_fit("An answer")
+    assert result.proportion == pytest.approx(2 / 3)
+    assert result.feedback == "Right idea without detail."
+    assert result.breakdown is not None
+    assert [(row.title, row.effect, row.marks) for row in result.breakdown.children] == [
+        ("**Complete and correct**", "uncounted", None),
+        ("**Right idea without detail**", "earned", 2.0),
+        ("**Partly relevant**", "uncounted", None),
+    ]
+
+
+def test_an_answer_fitting_no_criterion_gets_no_marks(fake_models: InstallFakeModels) -> None:
+    fake_models(lambda model, answer, criterion: "no")
+    [result] = mark_best_fit("Off topic")
+    assert (result.proportion, result.feedback, result.is_marked) == (0, "Fits no criterion.", True)
+
+
+def test_best_fit_asks_about_several_answers_in_one_request(fake_models: InstallFakeModels) -> None:
+    fake = fake_models(fits_second_level)
+    mark_best_fit("One answer", "Another answer")
+    assert len(fake.requests) == 1
+    assert fake.requests[0]["logprobs"] is True
+
+
+def test_the_fast_model_alone_decides_a_best_fit_it_is_unsure_of(
+    fake_models: InstallFakeModels,
+) -> None:
+    fake_models(lambda model, answer, criterion: 0.4)
+    [result] = mark_best_fit("An answer")
+    assert (result.proportion, result.is_marked) == (1, True)
+
+
+def test_fast_then_careful_rechecks_only_answers_with_an_unsure_best_fit(
+    fake_models: InstallFakeModels,
+) -> None:
+    def unsure_of_one_answer(model: str, answer: str, criterion: str) -> Verdict:
+        if model == "decider" and answer == "Unclear answer":
+            return 0.6
+        return fits_second_level(model, answer, criterion)
+
+    fake = fake_models(unsure_of_one_answer)
+    unclear, clear = mark_best_fit(
+        "Unclear answer", "Clear answer", decide_with="fast_then_careful"
+    )
+    [careful_request] = [request for request in fake.requests if request["model"] == "reasoner"]
+    prompt = careful_request["messages"][-1]["content"]
+    assert "Unclear answer" in prompt
+    assert "Clear answer" not in prompt
+    assert unclear.proportion == clear.proportion == pytest.approx(2 / 3)
+    assert (unclear.model_names, clear.model_names) == (("decider", "reasoner"), ("decider",))
+
+
+def test_an_unsure_best_fit_is_left_for_a_person_with_one_reason(
+    fake_models: InstallFakeModels,
+) -> None:
+    fake_models(lambda model, answer, criterion: "unsure: the working is cut off")
+    [result] = mark_best_fit("An answer", decide_with="careful")
+    assert (result.is_marked, result.feedback) == (
+        False,
+        "Couldn't decide (the working is cut off).",
+    )
+
+
+def test_a_best_fit_reply_that_cant_be_read_leaves_the_answer_undecided(
+    fake_models: InstallFakeModels,
+) -> None:
+    fake = fake_models(fits_second_level)
+    fake.garbled_replies = 10
+    [result] = mark_best_fit("An answer")
+    assert (result.is_marked, result.feedback) == (
+        False,
+        "Couldn't decide (no reply from the model).",
+    )
+
+
+def test_two_lists_of_best_fit_criteria_are_chosen_from_separately(
+    fake_models: InstallFakeModels,
+) -> None:
+    style = [
+        {"text": "Clearly written", "marks": 1},
+        {"text": "Hard to follow", "marks": 0},
+    ]
+    fake = fake_models(
+        lambda model, answer, criterion: (
+            "yes" if criterion in ("Right idea without detail", "Clearly written") else "no"
+        )
+    )
+    marking = {
+        "uses": "gradeflow/combination@1",
+        "with": {
+            "combine": "proportional",
+            "checks": [best_fit(), best_fit(criteria=style)],
+        },
+    }
+    [result] = mark_all(marking, ["An answer"], QUESTION, model_endpoint=FAST_MODEL_ENDPOINT)
+    assert len(fake.requests) == 2
+    assert result.proportion == pytest.approx((2 / 3 + 1 / 3) / 2)
+
+
+def test_best_fit_chooses_among_at_most_nine_criteria() -> None:
+    ten_criteria = [{"text": f"Level {number}", "marks": 1} for number in range(10)]
+    with pytest.raises(InvalidError, match="Best fit takes at most 9 criteria"):
+        problems_of(best_fit(criteria=ten_criteria), QUESTION)
+    assert problems_of(answer_criteria(criteria=ten_criteria), QUESTION) == []

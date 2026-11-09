@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from ..common import model_service
 from ..methods.catalogue import BUILTINS
-from ..methods.text.answer_criterion import Role
+from ..methods.text.answer_criteria import Role
 from ..questions.question_set import QuestionSet
 from .examples import mark_rows
 

@@ -80,8 +80,9 @@ YAML aliases are refused.
 
 ## Language models
 
-Answer Criteria asks a language model which of the lecturer's criteria an answer meets. The endpoint
-is passed to `mark()`, not written into the marking:
+Answer Criteria asks a language model which of the lecturer's criteria an answer meets. With
+`combine: best_fit`, it asks which one fits best. The endpoint is passed to `mark()`, not written
+into the marking:
 
 ```python
 from gradeflow_core import (
@@ -96,8 +97,8 @@ from gradeflow_core import (
 
 questions = QuestionSet.load({"Q1": {"type": "text", "max_marks": 2}})
 criteria = [
-    {"criterion": "Says ice is less dense than water", "marks": 1},
-    {"criterion": "Explains that water expands as it freezes", "marks": 1},
+    {"text": "Says ice is less dense than water", "marks": 1},
+    {"text": "Explains that water expands as it freezes", "marks": 1},
 ]
 scheme = MarkScheme.load(
     [{"question": "Q1", "uses": "gradeflow/answer-criteria@1", "with": {"criteria": criteria}}]

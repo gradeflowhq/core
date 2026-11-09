@@ -436,9 +436,9 @@ def test_a_conditional_shows_its_branch_with_marks_only_at_the_top() -> None:
 def test_answer_criteria_are_named_by_what_they_look_for(fake_models: InstallFakeModels) -> None:
     fake_models(lambda model, answer, criterion: "no" if criterion == "Forgot to sum" else "yes")
     criteria = [
-        {"criterion": "Correct total", "marks": 2},
-        {"criterion": "Shows the working", "marks": 1},
-        {"criterion": "Forgot to sum", "marks": -1},
+        {"text": "Correct total", "marks": 2},
+        {"text": "Shows the working", "marks": 1},
+        {"text": "Forgot to sum", "marks": -1},
     ]
     marking = {"uses": "gradeflow/answer-criteria@1", "with": {"criteria": criteria}}
     [result] = mark_all(
