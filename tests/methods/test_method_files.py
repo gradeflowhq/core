@@ -394,3 +394,54 @@ steps:
     )
     step = Step.load({"uses": "sample/between@1", "with": {"low": 2, "high": 1}}, methods=methods)
     assert not step.needs_model_endpoint()
+
+
+def test_a_setting_used_only_in_a_step_name_is_used() -> None:
+    method_file = METHOD_FILE_HEADER + (
+        "settings:\n  topic: {default: cells}\n"
+        "steps:\n  - uses: gradeflow/key-point@1\n"
+        '    name: "{{ settings.topic }} check"\n    with: {point: a}\n'
+    )
+    assert "topic" in with_sample_files(topic=method_file)[-1].settings.model_fields
+
+
+def test_a_nested_workflow_may_give_one_of_its_steps_output() -> None:
+    method_file = METHOD_FILE_HEADER + (
+        "steps:\n"
+        "  - id: num\n    uses: gradeflow/workflow@1\n"
+        "    with:\n      output: step_output\n"
+        '      output_step: "{{ steps.part.output }}"\n'
+        "      steps:\n        - id: part\n          uses: gradeflow/extract@1\n"
+        "          with: {type: number}\n"
+        '  - uses: gradeflow/number-range@1\n    input: "{{ steps.num.output }}"\n'
+        "    with: {min_value: 1}\n"
+    )
+    assert with_sample_files(nested=method_file)[-1].ref == "sample/nested@1"
+
+
+def test_a_nested_workflow_output_step_must_name_one_of_its_own_steps() -> None:
+    method_file = METHOD_FILE_HEADER + (
+        "steps:\n"
+        "  - id: other\n    uses: gradeflow/extract@1\n    with: {type: number}\n"
+        "  - uses: gradeflow/workflow@1\n"
+        "    with:\n      output: step_output\n"
+        '      output_step: "{{ steps.other.output }}"\n'
+        "      steps:\n        - id: part\n          uses: gradeflow/extract@1\n"
+        "          with: {type: number}\n"
+    )
+    with pytest.raises(
+        MethodFileError, match=re.escape("Line 12: No step before this one is called other.")
+    ):
+        with_sample_files(nested=method_file)
+
+
+def test_a_template_under_a_settings_key_named_like_a_step_key_is_checked() -> None:
+    method_file = METHOD_FILE_HEADER + (
+        "steps:\n  - uses: gradeflow/custom-code@1\n"
+        '    with:\n      code: "correct = True"\n'
+        '      parameters:\n        input: {type: text, value: "x {{ settings.typo }} y"}\n'
+    )
+    with pytest.raises(
+        MethodFileError, match="^" + re.escape("sample/term@1: Line 10: settings has no typo.")
+    ):
+        with_sample_files(term=method_file)

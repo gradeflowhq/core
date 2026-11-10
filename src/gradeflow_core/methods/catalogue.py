@@ -14,7 +14,7 @@ from .code.code_tests import CodeTests
 from .code.code_uses import CodeUses
 from .code.custom_code import CustomCode
 from .code.custom_code_for_a_group import CustomCodeForAGroup
-from .collection import Methods, load_files, raise_first
+from .collection import Methods, load_files, raise_first_failure
 from .logic.full_marks import FullMarks
 from .logic.workflow import Workflow
 from .method import Method
@@ -71,7 +71,7 @@ CATALOGUE_ORDER = (
 )
 """Every built-in method's name, in catalogue order: basic methods, then advanced ones, then those
 for question groups. A name no Python method has is composed from its YAML file."""
-METHOD_FILES = tuple(
+METHOD_FILE_PATHS = tuple(
     path
     for path in sorted(Path(__file__).parent.glob("*/*.yaml"))
     if not path.name.endswith(".examples.yaml")
@@ -79,12 +79,13 @@ METHOD_FILES = tuple(
 
 
 def _builtins() -> Methods:
-    files = [(f"{BUILTIN_NAMESPACE}/{path.stem}", path.read_text()) for path in METHOD_FILES]
-    loaded = load_files(files, Methods(PYTHON_METHODS))
-    raise_first(loaded.failed)
+    files = [(f"{BUILTIN_NAMESPACE}/{path.stem}", path.read_text()) for path in METHOD_FILE_PATHS]
+    loaded_files = load_files(files, Methods(PYTHON_METHODS))
+    raise_first_failure(loaded_files.failed)
     return Methods(
         sorted(
-            loaded.methods, key=lambda method: (CATALOGUE_ORDER.index(method.name), method.version)
+            loaded_files.methods,
+            key=lambda method: (CATALOGUE_ORDER.index(method.name), method.version),
         )
     )
 

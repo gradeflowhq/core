@@ -12,7 +12,7 @@ from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
 from ..methods.example import Example, ExampleRow, ExpectedResult
 from ..methods.method import Method
-from ..methods.outcome import NO_ANSWER, ROUNDING_TOLERANCE, Skipped, StepResult
+from ..methods.outcome import NO_ANSWER_FEEDBACK, ROUNDING_TOLERANCE, SkippedStep, StepResult
 from ..methods.step import Context, Step, Transform
 from ..questions.question_set import QuestionSet
 from ..questions.reading import write_answer
@@ -34,8 +34,8 @@ class RowResult(MarkedSheet):
             answers=self.answers,
             marks=self.marks,
             expected={
-                key: ExpectedResult(marks=result.marks, feedback=result.feedback)
-                for key, result in self.results.items()
+                question_id: ExpectedResult(marks=result.marks, feedback=result.feedback)
+                for question_id, result in self.results.items()
             },
         )
 
@@ -62,11 +62,17 @@ def mark_rows(
     Answers that can't be marked stay row results. Raises ``GradeFlowError`` for settings or
     questions the method can't mark.
     """
-    method = methods.find(reference)
-    if not method.gives_marks(settings):
-        return _transform_row_results(method, methods, questions, question, settings, rows)
-    scheme = _single_marking_scheme(reference, methods, questions, question, settings)
-    return _row_results(scheme, questions, question, rows, model_endpoint)
+    data = method_step_data(reference, question, settings)
+    if methods.find(reference).gives_marks(settings):
+        scheme = MarkScheme.load([data], methods=methods)
+        if problems := scheme.problems(questions):
+            raise GradeFlowError(str(problems[0]))
+        return _row_results(scheme, questions, question, rows, model_endpoint)
+    step = Step.load(data, methods=methods)
+    assert isinstance(step, Transform)  # a method that gives no marks
+    if problems := step.problems(questions):
+        raise GradeFlowError(str(problems[0]))
+    return _transform_row_results(step, questions, question, rows)
 
 
 def mark_examples(
@@ -88,135 +94,110 @@ def _marked_example(
     questions = QuestionSet(example.questions)
     marks_only_groups = method.marks_question_group and not method.question_types
     marks_one_question = len(questions) == 1 and not marks_only_groups
-    question = next(iter(questions)) if marks_one_question else None
+    question_id = next(iter(questions)) if marks_one_question else None
     try:
-        rows = mark_rows(
+        row_results = mark_rows(
             method.ref,
             methods=methods,
             questions=questions,
-            question=question,
+            question=question_id,
             settings=example.with_,
             rows=example.rows,
             model_endpoint=model_endpoint,
         )
     except GradeFlowError as error:
         raise GradeFlowError(f"{example.title}: {error}") from None
-    description = _load_step(method, methods, question, example.with_).describe()
-    return MarkedExample(title=example.title, description=description, rows=rows)
+    step = Step.load(method_step_data(method.ref, question_id, example.with_), methods=methods)
+    return MarkedExample(title=example.title, description=step.describe(), rows=row_results)
 
 
-def _step_data(
-    reference: str, question: QuestionId | None, settings: Mapping[str, Any]
+def method_step_data(
+    reference: str, question_id: QuestionId | None, settings: Mapping[str, Any]
 ) -> dict[str, Any]:
     data = {"uses": reference, "with": dict(settings)}
-    return {"question": question, **data} if question is not None else data
-
-
-def _load_step(
-    method: Method[Any],
-    methods: Methods,
-    question: QuestionId | None,
-    settings: Mapping[str, Any],
-) -> Step:
-    return Step.load(_step_data(method.ref, question, settings), methods=methods)
+    return {"question": question_id, **data} if question_id is not None else data
 
 
 def _transform_row_results(
-    method: Method[Any],
-    methods: Methods,
+    step: Transform,
     questions: QuestionSet,
-    question: QuestionId | None,
-    settings: Mapping[str, Any],
+    question_id: QuestionId | None,
     rows: Sequence[ExampleRow],
 ) -> list[RowResult]:
     """What the transform gives each row, as a result that says what it read."""
-    step = _load_step(method, methods, question, settings)
-    assert isinstance(step, Transform)  # ``mark_rows`` sends only methods that give no marks
-    if problems := step.problems(questions):
-        raise GradeFlowError(str(problems[0]))
     contexts = [
         Context(questions.read(row), questions, written_answers=row.answers) for row in rows
     ]
-    max_marks = sum(question_model.max_marks for question_model in questions.values())
-    key = step.question_key(question)
-    keys = {key} if key else step.questions_read(question)
+    max_marks = sum(question.max_marks for question in questions.values())
+    marked_question_id = step.marked_question_id(question_id)
+    question_ids = {marked_question_id} if marked_question_id else step.questions_read(question_id)
     row_results = []
-    for row, result in zip(rows, step.transform(contexts, question), strict=True):
-        results = _output_results(result, keys, questions, method.label)
+    for row, result in zip(rows, step.transform(contexts, question_id), strict=True):
+        results = _transform_results(result, question_ids, questions, step.method.label)
         row_results.append(
             RowResult(
                 answers=row.answers,
                 marks=row.marks,
                 results=results,
                 max_marks=max_marks,
-                matches_expected=_matches(row.expected, results),
+                matches_expected=_matches_expected(row.expected, results),
             )
         )
     return row_results
 
 
-def _output_results(
-    result: StepResult, keys: Collection[QuestionId], questions: QuestionSet, label: str
+def _transform_results(
+    result: StepResult, question_ids: Collection[QuestionId], questions: QuestionSet, label: str
 ) -> dict[QuestionId, QuestionResult]:
     answer = result.transform_result
-    if isinstance(answer, Skipped):
+    if isinstance(answer, SkippedStep):
         return {}
-    proportion, feedback = 0.0, NO_ANSWER
+    proportion, feedback = 0.0, NO_ANSWER_FEEDBACK
     if isinstance(answer, Unreadable):
         feedback = answer.reason
     elif answer is not None:
         proportion, feedback = 1.0, f"Read as: {write_answer(answer)}"
     return {
-        key: QuestionResult(
+        question_id: QuestionResult(
             proportion=proportion,
-            max_marks=questions[key].max_marks,
+            max_marks=questions[question_id].max_marks,
             feedback=feedback,
             method_label=label,
             is_marked=not isinstance(answer, Unreadable),
         )
-        for key in keys
+        for question_id in question_ids
     }
 
 
 def _row_results(
     scheme: MarkScheme,
     questions: QuestionSet,
-    question: QuestionId | None,
+    question_id: QuestionId | None,
     rows: Sequence[ExampleRow],
     model_endpoint: ModelEndpoint | None,
 ) -> list[RowResult]:
-    needed_questions = {question} if question is not None else set(questions)
-    for number, row in enumerate(rows, 1):
-        if missing := needed_questions - row.answers.keys():
-            raise GradeFlowError(f"Row {number} has no answer to {', '.join(sorted(missing))}.")
-    marked_submissions = mark(questions, scheme, rows, model_endpoint=model_endpoint)
+    needed_question_ids = {question_id} if question_id is not None else set(questions)
+    for row_number, row in enumerate(rows, 1):
+        if missing_question_ids := needed_question_ids - row.answers.keys():
+            raise GradeFlowError(
+                f"Row {row_number} has no answer to {', '.join(sorted(missing_question_ids))}."
+            )
+    marked_sheets = mark(questions, scheme, rows, model_endpoint=model_endpoint)
     return [
-        RowResult(**dict(sheet), matches_expected=_matches(row.expected, sheet.results))
-        for row, sheet in zip(rows, marked_submissions, strict=True)
+        RowResult(**dict(sheet), matches_expected=_matches_expected(row.expected, sheet.results))
+        for row, sheet in zip(rows, marked_sheets, strict=True)
     ]
 
 
-def _single_marking_scheme(
-    reference: str,
-    methods: Methods,
-    questions: QuestionSet,
-    question: QuestionId | None,
-    settings: Mapping[str, Any],
-) -> MarkScheme:
-    scheme = MarkScheme.load([_step_data(reference, question, settings)], methods=methods)
-    if problems := scheme.problems(questions):
-        raise GradeFlowError(str(problems[0]))
-    return scheme
-
-
-def _matches(
-    expected: Mapping[QuestionId, ExpectedResult], results: Mapping[QuestionId, QuestionResult]
+def _matches_expected(
+    expected_results: Mapping[QuestionId, ExpectedResult],
+    results: Mapping[QuestionId, QuestionResult],
 ) -> bool | None:
-    if not expected:
+    if not expected_results:
         return None
-    return expected.keys() == results.keys() and all(
-        results[key].is_marked
-        and isclose(results[key].marks, expected_result.marks, abs_tol=ROUNDING_TOLERANCE)
-        and results[key].feedback == expected_result.feedback
-        for key, expected_result in expected.items()
+    return expected_results.keys() == results.keys() and all(
+        results[question_id].is_marked
+        and isclose(results[question_id].marks, expected_result.marks, abs_tol=ROUNDING_TOLERANCE)
+        and results[question_id].feedback == expected_result.feedback
+        for question_id, expected_result in expected_results.items()
     )

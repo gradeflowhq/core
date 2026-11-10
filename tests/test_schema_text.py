@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from pydantic.json_schema import GenerateJsonSchema
 
 from gradeflow_core import BUILTINS, AnswersCsv, Check, QuestionSet, ResultsCsv
-from gradeflow_core.editing import HINT_KEY, QUESTION_TYPES, Position, compatible_methods
+from gradeflow_core.editing import HINT_KEY, QUESTION_CLASSES, Position, compatible_methods
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
@@ -15,7 +15,7 @@ from tests.schemas import schema_nodes
 
 METHODS = {method.name: method for method in BUILTINS}
 
-FORM_MODELS: list[type[BaseModel]] = [AnswersCsv, ResultsCsv, *QUESTION_TYPES.values()]
+FORM_MODELS: list[type[BaseModel]] = [AnswersCsv, ResultsCsv, *QUESTION_CLASSES.values()]
 CAMEL_CASE_TITLE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
 CAPITALISED_ID_WORD = re.compile(r"\bId\b")
 
@@ -52,7 +52,7 @@ def test_form_fields_have_plain_titles_help_and_enum_labels(model: type[BaseMode
 def _schemas() -> Iterator[dict[str, Any]]:
     yield from (model.model_json_schema() for model in FORM_MODELS)
     yield Check.model_json_schema()
-    yield from (question_type.json_schema() for question_type in QUESTION_TYPES.values())
+    yield from (question_type.json_schema() for question_type in QUESTION_CLASSES.values())
     question_set = QuestionSet(
         {
             "Q1": TextQuestion(),
@@ -60,9 +60,11 @@ def _schemas() -> Iterator[dict[str, Any]]:
             "Q3": ValuesQuestion(value_types=["text", "number"]),
         }
     )
-    for question in (None, "Q1", "Q2", "Q3"):
-        for in_list in (False, True):
-            position = Position(question_set, question, in_list=in_list, in_group=question is None)
+    for question_id in (None, "Q1", "Q2", "Q3"):
+        for is_in_list in (False, True):
+            position = Position(
+                question_set, question_id, is_in_list=is_in_list, is_in_group=question_id is None
+            )
             for method in compatible_methods(position):
                 yield method.settings_schema(position)
 
@@ -80,7 +82,7 @@ def test_form_titles_read_like_labels() -> None:
     assert results_csv_properties["student_id_column"]["title"] == "Student ID column"
     question_set = QuestionSet({"Q1": TextQuestion()})
     schema = METHODS["gradeflow/custom-code-for-a-group"].settings_schema(
-        Position(question_set, in_group=True)
+        Position(question_set, is_in_group=True)
     )
     assert schema["properties"]["questions"]["title"] == "Questions"
     text = TextQuestion.json_schema()

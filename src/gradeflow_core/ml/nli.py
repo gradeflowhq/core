@@ -39,7 +39,7 @@ def setup() -> None:
         from huggingface_hub import hf_hub_download
     except ImportError as error:
         raise ImportError(MISSING_MODEL_MESSAGE) from error
-    directory = _directory()
+    directory = _model_directory()
     if _is_prepared(directory):
         return
     for name, digest in DOWNLOAD_DIGESTS.items():
@@ -62,45 +62,49 @@ def setup() -> None:
     source.parent.rmdir()
 
 
-def available() -> bool:
+def is_available() -> bool:
     """Whether the packages to set up and run the model are installed."""
     return all(
         find_spec(name) for name in ("huggingface_hub", "numpy", "onnxruntime", "tokenizers")
     )
 
 
-def best_match(
-    answer: str, references: Sequence[str], context: str, cutoff: float
-) -> tuple[int, bool]:
-    """The first reference meaning the same as ``answer`` at ``cutoff``, or else the closest.
+def first_match_index(
+    answer: str, references: Sequence[str], question_markdown: str, cutoff: float
+) -> int | None:
+    """The index of the first reference meaning the same as ``answer`` at ``cutoff``, if any.
 
     The score is the lower, over both directions, of entailment minus contradiction, from -1 to
-    1. ``context``, the question in Markdown, comes before both texts as plain text when
+    1. ``question_markdown``, the question in Markdown, comes before both texts as plain text when
     given.
     """
-    question = unescaped_markdown(context)
-    framed_answer = _framed(answer, question)
-    closest, highest = 0, -2.0
-    for index, reference in enumerate(_framed(reference, question) for reference in references):
-        score = _entailment_score(framed_answer, reference)
-        if score >= cutoff:
-            score = min(score, _entailment_score(reference, framed_answer))
-            if score >= cutoff:
-                return index, True
-        if score > highest:
-            closest, highest = index, score
-    return closest, False
+    question_text = unescaped_markdown(question_markdown)
+    answer_with_question = _with_question(answer, question_text)
+    for index, reference in enumerate(
+        _with_question(reference, question_text) for reference in references
+    ):
+        if (
+            _entailment_score(answer_with_question, reference) >= cutoff
+            and _entailment_score(reference, answer_with_question) >= cutoff
+        ):
+            return index
+    return None
 
 
-def entails(answer: str, point: str, context: str, cutoff: float) -> bool:
+def entails(answer: str, point: str, question_markdown: str, cutoff: float) -> bool:
     """Whether ``answer`` entails ``point`` at ``cutoff``: entailment minus contradiction, with the
-    whole answer as premise, each framed by ``context`` as in ``best_match``."""
-    question = unescaped_markdown(context)
-    return _entailment_score(_framed(answer, question), _framed(point, question)) >= cutoff
+    whole answer as premise, each framed by ``question_markdown`` as in ``first_match_index``."""
+    question_text = unescaped_markdown(question_markdown)
+    return (
+        _entailment_score(
+            _with_question(answer, question_text), _with_question(point, question_text)
+        )
+        >= cutoff
+    )
 
 
-def _framed(text: str, question: str) -> str:
-    return f"Question: {question}\nAnswer: {text}" if question else text
+def _with_question(text: str, question_text: str) -> str:
+    return f"Question: {question_text}\nAnswer: {text}" if question_text else text
 
 
 @dataclass(frozen=True)
@@ -108,8 +112,8 @@ class _Model:
     session: Any
     tokenizer: Tokenizer
     input_names: frozenset[str]
-    entailment: int
-    contradiction: int
+    entailment_index: int
+    contradiction_index: int
 
 
 @functools.cache
@@ -119,7 +123,7 @@ def _model() -> _Model:
         from tokenizers import Tokenizer
     except ImportError as error:
         raise ImportError(MISSING_MODEL_MESSAGE) from error
-    directory = _directory()
+    directory = _model_directory()
     if not _is_prepared(directory):
         setup()
     config = json.loads((directory / "config.json").read_text())
@@ -161,10 +165,12 @@ def _entailment_score(premise: str, hypothesis: str) -> float:
     )[0]
     probabilities = np.exp(logits - logits.max())
     probabilities /= probabilities.sum()
-    return float(probabilities[model.entailment]) - float(probabilities[model.contradiction])
+    return float(probabilities[model.entailment_index]) - float(
+        probabilities[model.contradiction_index]
+    )
 
 
-def _directory() -> Path:
+def _model_directory() -> Path:
     return cache_directory() / REPOSITORY.replace("/", "--") / DOWNLOAD_DIGESTS[DOWNLOADED_MODEL]
 
 

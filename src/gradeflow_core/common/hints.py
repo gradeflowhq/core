@@ -1,5 +1,5 @@
 from collections.abc import Callable, Mapping
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 from pydantic.fields import FieldInfo
@@ -14,10 +14,7 @@ class Hint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    kind: (
-        Literal["step", "output_step", "code", "markdown", "question", "feedback", "condition"]
-        | None
-    ) = None
+    kind: Literal["step", "output_step", "code", "markdown", "feedback", "condition"] | None = None
     """What kind of value the field holds. "markdown" is Markdown with LaTeX formulas between $
     signs. A list of steps says "step" on its items."""
     language: Literal["python"] | None = None
@@ -32,8 +29,6 @@ class Hint(BaseModel):
     """The field lists accepted or model answers."""
     item_label: str | None = None
     """What one entry of a list or map field is called, such as "parameter"."""
-    is_name: bool = False
-    """The field's value names the object holding it."""
     template_parts: dict[str, str] | None = None
     """What a template may include, by label."""
 
@@ -55,11 +50,9 @@ hint = _as_schema_extra(Hint)
 
 def hint_of(field: FieldInfo) -> Hint:
     """The hint in a field's ``json_schema_extra``; an empty one if it has none."""
-    extra = field.json_schema_extra
-    hint_values = extra.get(HINT_KEY) if isinstance(extra, Mapping) else None
+    schema_extra = field.json_schema_extra
+    hint_values = schema_extra.get(HINT_KEY) if isinstance(schema_extra, Mapping) else None
     return Hint.model_validate(hint_values or {})
 
 
 ADVANCED_HINT = hint(advanced=True)
-PYTHON_CODE_HINT: dict[str, Any] = {"kind": "code", "language": "python"}
-"""The hint values of Python code, for ``hint(**PYTHON_CODE_HINT)``."""

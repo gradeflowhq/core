@@ -59,29 +59,31 @@ class ChoiceQuestion(Question):
         )
 
     def answer_schema(self) -> JsonDict:
-        options = {"type": "string", "enum": list(self.options)}
+        option_schema = {"type": "string", "enum": list(self.options)}
         if self.allow_multiple:
             property_schema = {
                 "type": "array",
                 "title": "Options",
-                "items": options,
+                "items": option_schema,
                 "uniqueItems": True,
             }
         else:
-            property_schema = {"title": "Option", **options}
+            property_schema = {"title": "Option", **option_schema}
         return {"type": "object", "properties": {self._answer_property: property_schema}}
 
     def answer_values(self, answer: str) -> dict[str, Any]:
-        chosen = self.read(answer) or frozenset()
-        chosen_options = [option for option in self.options if option in chosen]
+        answer_options = self.read(answer) or frozenset()
+        chosen_options = [option for option in self.options if option in answer_options]
         if self.allow_multiple:
             return {self._answer_property: chosen_options}
         return {self._answer_property: chosen_options[0] if chosen_options else None}
 
     def answer_from(self, values: Mapping[str, Any]) -> str:
-        chosen_options = values.get(self._answer_property) or []
-        options = [chosen_options] if isinstance(chosen_options, str) else chosen_options
-        return self.reading.separator.join(option for option in self.options if option in options)
+        property_value = values.get(self._answer_property) or []
+        chosen_options = [property_value] if isinstance(property_value, str) else property_value
+        return self.reading.separator.join(
+            option for option in self.options if option in chosen_options
+        )
 
     @property
     def _answer_property(self) -> str:

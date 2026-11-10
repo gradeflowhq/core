@@ -251,7 +251,7 @@ def test_checks_nest_at_any_depth(path: str, expected_position: tuple[object, ..
     assert (
         position.question,
         position.value,
-        position.in_list,
+        position.is_in_list,
     ) == expected_position
 
 
@@ -261,7 +261,7 @@ def test_a_check_in_a_question_group_reads_its_own_question() -> None:
         "with": {"steps": [{"question": "Q4", "uses": "gradeflow/number-range@1"}]},
     }
     draft = MarkingDraft(group_marking, QUESTIONS, None)
-    assert (draft.position("").in_group, draft.position("with.steps.0").question) == (True, "Q4")
+    assert (draft.position("").is_in_group, draft.position("with.steps.0").question) == (True, "Q4")
 
 
 def test_the_schema_at_a_path_changes_when_steps_move() -> None:
@@ -279,7 +279,7 @@ def test_the_schema_at_a_path_changes_when_steps_move() -> None:
 def test_an_empty_place_for_a_check_is_a_position_too() -> None:
     marking = {"question": "Q1", "uses": "gradeflow/not-allowed@1", "with": {}}
     position = MarkingDraft(marking, QUESTIONS, "Q1").position("with.check")
-    assert (position.question, position.in_list) == ("Q1", False)
+    assert (position.question, position.is_in_list) == ("Q1", False)
 
 
 @pytest.mark.parametrize(

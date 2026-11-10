@@ -3,7 +3,7 @@ from collections.abc import Callable
 import pytest
 
 from gradeflow_core import Check, InvalidError, Problem, QuestionSet
-from gradeflow_core.editing import Condition, ConditionRow, EditingError, MarkingDraft
+from gradeflow_core.editing import HINT_KEY, Condition, ConditionRow, EditingError, MarkingDraft
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
@@ -41,6 +41,16 @@ def test_another_method_keeps_where_the_check_is_and_holds_the_old_one() -> None
         "with": {"check": {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["Paris"]}}},
     }
     assert draft.finalized().dump() == draft.data
+
+
+def test_another_method_keeps_the_steps_own_keys_in_one_order() -> None:
+    draft = workflow_draft()
+    data = draft.data
+    uses = data["with"]["steps"][0]["uses"]
+    data["with"]["steps"][0] = {"with": {}, "weight": 2, "uses": uses, "name": "Capital"}
+    draft.replace(data)
+    draft.change_method("with.steps.0", "gradeflow/pattern@1")
+    assert list(draft.data["with"]["steps"][0]) == ["name", "weight", "uses", "with"]
 
 
 def test_checks_are_added_moved_and_removed() -> None:
@@ -364,6 +374,50 @@ def test_a_weight_zero_check_notes_that_it_gives_no_marks() -> None:
     assert draft.notes("with.steps.0") == ["Q1", "Gives no marks"]
 
 
+def test_a_weight_that_isnt_a_number_has_no_note() -> None:
+    data = workflow_draft().data
+    data["with"]["steps"][1] |= {"weight": "heavy", "if": "{{ steps.x.output.correct }}"}
+    draft = MarkingDraft(data, QUESTIONS, "Q1")
+    assert draft.notes("with.steps.1") == ["Only when its condition holds"]
+
+
+def test_a_step_reads_the_output_of_the_step_of_that_id_in_its_own_workflow() -> None:
+    def workflow(name: str, extract_settings: dict[str, str]) -> dict[str, object]:
+        extract = {"id": "part", "name": name, "uses": "gradeflow/extract@1"}
+        accepted_answers = {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["1"]}}
+        steps = [{**extract, "with": extract_settings}, accepted_answers]
+        return {"uses": "gradeflow/workflow@1", "with": {"steps": steps}}
+
+    number, unit = workflow("Number", {}), workflow("Unit", {"type": "text", "pattern": r"(\w+)$"})
+    marking = {"question": "Q1", "uses": "gradeflow/workflow@1", "with": {"steps": [number, unit]}}
+    draft = MarkingDraft(marking, QUESTIONS, "Q1")
+    for index, name in enumerate(["Number", "Unit"]):
+        input_labels = draft.schema(f"with.steps.{index}.with.steps.1")["properties"]["input"][
+            HINT_KEY
+        ]["labels"]
+        assert input_labels["{{ steps.part.output }}"] == f"Output of {name}"
+
+
+@pytest.mark.parametrize("settings", ["x", 3, ["a"]])
+def test_settings_that_arent_a_mapping_are_a_problem(settings: object) -> None:
+    steps = [
+        {"id": "part", "uses": "gradeflow/extract@1", "with": settings},
+        {"uses": "gradeflow/workflow@1", "with": settings},
+        {"uses": "gradeflow/accepted-answers@1", "with": settings},
+    ]
+    marking = {"question": "Q1", "uses": "gradeflow/workflow@1", "with": {"steps": steps}}
+    draft = MarkingDraft(marking, QUESTIONS, "Q1")
+    assert draft.paths() == ["", "with.steps.0", "with.steps.1", "with.steps.2"]
+    for path in draft.paths():
+        assert draft.schema(path)
+        assert draft.methods(path)
+        draft.values(path)
+        draft.notes(path)
+        draft.describe(path)
+    assert draft.answer_decisions() == {}
+    assert draft.problems
+
+
 def test_a_condition_that_cant_be_read_says_so() -> None:
     draft = workflow_draft()
     draft.update("with.steps.0", {"answers": ["Paris"]})
@@ -402,13 +456,13 @@ def test_a_value_named_uses_isnt_a_check() -> None:
     assert draft.values("with.steps.2")["parameters"] == {"uses": {"type": "text", "value": "x"}}
 
 
-def draft_from_yaml(text: str, question: str | None = "Q1") -> MarkingDraft:
-    return MarkingDraft.from_yaml(text, QUESTIONS, question)
+def draft_from_yaml(text: str, question_id: str | None = "Q1") -> MarkingDraft:
+    return MarkingDraft.from_yaml(text, QUESTIONS, question_id)
 
 
-def refused_yaml_problems(text: str, question: str | None = "Q1") -> list[str]:
+def refused_yaml_problems(text: str, question_id: str | None = "Q1") -> list[str]:
     with pytest.raises(InvalidError) as exc_info:
-        draft_from_yaml(text, question)
+        draft_from_yaml(text, question_id)
     return [str(problem) for problem in exc_info.value.problems]
 
 
@@ -464,3 +518,24 @@ def test_a_changed_marking_says_its_problems_as_any_draft_does() -> None:
     draft.add("with.steps.0", "gradeflow/key-points@1")
     assert draft.problems == MarkingDraft(draft.data, QUESTIONS, "Q1").problems
     assert draft.problems
+
+
+def test_editing_a_new_step_leaves_its_methods_starting_settings_alone() -> None:
+    def answer_sets_draft() -> MarkingDraft:
+        draft = MarkingDraft.new("gradeflow/workflow@1", QUESTIONS, None)
+        draft.add("with.steps.0", "gradeflow/answer-sets@1")
+        return draft
+
+    draft = answer_sets_draft()
+    starting_settings = draft.data["with"]["steps"][0]["with"]
+    draft.add("with.steps.0.with.sets.0.with.steps.0", "gradeflow/accepted-answers@1")
+    assert answer_sets_draft().data["with"]["steps"][0]["with"] == starting_settings
+
+
+@pytest.mark.parametrize("steps", ["5", "x"])
+def test_steps_that_arent_a_list_hold_no_steps(steps: str) -> None:
+    draft = draft_from_yaml(f"uses: gradeflow/workflow@1\nwith: {{steps: {steps}}}\n")
+    (setting,) = draft.settings_holding_steps("")
+    assert setting.step_paths == ()
+    draft.add(setting.new_step_path, "gradeflow/accepted-answers@1")
+    assert [step["uses"] for step in draft.values("")["steps"]] == ["gradeflow/accepted-answers@1"]

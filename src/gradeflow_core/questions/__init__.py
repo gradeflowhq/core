@@ -1,6 +1,6 @@
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, get_args
+from typing import TYPE_CHECKING, Annotated, get_args
 
 from pydantic import Field, TypeAdapter
 
@@ -23,19 +23,13 @@ else:
     ]
     """A question of any type, validated as the type its ``type`` names."""
 QUESTION_ADAPTER: TypeAdapter[AnyQuestion] = TypeAdapter(AnyQuestion)
-QUESTION_TYPES: Mapping[QuestionType, type[Question]] = MappingProxyType(
+QUESTION_CLASSES: Mapping[QuestionType, type[Question]] = MappingProxyType(
     {cls.model_fields["type"].default: cls for cls in get_args(get_args(AnyQuestion)[0])}
 )
 """Each type of question, in catalogue order: the first is the default for new questions."""
-TYPE_LABELS: dict[str, str] = {
-    question_type: cls.label for question_type, cls in QUESTION_TYPES.items()
-}
 
 
-def new_question(question_type: QuestionType, data: Mapping[str, Any] | None = None) -> Question:
-    """A question of ``question_type`` from ``data``, as its JSON schema describes it; without it,
-    one to start from. Raises ``InvalidError`` if it isn't valid."""
-    question_class = QUESTION_TYPES[question_type]
-    return question_class.load(
-        {**(question_class.new_question_data if data is None else data), "type": question_type}
-    )
+def new_question(question_type: QuestionType) -> Question:
+    """A question of ``question_type`` to start from."""
+    question_class = QUESTION_CLASSES[question_type]
+    return question_class.load(question_class.new_question_data)

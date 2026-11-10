@@ -12,7 +12,7 @@ from gradeflow_core.questions.text import TextQuestion
 def test_mark_marks_each_distinct_answer_once_and_isolates_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    questions = QuestionSet({question: TextQuestion() for question in ("Q1", "Q2", "Q3")})
+    questions = QuestionSet({question_id: TextQuestion() for question_id in ("Q1", "Q2", "Q3")})
     scheme = MarkScheme.load(
         [
             {"question": "Q1", "uses": "gradeflow/full-marks@1"},
@@ -86,7 +86,7 @@ def test_mark_marks_each_distinct_answer_once_and_isolates_results(
 
 @pytest.mark.parametrize("weight", [0, 1])
 def test_single_question_marking_rejects_cross_question_dependencies(weight: float) -> None:
-    questions = QuestionSet({question: TextQuestion() for question in ("Q1", "Q2")})
+    questions = QuestionSet({question_id: TextQuestion() for question_id in ("Q1", "Q2")})
     scheme = MarkScheme.load(
         [
             {
@@ -109,7 +109,7 @@ def test_single_question_marking_rejects_cross_question_dependencies(weight: flo
 
 
 def test_nested_question_group_checks_inherit_questions_and_respect_conditions_and_blanks() -> None:
-    questions = QuestionSet({question: TextQuestion() for question in ("Q1", "Q2")})
+    questions = QuestionSet({question_id: TextQuestion() for question_id in ("Q1", "Q2")})
     scheme = MarkScheme.load(
         [
             {

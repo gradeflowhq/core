@@ -53,15 +53,9 @@ class QuestionResult(BaseModel):
 class ReportLine:
     """What a student got for one question: its marks out of its maximum, and any feedback."""
 
-    question: QuestionId
-    marks: float
-    max_marks: float
+    heading: str
+    """The question and its marks, such as ``Q3 [1/3]``."""
     feedback: str
-
-    @property
-    def heading(self) -> str:
-        """The question and its marks, such as ``Q3 [1/3]``."""
-        return f"{self.question} [{format_marks(self.marks)}/{format_marks(self.max_marks)}]"
 
     def __str__(self) -> str:
         return f"{self.heading}\n{self.feedback}" if self.feedback else self.heading
@@ -82,8 +76,11 @@ class MarkedSheet(AnswerSheet):
         """The marking report: the marks and feedback, question by question, for a gradebook
         comment."""
         return [
-            ReportLine(key, result.marks, result.max_marks, result.feedback.strip())
-            for key, result in self.results.items()
+            ReportLine(
+                f"{question_id} [{format_marks(result.marks)}/{format_marks(result.max_marks)}]",
+                result.feedback.strip(),
+            )
+            for question_id, result in self.results.items()
         ]
 
 

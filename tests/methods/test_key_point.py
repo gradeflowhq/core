@@ -118,7 +118,7 @@ def test_how_strict_sets_the_meaning_cutoff(
 def test_without_the_meaning_model_installed_same_meaning_is_a_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(nli, "available", lambda: False)
+    monkeypatch.setattr(nli, "is_available", lambda: False)
     assert problems_of({"uses": KEY_POINT, "with": {"point": "a", "match": "meaning"}}) == [
         ("", ("match",), MISSING_MODEL_MESSAGE)
     ]

@@ -1,4 +1,5 @@
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import replace
 from typing import Annotated, Any, Literal
 
@@ -10,24 +11,31 @@ from ...common.problems import Problem
 from ...common.text import as_sentence, format_number, markdown_list, plain_markdown
 from ...questions.base import Question
 from ...questions.question_set import QuestionSet
-from ...questions.types import ALL_TYPES, QuestionId
+from ...questions.types import ALL_QUESTION_TYPES, QuestionId
 from ..example import examples_beside
-from ..input_sources import StepOutputSource, input_source
+from ..input_sources import (
+    MARKS_AS_ANSWER_MESSAGE,
+    OtherAnswerSource,
+    StepOutputSource,
+    input_source,
+)
 from ..method import Method
 from ..outcome import (
-    CORRECT,
+    CORRECT_FEEDBACK,
     FULL_MARKS_PROPORTION,
     Effect,
     MethodResult,
     Outcome,
-    Skipped,
+    QuestionOutcomes,
+    SkippedStep,
     clamped,
     effect_of,
 )
 from ..position import Position
+from ..problems import output_question, step_input_position
 from ..settings import Settings, specialized
-from ..step import AnyStep, Check, Context, Marking, Step
-from ..templates import names_read, names_read_in
+from ..step import AnyStep, Check, Context, Marking, Step, settings_of
+from ..templates import names_read_in
 
 MarksBy = Literal["all_correct", "any_correct", "none_correct", "total", "proportional"]
 ADDITIVE_MARKS_BY: frozenset[MarksBy] = frozenset({"total", "proportional"})
@@ -78,6 +86,12 @@ class WorkflowSettings(Settings):
             raise ValueError("Name a step, such as {{ steps.name.output }}.")
         return output_step
 
+    @property
+    def output_step_id(self) -> str | None:
+        """The ID of the step whose output it gives."""
+        source = input_source(self.output_step) if self.output_step else None
+        return source.step_id if isinstance(source, StepOutputSource) else None
+
 
 DESCRIPTION_HEADINGS = {
     "all_correct": "All of these",
@@ -88,114 +102,137 @@ DESCRIPTION_HEADINGS = {
 }
 """How a workflow's description opens."""
 
-type CheckOutcomes = list[tuple[Check, dict[QuestionId, Outcome]]]
+type CheckOutcomes = list[tuple[Check, QuestionOutcomes]]
 
 
 def run_steps(
-    steps: Sequence[Step], contexts: Sequence[Context], question: QuestionId | None
+    steps: Sequence[Step], contexts: Sequence[Context], question_id: QuestionId | None
 ) -> tuple[list[CheckOutcomes], list[Context]]:
     """Each student's checks and their outcomes, and each student's context after the steps."""
     contexts = list(contexts)
-    check_outcomes: list[CheckOutcomes] = [[] for _ in contexts]
+    check_outcomes_by_student: list[CheckOutcomes] = [[] for _ in contexts]
     for step in steps:
-        results_by_student = step.run(contexts, question)
-        contexts = [context for context, _ in results_by_student]
-        for student_outcomes, (_, outcomes) in zip(check_outcomes, results_by_student, strict=True):
-            if isinstance(step, Check) and outcomes is not None:
-                student_outcomes.append((step, outcomes))
-    return check_outcomes, contexts
+        contexts, outcomes_by_student = step.run(contexts, question_id)
+        if isinstance(step, Check):
+            for student_check_outcomes, outcomes in zip(
+                check_outcomes_by_student, outcomes_by_student, strict=True
+            ):
+                student_check_outcomes.append((step, outcomes))
+    return check_outcomes_by_student, contexts
 
 
 def combine(
     marks_by: MarksBy, check_outcomes: CheckOutcomes, questions: QuestionSet
-) -> dict[QuestionId, Outcome]:
+) -> QuestionOutcomes:
     """One outcome for each question the checks mark, combined as ``marks_by`` says. A question
     whose checks were all skipped is skipped."""
-    scoring_checks = [(check, outcomes) for check, outcomes in check_outcomes if check.has_weight]
-    unskipped = [
+    weighted_check_outcomes = [
+        (check, outcomes) for check, outcomes in check_outcomes if check.has_weight
+    ]
+    unskipped_check_outcomes = [
         (check, unskipped_outcomes)
-        for check, outcomes in scoring_checks
+        for check, outcomes in weighted_check_outcomes
         if (
             unskipped_outcomes := {
-                key: outcome for key, outcome in outcomes.items() if not outcome.skipped
+                question_id: outcome
+                for question_id, outcome in outcomes.items()
+                if not outcome.is_skipped
             }
         )
     ]
-    if not unskipped:
-        keys = dict.fromkeys(key for _, outcomes in scoring_checks for key in outcomes)
-        return {key: Outcome(0.0, skipped=True) for key in keys}
-    best_check, combined = (
-        _best_check(unskipped, questions)
+    if not unskipped_check_outcomes:
+        question_ids = dict.fromkeys(
+            question_id for _, outcomes in weighted_check_outcomes for question_id in outcomes
+        )
+        return {question_id: Outcome(0.0, is_skipped=True) for question_id in question_ids}
+    parts_by_question_id: dict[QuestionId, list[tuple[Check, Outcome]]] = {}
+    for check, outcomes in unskipped_check_outcomes:
+        for question_id, outcome in outcomes.items():
+            parts_by_question_id.setdefault(question_id, []).append((check, outcome))
+    denominator_by_question_id = {
+        question_id: proportion_denominator(
+            marks_by,
+            [check.weight for check, _ in checks_and_outcomes],
+            _max_marks(questions, question_id),
+        )
+        for question_id, checks_and_outcomes in parts_by_question_id.items()
+    }
+    best_check, combined_outcomes = (
+        _best_check(unskipped_check_outcomes, parts_by_question_id, questions)
         if marks_by == "any_correct"
-        else (None, _combined_by_question(marks_by, unskipped, questions))
+        else (
+            None,
+            {
+                question_id: _combined_outcome(
+                    marks_by, checks_and_outcomes, denominator_by_question_id[question_id]
+                )
+                for question_id, checks_and_outcomes in parts_by_question_id.items()
+            },
+        )
     )
     return {
-        key: replace(
+        question_id: replace(
             outcome,
             children=_children(
                 marks_by,
                 check_outcomes,
-                key,
+                question_id,
+                parts_by_question_id[question_id],
                 best_check if outcome.proportion > 0 else None,
-                _max_marks(questions, key),
+                denominator_by_question_id[question_id],
             ),
         )
-        for key, outcome in combined.items()
+        for question_id, outcome in combined_outcomes.items()
     }
 
 
-def _combined_by_question(
-    marks_by: MarksBy, unskipped: CheckOutcomes, questions: QuestionSet
-) -> dict[QuestionId, Outcome]:
-    keys = dict.fromkeys(key for _, outcomes in unskipped for key in outcomes)
-    combined: dict[QuestionId, Outcome] = {}
-    for key in keys:
-        checks_with_parts = [
-            (check, outcomes[key]) for check, outcomes in unskipped if key in outcomes
-        ]
-        parts = tuple(outcome for _, outcome in checks_with_parts)
-        weighted_parts = [(check.weight, outcome) for check, outcome in checks_with_parts]
-        proportion = _proportion(marks_by, weighted_parts, _max_marks(questions, key))
-        if marks_by == "none_correct":
-            error = next(filter(None, (part.first_error() for part in parts)), None)
-            proportion = 0.0 if error else proportion
-            feedback = _not_allowed_feedback(checks_with_parts, error)
-        else:
-            feedback = _joined_feedback(
-                _explaining_parts(marks_by, checks_with_parts, proportion >= FULL_MARKS_PROPORTION)
-            )
-        combined[key] = Outcome(
-            proportion, feedback, marked=all(part.marked for part in parts), parts=parts
+def _combined_outcome(
+    marks_by: MarksBy, checks_and_outcomes: list[tuple[Check, Outcome]], denominator: float
+) -> Outcome:
+    """The outcome of one answer's scoring parts combined."""
+    parts = tuple(outcome for _, outcome in checks_and_outcomes)
+    proportion = combined_proportion(
+        marks_by,
+        [(check.weight, part.proportion) for check, part in checks_and_outcomes],
+        denominator,
+    )
+    if marks_by == "none_correct":
+        error = next(filter(None, (part.first_error() for part in parts)), None)
+        proportion = 0.0 if error else proportion
+        feedback = _none_correct_feedback(checks_and_outcomes, error)
+    else:
+        feedback = _joined_feedback(
+            _explaining_parts(marks_by, checks_and_outcomes, proportion >= FULL_MARKS_PROPORTION)
         )
-    return combined
+    return Outcome(proportion, feedback, marked=all(part.marked for part in parts), parts=parts)
 
 
 def _children(
     marks_by: MarksBy,
     check_outcomes: CheckOutcomes,
-    key: QuestionId,
+    question_id: QuestionId,
+    scoring_parts: list[tuple[Check, Outcome]],
     best_check: Check | None,
-    max_marks: float,
+    denominator: float,
 ) -> tuple[Outcome, ...]:
     """The checks that ran, each with its effect."""
-    ran_parts = [
-        (check, part)
-        for check, outcomes in check_outcomes
-        if (part := _outcome_for_question(check, outcomes, key)) is not None and not part.skipped
-    ]
-    scoring_parts = [(check, part) for check, part in ran_parts if check.has_weight]
     best_index = next(
         (index for index, (check, _) in enumerate(scoring_parts) if check is best_check),
         None,
     )
     scoring_parts_with_effects = iter(
         parts_with_effects(
-            marks_by, [(check.weight, part) for check, part in scoring_parts], best_index, max_marks
+            marks_by,
+            [(check.weight, part) for check, part in scoring_parts],
+            best_index,
+            denominator,
         )
     )
     return tuple(
         next(scoring_parts_with_effects) if check.has_weight else _with_condition_effect(part)
-        for check, part in ran_parts
+        for check, outcomes in check_outcomes
+        if (part := _outcome_for_question(check, outcomes, question_id)) is not None
+        and not part.is_skipped
     )
 
 
@@ -203,7 +240,12 @@ def proportion_and_parts(
     marks_by: MarksBy, weighted_parts: Sequence[tuple[float, Outcome]], max_marks: float
 ) -> tuple[float, tuple[Outcome, ...]]:
     """The combined proportion of ``(weight, outcome)`` parts, and the parts with their effects."""
-    proportion = _proportion(marks_by, weighted_parts, max_marks)
+    denominator = proportion_denominator(
+        marks_by, [weight for weight, _ in weighted_parts], max_marks
+    )
+    proportion = combined_proportion(
+        marks_by, [(weight, part.proportion) for weight, part in weighted_parts], denominator
+    )
     best_index = (
         max(
             range(len(weighted_parts)),
@@ -212,33 +254,25 @@ def proportion_and_parts(
         if marks_by == "any_correct" and proportion > 0
         else None
     )
-    return proportion, parts_with_effects(marks_by, weighted_parts, best_index, max_marks)
-
-
-def _proportion(
-    marks_by: MarksBy, weighted_parts: Sequence[tuple[float, Outcome]], max_marks: float
-) -> float:
-    """The proportion ``(weight, outcome)`` parts of one answer give together."""
-    weighted_proportions = [(weight, part.proportion) for weight, part in weighted_parts]
-    out_of = marks_out_of(marks_by, [weight for weight, _ in weighted_parts], max_marks)
-    return clamped(combined_proportion(marks_by, weighted_proportions, out_of))
+    return proportion, parts_with_effects(marks_by, weighted_parts, best_index, denominator)
 
 
 def parts_with_effects(
     marks_by: MarksBy,
     weighted_parts: Sequence[tuple[float, Outcome]],
     best_index: int | None,
-    max_marks: float,
+    denominator: float,
 ) -> tuple[Outcome, ...]:
     """Combined ``(weight, outcome)`` parts, each with what it did to the marks and, under "Total"
-    and "Proportional", the part of the combined proportion it gave. Only the part at
-    ``best_index``, if there is one, counts."""
-    out_of = marks_out_of(marks_by, [weight for weight, _ in weighted_parts], max_marks)
+    and "Proportional", the part of the combined proportion it gave, of ``denominator``. Only the
+    part at ``best_index``, if there is one, counts."""
 
     def with_effect(index: int, weight: float, part: Outcome) -> Outcome:
         if best_index is not None and index != best_index:
             return replace(part, effect="uncounted")
-        contribution = weight * part.proportion / out_of if marks_by in ADDITIVE_MARKS_BY else None
+        contribution = (
+            weight * part.proportion / denominator if marks_by in ADDITIVE_MARKS_BY else None
+        )
         return replace(part, effect=_effect(marks_by, weight, part), contribution=contribution)
 
     return tuple(
@@ -253,16 +287,16 @@ def _with_condition_effect(part: Outcome) -> Outcome:
 
 
 def _outcome_for_question(
-    check: Check, outcomes: dict[QuestionId, Outcome], key: QuestionId
+    check: Check, outcomes: QuestionOutcomes, question_id: QuestionId
 ) -> Outcome | None:
-    """A check's outcome for ``key``, or a no-weight check's outcome for the one question it
+    """A check's outcome for ``question_id``, or a no-weight check's outcome for the one question it
     reads."""
-    if key in outcomes:
-        return outcomes[key]
+    if question_id in outcomes:
+        return outcomes[question_id]
     if check.has_weight or len(outcomes) != 1:
         return None
-    [(other_question, outcome)] = outcomes.items()
-    return replace(outcome, labels=(*outcome.labels, other_question))
+    [(other_question_id, outcome)] = outcomes.items()
+    return replace(outcome, labels=(*outcome.labels, other_question_id))
 
 
 def _effect(marks_by: MarksBy, weight: float, part: Outcome) -> Effect:
@@ -276,14 +310,14 @@ def _effect(marks_by: MarksBy, weight: float, part: Outcome) -> Effect:
 
 
 def _explaining_parts(
-    marks_by: MarksBy, checks_with_parts: list[tuple[Check, Outcome]], correct: bool
+    marks_by: MarksBy, checks_and_outcomes: list[tuple[Check, Outcome]], correct: bool
 ) -> tuple[Outcome, ...]:
     """The parts that explain the combined proportion: what counted for it, and, unless the whole
     is correct, what counted against it. Only "Total" and "Proportional" keep what counted for an
     incorrect whole, as each part earned its share. A penalty says only that it applies, unless
     its feedback is its own."""
     explaining_parts = []
-    for check, part in checks_with_parts:
+    for check, part in checks_and_outcomes:
         if not part.marked:  # says why the whole is left for a person
             explaining_parts.append(part)
             continue
@@ -302,64 +336,71 @@ def _explaining_parts(
     return tuple(explaining_parts)
 
 
-def _not_allowed_feedback(checks_with_parts: list[tuple[Check, Outcome]], error: str | None) -> str:
+def _none_correct_feedback(
+    checks_and_outcomes: list[tuple[Check, Outcome]], error: str | None
+) -> str:
     """Feedback under "None may be correct": why parts weren't marked, and what was found, or
     "Correct."."""
     not_allowed_reasons = [
         part.feedback if check.feedback else as_sentence(plain_markdown(check.describe()))
-        for check, part in checks_with_parts
+        for check, part in checks_and_outcomes
         if part.marked and part.proportion > 0
     ]
     unmarked_feedback = _joined_feedback(
-        tuple(part for _, part in checks_with_parts if not part.marked)
+        tuple(part for _, part in checks_and_outcomes if not part.marked)
     )
     not_allowed_line = (
         as_sentence(f"Couldn't check the answer: {error}")
         if error
         else (f"Not allowed. {' '.join(not_allowed_reasons)}" if not_allowed_reasons else "")
     )
-    return "\n".join(line for line in (unmarked_feedback, not_allowed_line) if line) or CORRECT
+    return (
+        "\n".join(line for line in (unmarked_feedback, not_allowed_line) if line)
+        or CORRECT_FEEDBACK
+    )
 
 
-def marks_out_of(marks_by: MarksBy, weights: Sequence[float], max_marks: float) -> float:
-    """What additive marks are out of: ``max_marks`` for a total, or the positive ``weights`` of
+def proportion_denominator(marks_by: MarksBy, weights: Sequence[float], max_marks: float) -> float:
+    """What additive marks are divided by: ``max_marks`` for a total, or the positive ``weights`` of
     every check counted."""
     return (max_marks if marks_by == "total" else sum(w for w in weights if w > 0)) or 1
 
 
 def combined_proportion(
-    marks_by: MarksBy, weighted_proportions: Sequence[tuple[float, float]], out_of: float
+    marks_by: MarksBy, weighted_proportions: Sequence[tuple[float, float]], denominator: float
 ) -> float:
-    """The proportion of ``(weight, proportion)`` parts of one answer combined, before clamping.
-    Additive marks are ``out_of`` the number `marks_out_of` gives."""
+    """The proportion of ``(weight, proportion)`` parts of one answer combined, clamped. Additive
+    marks are divided by ``denominator``, the number `proportion_denominator` gives."""
     proportions = [proportion for _, proportion in weighted_proportions]
-    earned = sum(weight * proportion for weight, proportion in weighted_proportions)
+    weighted = [weight * proportion for weight, proportion in weighted_proportions]
     match marks_by:
         case "all_correct":
-            return min(proportions)
+            return clamped(min(proportions))
         case "none_correct":
-            return 1 - max(proportions)
+            return clamped(1 - max(proportions))
         case "any_correct":
-            return max(weight * proportion for weight, proportion in weighted_proportions)
+            return clamped(max(weighted))
         case "total" | "proportional":
-            return earned / out_of
+            return clamped(sum(weighted) / denominator)
 
 
 def _best_check(
-    check_outcomes: CheckOutcomes, questions: QuestionSet
-) -> tuple[Check, dict[QuestionId, Outcome]]:
+    check_outcomes: CheckOutcomes,
+    parts_by_question_id: Mapping[QuestionId, list[tuple[Check, Outcome]]],
+    questions: QuestionSet,
+) -> tuple[Check, QuestionOutcomes]:
     """The check giving the most marks over the questions it marks, the first on a tie, and its
     outcomes. Questions only other checks mark get no marks. An answer stays unmarked while a check
     that couldn't mark it could give more."""
 
-    def total(item: tuple[Check, dict[QuestionId, Outcome]]) -> float:
-        check, outcomes = item
+    def weighted_marks(check_and_outcomes: tuple[Check, QuestionOutcomes]) -> float:
+        check, outcomes = check_and_outcomes
         return sum(
-            check.weight * outcome.proportion * _max_marks(questions, key)
-            for key, outcome in outcomes.items()
+            check.weight * outcome.proportion * _max_marks(questions, question_id)
+            for question_id, outcome in outcomes.items()
         )
 
-    best_check, best_outcomes = max(check_outcomes, key=total)
+    best_check, best_outcomes = max(check_outcomes, key=weighted_marks)
 
     def best_feedback(outcome: Outcome) -> str:
         # A correct check worth part of the marks, such as "Sign error", says what earned them
@@ -369,29 +410,29 @@ def _best_check(
             return f"{outcome.name or 'Partly correct'} ({best_check.weight:.0%} of the marks)."
         return outcome.feedback
 
-    def best_outcome(key: QuestionId, outcome: Outcome) -> Outcome:
+    def best_outcome(question_id: QuestionId, outcome: Outcome) -> Outcome:
         proportion = clamped(best_check.weight * outcome.proportion)
         unmarked_worth_more = tuple(
             part
-            for check, outcomes in check_outcomes
-            if check is not best_check
-            and (part := outcomes.get(key)) is not None
-            and not part.marked
-            and check.weight > proportion
+            for check, part in parts_by_question_id[question_id]
+            if check is not best_check and not part.marked and check.weight > proportion
         )
         feedback_lines = (_joined_feedback(unmarked_worth_more), best_feedback(outcome))
         return Outcome(
             proportion,
             "\n".join(line for line in feedback_lines if line),
             marked=outcome.marked and not unmarked_worth_more,
-            parts=tuple(outcomes[key] for _, outcomes in check_outcomes if key in outcomes),
+            parts=tuple(part for _, part in parts_by_question_id[question_id]),
         )
 
-    return best_check, {key: best_outcome(key, outcome) for key, outcome in best_outcomes.items()}
+    return best_check, {
+        question_id: best_outcome(question_id, outcome)
+        for question_id, outcome in best_outcomes.items()
+    }
 
 
-def _max_marks(questions: QuestionSet, key: QuestionId) -> float:
-    question = questions.get(key)
+def _max_marks(questions: QuestionSet, question_id: QuestionId) -> float:
+    question = questions.get(question_id)
     return question.max_marks if question else 1.0
 
 
@@ -400,7 +441,7 @@ def _joined_feedback(parts: tuple[Outcome, ...]) -> str:
     lines = list(
         dict.fromkeys(_with_check_name(part.name, part.feedback) for part in parts if part.feedback)
     )
-    lines_besides_correct = [line for line in lines if line != CORRECT]
+    lines_besides_correct = [line for line in lines if line != CORRECT_FEEDBACK]
     return "\n".join(lines_besides_correct or lines)
 
 
@@ -415,9 +456,9 @@ def _with_check_name(name: str | None, feedback: str) -> str:
 def _problems_of_steps(
     steps: Sequence[Step], step_ids_read_by_output: frozenset[str] = frozenset()
 ) -> Iterator[Problem]:
-    for index, inner in enumerate(steps):
+    for index, inner_step in enumerate(steps):
         step_ids_read_later = names_read_in([step.dump() for step in steps[index + 1 :]], "steps")
-        yield from inner.problems_in_list(step_ids_read_later | step_ids_read_by_output, index)
+        yield from inner_step.problems_in_list(step_ids_read_later | step_ids_read_by_output, index)
 
 
 class Workflow(Method[WorkflowSettings]):
@@ -442,7 +483,7 @@ class Workflow(Method[WorkflowSettings]):
         "together, make a question group."
     )
     level = "advanced"
-    question_types = ALL_TYPES
+    question_types = ALL_QUESTION_TYPES
     marks_question_group = True
     settings = WorkflowSettings
     examples = examples_beside(__file__)
@@ -452,16 +493,16 @@ class Workflow(Method[WorkflowSettings]):
 
     def settings_model_at(self, position: Position) -> type[Settings]:
         """Outside a workflow, nothing can read a step's output."""
-        if position.in_workflow:
+        if position.is_in_workflow:
             return self.settings
         return specialized(
             self.settings,
-            without=("output", "output_step"),
+            excluded_fields=("output", "output_step"),
             marks_by={"json_schema_extra": hint(labels=MARKS_BY_LABELS)},
         )
 
     def inner_position(self, position: Position, location: Location) -> Position:
-        return replace(super().inner_position(position, location), in_workflow=True)
+        return replace(super().inner_position(position, location), is_in_workflow=True)
 
     def reads_earlier_results(self, settings: Mapping[str, Any]) -> bool:
         return True
@@ -469,29 +510,31 @@ class Workflow(Method[WorkflowSettings]):
     def describe(self, step: Step) -> str:
         settings = self._settings_of(step)
         if settings.output == "step_output":
-            return "\n".join(inner.describe() for inner in settings.steps)
-        lines = markdown_list(
-            inner.described_in_list(weight_notes(inner.marks_weight, settings.marks_by))
-            for inner in settings.steps
+            return "\n".join(inner_step.describe() for inner_step in settings.steps)
+        step_list_markdown = markdown_list(
+            inner_step.described_in_list(weight_notes(inner_step.marks_weight, settings.marks_by))
+            for inner_step in settings.steps
         )
-        return f"{description_heading(settings.marks_by)}\n{lines}"
+        return f"{description_heading(settings.marks_by)}\n{step_list_markdown}"
 
     def run(
-        self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+        self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> list[MethodResult]:
         settings = self._settings_of(step)
-        check_outcomes_by_student, final_contexts = run_steps(settings.steps, contexts, question)
+        check_outcomes_by_student, final_contexts = run_steps(settings.steps, contexts, question_id)
         if settings.output == "step_output":
-            assert settings.output_step is not None  # problems refuse a workflow without one
-            [step_id] = names_read(settings.output_step, "steps")
+            step_id = settings.output_step_id
+            assert step_id is not None  # problems refuse a workflow without one
             return [
                 result.transform_result
                 if (result := context.earlier_results.get(step_id))
-                else Skipped()
+                else SkippedStep()
                 for context in final_contexts
             ]
         return [
-            _combined_for_student(settings.marks_by, student_check_outcomes, context)
+            _combined_outcomes_for_student(
+                settings.marks_by, student_check_outcomes, context.questions
+            )
             for context, student_check_outcomes in zip(
                 contexts, check_outcomes_by_student, strict=True
             )
@@ -500,27 +543,40 @@ class Workflow(Method[WorkflowSettings]):
     def output_question(
         self,
         settings: Mapping[str, Any],
-        source_question: Question,
+        position: Position,
         methods: Mapping[str, Method[Any]],
     ) -> Question | None:
         if self.gives_marks(settings):
             return None
-        output_questions: dict[str, Question] = {}
+        output_questions: dict[str, Question | None] = {}
         steps = settings.get("steps")
-        for entry in steps if isinstance(steps, list) else ():
-            method = methods.get(str(entry.get("uses"))) if isinstance(entry, Mapping) else None
-            if method is not None and isinstance(entry.get("id"), str):
-                input_question = input_source(entry.get("input")).input_question(
-                    output_questions, source_question
+        for step_data in steps if isinstance(steps, list) else ():
+            method = (
+                methods.get(str(step_data.get("uses"))) if isinstance(step_data, Mapping) else None
+            )
+            if method is not None and isinstance(step_data.get("id"), str):
+                question_id = step_data.get("question")
+                step_position = step_input_position(
+                    question_id
+                    if isinstance(question_id, str) and question_id in position.questions
+                    else None,
+                    step_data.get("input"),
+                    position,
+                    output_questions,
                 )
-                step_output_question = method.output_question(
-                    entry.get("with") or {}, input_question, methods
+                output_questions[step_data["id"]] = output_question(
+                    method,
+                    settings_of(step_data),
+                    step_position,
+                    methods,
                 )
-                if step_output_question is not None:
-                    output_questions[entry["id"]] = step_output_question
-        return input_source(settings.get("output_step")).input_question(
-            output_questions, source_question
-        )
+        output_position = position
+        with suppress(ValueError):
+            source = input_source(settings.get("output_step"))
+            # Another question's answer is no output of its steps.
+            if not isinstance(source, OtherAnswerSource):
+                output_position = source.input_position(position, output_questions)[0]
+        return output_position.question_model
 
     def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(step)
@@ -531,38 +587,50 @@ class Workflow(Method[WorkflowSettings]):
         if settings.output == "step_output":
             yield from self._output_step_problems(settings)
             return
-        if steps and not any(inner.has_weight for inner in steps):
+        if steps and not any(inner_step.has_weight for inner_step in steps):
             yield Problem("Add a step that gives marks.", field=("steps",), is_incomplete=True)
         yield from _problems_of_steps(steps)
         yield from ignored_weight_problems(
-            [inner.marks_weight for inner in steps], settings.marks_by, "steps"
+            [inner_step.marks_weight for inner_step in steps], settings.marks_by, "steps"
         )
 
     def _output_step_problems(self, settings: WorkflowSettings) -> Iterator[Problem]:
-        step_ids_read_by_output = frozenset[str]()
-        if settings.output_step is None:
+        step_id = settings.output_step_id
+        output_step = next(
+            (inner_step for inner_step in settings.steps if inner_step.id == step_id), None
+        )
+        if step_id is None:
             yield Problem(
                 "Choose the step whose output it gives.", field=("output_step",), is_incomplete=True
             )
-        else:
-            step_ids_read_by_output = names_read(settings.output_step, "steps")
-            for missing in step_ids_read_by_output - {inner.id for inner in settings.steps}:
-                yield Problem(f"No step here is called {missing}.", field=("output_step",))
-        yield from _problems_of_steps(settings.steps, step_ids_read_by_output)
+        elif output_step is None:
+            yield Problem(f"No step here is called {step_id}.", field=("output_step",))
+        elif isinstance(output_step, Check):
+            yield Problem(MARKS_AS_ANSWER_MESSAGE, field=("output_step",))
+        yield from _problems_of_steps(settings.steps, frozenset({step_id} if step_id else ()))
 
 
-def _combined_for_student(
-    marks_by: MarksBy, check_outcomes: CheckOutcomes, context: Context
-) -> dict[QuestionId, Outcome]:
+def _combined_outcomes_for_student(
+    marks_by: MarksBy, check_outcomes: CheckOutcomes, questions: QuestionSet
+) -> QuestionOutcomes:
     named_check_outcomes: CheckOutcomes = [
-        (check, {key: replace(outcome, name=check.name) for key, outcome in outcomes.items()})
+        (
+            check,
+            {
+                question_id: replace(outcome, name=check.name)
+                for question_id, outcome in outcomes.items()
+            },
+        )
         for check, outcomes in check_outcomes
     ]
-    combined = combine(marks_by, named_check_outcomes, context.questions)
+    combined_outcomes = combine(marks_by, named_check_outcomes, questions)
     # A check reading a transform keeps its row, which says what it read.
     if len(check_outcomes) > 1 or any(check.input for check, _ in check_outcomes):
-        return combined
-    return {key: _collapsed_to_only_child(outcome) for key, outcome in combined.items()}
+        return combined_outcomes
+    return {
+        question_id: _collapsed_to_only_child(outcome)
+        for question_id, outcome in combined_outcomes.items()
+    }
 
 
 def _collapsed_to_only_child(outcome: Outcome) -> Outcome:
@@ -599,7 +667,7 @@ def weight_notes(weight: float, marks_by: MarksBy) -> tuple[str, ...]:
 
 
 def ignored_weight_problems(
-    weights: Sequence[float], marks_by: MarksBy, field: str
+    weights: Sequence[float], marks_by: MarksBy, setting_name: str
 ) -> Iterator[Problem]:
     """A problem at each weight other than 0 and 1, when ``marks_by`` ignores weights."""
     if marks_by in ("all_correct", "none_correct"):
@@ -607,5 +675,5 @@ def ignored_weight_problems(
             if weight not in (0, 1):
                 yield Problem(
                     f"“{MARKS_BY_LABELS[marks_by]}” doesn't use weights.",
-                    field=(field, index, "weight"),
+                    field=(setting_name, index, "weight"),
                 )

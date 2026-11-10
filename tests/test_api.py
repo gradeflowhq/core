@@ -120,7 +120,7 @@ def test_imported_answers_are_marked_and_unmarked_questions_keep_their_given_mar
         for submission in mark(QUESTIONS, SCHEME, submissions)
     }
     assert {
-        student_id: {question: result.proportion for question, result in results.items()}
+        student_id: {question_id: result.proportion for question_id, result in results.items()}
         for student_id, results in results_by_student.items()
     } == {
         "s1": {"Q1": 1, "Q2": 0.5},

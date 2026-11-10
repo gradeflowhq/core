@@ -26,19 +26,19 @@ def scored_pairs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
 
 
 def test_an_answer_must_mean_the_same_both_ways(scored_pairs: list[tuple[str, str]]) -> None:
-    assert nli.best_match("a", ["x", "y"], "", 0.1) == (1, True)
+    assert nli.first_match_index("a", ["x", "y"], "", 0.1) == 1
     assert scored_pairs == [("a", "x"), ("x", "a"), ("a", "y"), ("y", "a")]
 
 
-def test_without_a_match_the_closest_is_named_without_reversing_failed_pairs(
+def test_without_a_match_there_is_none_and_failed_pairs_are_not_reversed(
     scored_pairs: list[tuple[str, str]],
 ) -> None:
-    assert nli.best_match("a", ["z", "x"], "", 0.5) == (1, False)
+    assert nli.first_match_index("a", ["z", "x"], "", 0.5) is None
     assert scored_pairs == [("a", "z"), ("a", "x")]
 
 
 def test_the_question_comes_before_both_texts(scored_pairs: list[tuple[str, str]]) -> None:
-    nli.best_match("a", ["b"], "Why?", 0)
+    nli.first_match_index("a", ["b"], "Why?", 0)
     assert scored_pairs == [
         ("Question: Why?\nAnswer: a", "Question: Why?\nAnswer: b"),
         ("Question: Why?\nAnswer: b", "Question: Why?\nAnswer: a"),
@@ -46,7 +46,7 @@ def test_the_question_comes_before_both_texts(scored_pairs: list[tuple[str, str]
 
 
 def test_the_question_is_read_as_plain_text(scored_pairs: list[tuple[str, str]]) -> None:
-    nli.best_match("a", ["b"], r"2\. Is $\frac{1}{2}$ half?", 0)
+    nli.first_match_index("a", ["b"], r"2\. Is $\frac{1}{2}$ half?", 0)
     assert scored_pairs[0][0] == "Question: 2. Is 1/2 half?\nAnswer: a"
 
 
@@ -90,7 +90,7 @@ def test_the_entailment_score_is_entailment_minus_contradiction(
 
     model = nli._Model(
         SimpleNamespace(run=run),
-        SimpleNamespace(encode=encode),
+        Mock(encode=encode),
         frozenset({"input_ids", "attention_mask"}),
         entailment,
         contradiction,
@@ -103,7 +103,7 @@ def test_the_entailment_score_is_entailment_minus_contradiction(
 @pytest.fixture
 def nli_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setenv("GRADEFLOW_CACHE_DIR", str(tmp_path))
-    return nli._directory()
+    return nli._model_directory()
 
 
 @pytest.fixture
@@ -191,8 +191,9 @@ REFERENCE_ANSWER = (
 def test_the_model_distinguishes_paraphrases_from_wrong_answers(answer: str, matches: bool) -> None:
     pytest.importorskip("onnxruntime")
     # INT8 scores vary across CPU kernels; check decisions at the normal matching cutoff.
-    assert nli.best_match(answer, [REFERENCE_ANSWER], QUESTION, 0.005) == (0, matches)
-    assert nli.best_match(REFERENCE_ANSWER, [answer], QUESTION, 0.005) == (0, matches)
+    expected = 0 if matches else None
+    assert nli.first_match_index(answer, [REFERENCE_ANSWER], QUESTION, 0.005) == expected
+    assert nli.first_match_index(REFERENCE_ANSWER, [answer], QUESTION, 0.005) == expected
 
 
 @pytest.mark.ml

@@ -13,9 +13,9 @@ from ...common.error_formatting import error_message
 from ...common.hints import Hint, hint_of
 from ...common.paths import Location
 from ...common.text import quoted_join
-from ..settings import Settings, annotated, item_field, literal
+from ..settings import Settings, annotated, item_field, literal_type
 from ..step import METHODS_CONTEXT_KEY, STEP_OWN_FIELDS, step_cardinality
-from ..templates import TemplateError, has_template, names_read_in, reference, validate
+from ..templates import TemplateError, has_template, names_read_in, reference_expression, validate
 from .expand import EXPANDED_NAMES
 from .file import TEMPLATE_KEYS, DeclaredSetting, MethodFile, MethodFileFieldError
 
@@ -34,37 +34,43 @@ class _SettingTypes:
         self.methods_by_ref = methods_by_ref
         self.setting_types: dict[str, tuple[Any, FieldInfo]] = {}
         self.repeated_item_fields: list[dict[str, tuple[Any, FieldInfo]]] = []
-        self.settings_in_templates = names_read_in([file.description, file.feedback], "settings")
+        self.settings_in_templates = names_read_in(
+            [file.description, file.feedback, file.steps, file.marks_by], "settings"
+        )
         self.errors: list[MethodFileFieldError] = []
         """The problems found so far."""
 
     def declared_setting_types(self) -> dict[str, tuple[Any, FieldInfo]]:
-        workflow = self.file.workflow()
-        method = self.methods_by_ref.get(workflow["uses"])
+        workflow_step_data = self.file.workflow_step_data()
+        method = self.methods_by_ref.get(workflow_step_data["uses"])
         if method is None:
-            raise MethodFileFieldError(f"There's no method {workflow['uses']}.", ("uses",))
-        self._visit_settings(workflow["with"], method, ())
-        for key, declared_setting in self.file.settings.items():
+            raise MethodFileFieldError(
+                f"There's no method {workflow_step_data['uses']}.", ("uses",)
+            )
+        self._visit_settings(workflow_step_data["with"], method, ())
+        for setting_name, declared_setting in self.file.settings.items():
             with self._collect_errors():
-                self._visit_declared_setting(key, declared_setting)
+                self._visit_declared_setting(setting_name, declared_setting)
         if self.errors:
             raise MethodFileFieldError.combined(self.errors)
         return self.setting_types
 
-    def _visit_declared_setting(self, key: str, declared_setting: DeclaredSetting) -> None:
-        if key in STEP_OWN_FIELDS:
+    def _visit_declared_setting(self, setting_name: str, declared_setting: DeclaredSetting) -> None:
+        if setting_name in STEP_OWN_FIELDS:
             raise MethodFileFieldError(
-                f"Steps already have a field called {key}. Choose another name.", ("settings", key)
+                f"Steps already have a field called {setting_name}. Choose another name.",
+                ("settings", setting_name),
             )
         if (
-            key in self.setting_types or self.errors
+            setting_name in self.setting_types or self.errors
         ):  # a setting that failed may be the one that uses it
             return
-        if key not in self.settings_in_templates:
+        if setting_name not in self.settings_in_templates:
             raise MethodFileFieldError(
-                f"{declared_setting.title or f'Setting {key}'} isn't used.", ("settings", key)
+                f"{declared_setting.title or f'Setting {setting_name}'} isn't used.",
+                ("settings", setting_name),
             )
-        self.setting_types[key] = (_type_of(declared_setting.default), FieldInfo())
+        self.setting_types[setting_name] = (_type_of(declared_setting.default), FieldInfo())
 
     @contextmanager
     def _collect_errors(self) -> Iterator[None]:
@@ -74,7 +80,9 @@ class _SettingTypes:
         except MethodFileFieldError as error:
             self.errors.append(error)
 
-    def _record(self, expression: str, annotation: Any, info: FieldInfo, path: Location) -> None:
+    def _record_setting_type(
+        self, expression: str, annotation: Any, field_info: FieldInfo, path: Location
+    ) -> None:
         if not _DOTTED_NAME.fullmatch(expression):
             # A template's own refusal says best what's wrong, such as arithmetic.
             try:
@@ -90,183 +98,201 @@ class _SettingTypes:
             and len(attribute_names) == 1
             and attribute_names[0] in self.file.settings
         ):
-            existing = self.setting_types.get(attribute_names[0])
-            if existing is not None and existing[0] != annotation:
+            recorded_type = self.setting_types.get(attribute_names[0])
+            if recorded_type is not None and recorded_type[0] != annotation:
                 raise MethodFileFieldError(
                     f"Setting {attribute_names[0]} fills settings of different types.", path
                 )
-            self.setting_types.setdefault(attribute_names[0], (annotation, info))
+            self.setting_types.setdefault(attribute_names[0], (annotation, field_info))
         elif root == "item" and self.repeated_item_fields and len(attribute_names) <= 1:
             self.repeated_item_fields[-1].setdefault(
-                attribute_names[0] if attribute_names else "", (annotation, info)
+                attribute_names[0] if attribute_names else "", (annotation, field_info)
             )
         elif root != "index":
             raise MethodFileFieldError(f"There's no {expression}.", path)
 
-    def _visit_step(self, node: Any, path: Location) -> None:
-        if not isinstance(node, Mapping) or "uses" not in node:
+    def _visit_step(self, step_data: Any, path: Location) -> None:
+        if not isinstance(step_data, Mapping) or "uses" not in step_data:
             raise MethodFileFieldError("A step needs uses: and a method's name.", path)
-        method = self.methods_by_ref.get(str(node["uses"]))
+        method = self.methods_by_ref.get(str(step_data["uses"]))
         if method is None:
-            raise MethodFileFieldError(f"There's no method {node['uses']}.", (*path, "uses"))
-        for key, value in sorted(node.items(), key=lambda item: item[0] != "with"):
-            if key in TEMPLATE_KEYS:
-                self.settings_in_templates |= names_read_in(value, "settings")
+            raise MethodFileFieldError(f"There's no method {step_data['uses']}.", (*path, "uses"))
+        for step_key, value in sorted(step_data.items(), key=lambda item: item[0] != "with"):
+            if step_key in TEMPLATE_KEYS or step_key in ("uses", "for_each"):
                 continue
-            if key in ("uses", "for_each"):
-                continue
-            if key == "with":
+            if step_key == "with":
                 self._visit_settings(value, method, (*path, "with"))
-            elif key not in STEP_OWN_FIELDS:
-                raise MethodFileFieldError(f"A step has no {key}:.", (*path, key))
-            elif (expression := reference(value)) is not None:
-                info = STEP_OWN_FIELDS[key]
-                self._record(expression, info.annotation, info, (*path, key))
+            elif step_key not in STEP_OWN_FIELDS:
+                raise MethodFileFieldError(f"A step has no {step_key}:.", (*path, step_key))
+            elif (expression := reference_expression(value)) is not None:
+                field_info = STEP_OWN_FIELDS[step_key]
+                self._record_setting_type(
+                    expression, field_info.annotation, field_info, (*path, step_key)
+                )
 
-    def _visit_settings(self, values: Any, method: Method[Any], path: Location) -> None:
-        if (expression := reference(values)) is not None:
+    def _visit_settings(self, settings: Any, method: Method[Any], path: Location) -> None:
+        if (expression := reference_expression(settings)) is not None:
             raise MethodFileFieldError(
                 f"Fill in a method's settings one by one, not with {expression}.",
                 path,
             )
-        if not isinstance(values, Mapping | None):
+        if not isinstance(settings, Mapping | None):
             raise MethodFileFieldError("A step's settings aren't a mapping.", path)
         model = method.settings
-        for key, value in (values or {}).items():
+        for setting_name, value in (settings or {}).items():
             with self._collect_errors():
-                info = model.model_fields.get(key)
-                if info is None:
+                field_info = model.model_fields.get(setting_name)
+                if field_info is None:
                     raise MethodFileFieldError(
-                        f"{method.label} has no setting {key}.", (*path, key)
+                        f"{method.label} has no setting {setting_name}.", (*path, setting_name)
                     )
-                if (source := _source_of(value)) is not None:
-                    info = _with_setting_conditions(info, source, values or {}, model, (*path, key))
-                self._visit_setting(value, info, (*path, key))
+                if (root := _root_of(value)) is not None:
+                    field_info = _with_setting_conditions(
+                        field_info, root, settings or {}, model, (*path, setting_name)
+                    )
+                self._visit_setting(value, field_info, (*path, setting_name))
 
-    def _visit_setting(self, value: Any, info: FieldInfo, path: Location) -> None:
-        if hint_of(info).kind == "output_step":  # read when the steps run
+    def _visit_setting(self, value: Any, field_info: FieldInfo, path: Location) -> None:
+        if hint_of(field_info).kind == "output_step":  # read when the steps run
             return
-        if (expression := reference(value)) is not None:
-            self._record(expression, info.annotation, info, path)
+        if (expression := reference_expression(value)) is not None:
+            self._record_setting_type(expression, field_info.annotation, field_info, path)
             return
-        match step_cardinality(info):
+        match step_cardinality(field_info):
             case "one":
                 self._visit_step(value, path)
-            case "many" if (item_info := item_field(info)) is not None:
+            case "many" if (item_field_info := item_field(field_info)) is not None:
                 for index, item in enumerate(value):
                     with self._collect_errors():
-                        self._visit_item(item, item_info, (*path, index))
+                        self._visit_item(item, item_field_info, (*path, index))
             case _ if has_template(value):
-                self.settings_in_templates |= names_read_in(value, "settings")
-                element = get_args(info.annotation)[0] if get_args(info.annotation) else Any
+                item_annotation = (
+                    get_args(field_info.annotation)[0] if get_args(field_info.annotation) else Any
+                )
                 for index, item in enumerate(value if isinstance(value, list) else ()):
-                    if (expression := reference(item)) is not None:
-                        self._record(expression, element, info, (*path, index))
-                    elif not has_template(item) and (item_info := item_field(info)):
-                        _validate_literal(item, item_info, (*path, index), self.methods_by_ref)
+                    if (expression := reference_expression(item)) is not None:
+                        self._record_setting_type(
+                            expression, item_annotation, field_info, (*path, index)
+                        )
+                    elif not has_template(item) and (item_field_info := item_field(field_info)):
+                        _validate_written_value(
+                            item, item_field_info, (*path, index), self.methods_by_ref
+                        )
             case _:
-                _validate_literal(value, info, path, self.methods_by_ref)
+                _validate_written_value(value, field_info, path, self.methods_by_ref)
 
-    def _visit_item(self, item: Any, info: FieldInfo, path: Location) -> None:
-        if (expression := reference(item)) is not None:
-            self._record(expression, info.rebuild_annotation(), info, path)
+    def _visit_item(self, item: Any, field_info: FieldInfo, path: Location) -> None:
+        if (expression := reference_expression(item)) is not None:
+            self._record_setting_type(expression, field_info.rebuild_annotation(), field_info, path)
             return
         if isinstance(item, Mapping) and "for_each" in item:
-            source = reference(item["for_each"])
-            if source is None or not source.startswith("settings."):
+            list_reference = reference_expression(item["for_each"])
+            if list_reference is None or not list_reference.startswith("settings."):
                 raise MethodFileFieldError(
                     "for_each needs one {{ settings.… }}.", (*path, "for_each")
                 )
             self.repeated_item_fields.append({})
             self._visit_step(item, path)
-            item_fields = self._with_item_titles(self.repeated_item_fields.pop(), source, path)
+            item_fields = self._with_item_titles(
+                self.repeated_item_fields.pop(), list_reference, path
+            )
             if "" in item_fields:
-                annotation, field = item_fields[""]
-                annotation = annotated(annotation, *field.metadata)
+                annotation, item_field_info = item_fields[""]
+                annotation = annotated(annotation, *item_field_info.metadata)
             elif item_fields:
                 annotation = create_model(
                     "Item",
                     **{
-                        key: (annotation, field) for key, (annotation, field) in item_fields.items()
+                        item_field_name: (annotation, item_field_info)
+                        for item_field_name, (annotation, item_field_info) in item_fields.items()
                     },
                 )  # type: ignore[call-overload]
-                field = FieldInfo()
+                item_field_info = FieldInfo()
             else:
                 raise MethodFileFieldError("A repeated step uses {{ item }}.", path)
-            self._record(
-                source,
+            self._record_setting_type(
+                list_reference,
                 list[annotation],  # type: ignore[valid-type]
-                FieldInfo(title=field.title, json_schema_extra=field.json_schema_extra),
+                FieldInfo(
+                    title=item_field_info.title, json_schema_extra=item_field_info.json_schema_extra
+                ),
                 (*path, "for_each"),
             )
             return
         self._visit_step(item, path)
 
     def _with_item_titles(
-        self, item_fields: dict[str, tuple[Any, FieldInfo]], source: str, path: Location
+        self, item_fields: dict[str, tuple[Any, FieldInfo]], list_reference: str, path: Location
     ) -> dict[str, tuple[Any, FieldInfo]]:
         """The fields of each item, with the titles the setting gives them."""
-        declared_setting = self.file.settings.get(source.removeprefix("settings."))
+        declared_setting = self.file.settings.get(list_reference.removeprefix("settings."))
         item_titles = (declared_setting.items if declared_setting else None) or {}
-        if unused := item_titles.keys() - item_fields.keys():
+        if unused_item_fields := item_titles.keys() - item_fields.keys():
             raise MethodFileFieldError(
-                f"Each item has no {', '.join(sorted(unused))}.", (*path, "for_each")
+                f"Each item has no {', '.join(sorted(unused_item_fields))}.", (*path, "for_each")
             )
         return {
-            key: (
+            item_field_name: (
                 annotation,
-                _merged(field, Field(**item_titles[key].model_dump(exclude_none=True))),
+                _merged(
+                    item_field_info,
+                    Field(**item_titles[item_field_name].model_dump(exclude_none=True)),
+                ),
             )
-            if key in item_titles
-            else (annotation, field)
-            for key, (annotation, field) in item_fields.items()
+            if item_field_name in item_titles
+            else (annotation, item_field_info)
+            for item_field_name, (annotation, item_field_info) in item_fields.items()
         }
 
 
-def _source_of(value: Any) -> str | None:
+def _root_of(value: Any) -> str | None:
     """What fills a setting from elsewhere: ``settings``, or ``item`` of a repeated step."""
-    expression = reference(value)
+    expression = reference_expression(value)
     if expression is None and isinstance(value, list):
         expression = next(
-            (item_expression for item in value if (item_expression := reference(item))), None
+            (item_expression for item in value if (item_expression := reference_expression(item))),
+            None,
         )
     return expression.split(".")[0] if expression else None
 
 
 def _with_setting_conditions(
-    info: FieldInfo,
-    source: str,
-    siblings: Mapping[str, Any],
+    field_info: FieldInfo,
+    root: str,
+    sibling_settings: Mapping[str, Any],
     model: type[BaseModel],
     path: Location,
 ) -> FieldInfo:
-    """``info`` filled from ``source``, its ``applies_when`` rewritten for the method file."""
-    hint = hint_of(info)
+    """``field_info`` filled from ``root``, its ``applies_when`` rewritten for the method file."""
+    hint = hint_of(field_info)
     conditions: dict[str, list[JsonValue]] = {}
-    for key, values in (hint.applies_when or {}).items():
-        sibling = model.model_fields[key]
-        value = siblings.get(key, sibling.get_default(call_default_factory=True))
-        if (expression := reference(value)) is not None:
+    for sibling_name, applicable_values in (hint.applies_when or {}).items():
+        sibling_field_info = model.model_fields[sibling_name]
+        value = sibling_settings.get(
+            sibling_name, sibling_field_info.get_default(call_default_factory=True)
+        )
+        if (expression := reference_expression(value)) is not None:
             scope, _, name = expression.partition(".")
-            if scope == source and name:
-                conditions[name] = values
-        elif not has_template(value) and getattr(value, "value", value) not in values:
-            labels = hint_of(sibling).labels or {}
+            if scope == root and name:
+                conditions[name] = applicable_values
+        elif not has_template(value) and getattr(value, "value", value) not in applicable_values:
+            labels = hint_of(sibling_field_info).labels or {}
             allowed_values = quoted_join(
-                [labels.get(str(option), option) for option in values], conjunction="or"
+                [labels.get(str(option), option) for option in applicable_values], conjunction="or"
             )
             raise MethodFileFieldError(
-                f"{info.title} applies when {sibling.title} is {allowed_values}.", path
+                f"{field_info.title} applies when {sibling_field_info.title} is {allowed_values}.",
+                path,
             )
     if conditions == (hint.applies_when or {}):
-        return info
+        return field_info
     conditions_hint = hint.model_copy(update={"applies_when": conditions or None})
-    return _merged(info, Field(json_schema_extra=conditions_hint.schema_extra()))
+    return _merged(field_info, Field(json_schema_extra=conditions_hint.schema_extra()))
 
 
-def _merged(info: FieldInfo, *changes: FieldInfo) -> FieldInfo:
-    """``info`` with the attributes and constraints of ``changes`` merged in."""
-    return FieldInfo.from_annotation(annotated(info.annotation, info, *changes))
+def _merged(field_info: FieldInfo, *changes: FieldInfo) -> FieldInfo:
+    """``field_info`` with the attributes and constraints of ``changes`` merged in."""
+    return FieldInfo.from_annotation(annotated(field_info.annotation, field_info, *changes))
 
 
 def _type_of(default: Any) -> Any:
@@ -277,12 +303,12 @@ def _type_of(default: Any) -> Any:
     return float if isinstance(default, int | float) else JsonValue
 
 
-def _validate_literal(
-    value: Any, info: FieldInfo, path: Location, methods_by_ref: Mapping[str, Method[Any]]
+def _validate_written_value(
+    value: Any, field_info: FieldInfo, path: Location, methods_by_ref: Mapping[str, Method[Any]]
 ) -> None:
     """Refuses a setting written as it is that its method wouldn't accept."""
     try:
-        TypeAdapter[Any](info.rebuild_annotation()).validate_python(
+        TypeAdapter[Any](field_info.rebuild_annotation()).validate_python(
             value, context={METHODS_CONTEXT_KEY: methods_by_ref}
         )
     except ValidationError as error:
@@ -293,55 +319,52 @@ def _validate_literal(
 
 
 def declared_setting_field(
-    declared_setting: DeclaredSetting, annotation: Any, info: FieldInfo
+    declared_setting: DeclaredSetting, annotation: Any, field_info: FieldInfo
 ) -> tuple[Any, FieldInfo]:
     """A declared setting's field: the setting it fills, with its own title, default and hints."""
     if declared_setting.choices:
-        annotation = literal(declared_setting.choices)
+        annotation = literal_type(declared_setting.choices)
     declared_hints = {
         "advanced": declared_setting.advanced,
         "labels": declared_setting.labels,
         "applies_when": declared_setting.applies_when,
     }
-    hint = hint_of(info).model_copy(
+    hint = hint_of(field_info).model_copy(
         update={key: value for key, value in declared_hints.items() if value is not None}
     )
     changes: dict[str, Any] = {
-        "title": declared_setting.title or info.title,
-        "description": declared_setting.description or info.description,
-        "examples": declared_setting.examples or info.examples,
+        "title": declared_setting.title or field_info.title,
+        "description": declared_setting.description or field_info.description,
+        "examples": declared_setting.examples or field_info.examples,
         "json_schema_extra": hint.schema_extra() if hint != Hint() else None,
+        "default_factory": None,
     }
-    required = "default" not in declared_setting.model_fields_set
-    if required:
-        changes["default_factory"] = None
-    else:
-        changes |= {
-            "default": declared_setting.default,
-            "default_factory": None,
-            "validate_default": True,
-        }
+    is_required = "default" not in declared_setting.model_fields_set
+    if not is_required:
+        changes |= {"default": declared_setting.default, "validate_default": True}
     needs_item = get_origin(annotation) is list and declared_setting.default != []
-    field = _merged(info, *([Field(min_length=1)] if needs_item else []), Field(**changes))
-    if required:  # merging keeps the setting's own default rather than an undefined one
-        field.default = PydanticUndefined
-    field.annotation = annotation
-    return annotation, field
+    declared_field_info = _merged(
+        field_info, *([Field(min_length=1)] if needs_item else []), Field(**changes)
+    )
+    if is_required:  # merging keeps the setting's own default rather than an undefined one
+        declared_field_info.default = PydanticUndefined
+    declared_field_info.annotation = annotation
+    return annotation, declared_field_info
 
 
 def settings_model(file: MethodFile, methods_by_ref: Mapping[str, Method[Any]]) -> type[Settings]:
     """The settings model of the method ``file`` defines."""
     setting_types = _SettingTypes(file, methods_by_ref).declared_setting_types()
     fields = {
-        key: declared_setting_field(declared_setting, *setting_types[key])
-        for key, declared_setting in file.settings.items()
+        setting_name: declared_setting_field(declared_setting, *setting_types[setting_name])
+        for setting_name, declared_setting in file.settings.items()
     }
-    for key, declared_setting in file.settings.items():
+    for setting_name, declared_setting in file.settings.items():
         if "default" in declared_setting.model_fields_set:
-            _validate_literal(
+            _validate_written_value(
                 declared_setting.default,
-                fields[key][1],
-                ("settings", key, "default"),
+                fields[setting_name][1],
+                ("settings", setting_name, "default"),
                 methods_by_ref,
             )
     model: type[Settings] = create_model(file.label, __base__=Settings, **fields)  # type: ignore[call-overload]

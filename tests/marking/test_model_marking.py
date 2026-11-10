@@ -14,7 +14,7 @@ from gradeflow_core import (
     try_models,
 )
 from gradeflow_core.editing import list_models, try_model
-from gradeflow_core.methods.text.answer_criteria import Role
+from gradeflow_core.methods.text.answer_criteria import ModelRole
 from gradeflow_core.questions.text import TextQuestion
 from tests.fake_models import (
     ENDPOINT,
@@ -93,11 +93,11 @@ def test_each_question_keeps_its_own_decisions(fake_models: InstallFakeModels) -
     scheme = MarkScheme.load(
         [
             {
-                "question": question,
+                "question": question_id,
                 "uses": "gradeflow/answer-criteria@1",
                 "with": {"criteria": [{"text": "Correct total", "marks": 1}]},
             }
-            for question in ("Q1", "Q2")
+            for question_id in ("Q1", "Q2")
         ]
     )
     submission = Submission(student_id="1", answers={"Q1": "$16", "Q2": "$16"})
@@ -160,7 +160,7 @@ def test_trying_models_skips_those_tried_before_and_counts_their_passes(
     fake = fake_models(example_verdicts)
     fake.models = ["first", "second", "third"]
     fake.without_logprobs = {"first"}
-    passes: list[tuple[str, Role]] = [("second", "fast"), ("first", "careful")]
+    passes: list[tuple[str, ModelRole]] = [("second", "fast"), ("first", "careful")]
     tried = [
         ModelTrial(model=name, role=role, rows_matched=9, rows_tried=9, seconds=1, failure=None)
         for name, role in passes
@@ -202,7 +202,7 @@ def test_trying_models_skips_those_that_refused_a_role(fake_models: InstallFakeM
 def test_trying_models_says_when_each_test_starts(fake_models: InstallFakeModels) -> None:
     fake = fake_models(example_verdicts)
     fake.models = ["decider"]
-    started: list[tuple[str, Role]] = []
+    started: list[tuple[str, ModelRole]] = []
     trials = try_models(ENDPOINT, on_start=lambda model, role: started.append((model, role)))
     assert next(trials).role == "fast"
     assert started == [("decider", "fast")]
@@ -226,7 +226,7 @@ def test_trying_models_at_an_address_with_none_says_so(fake_models: InstallFakeM
 
 
 def test_the_best_models_have_the_most_right_then_are_fastest() -> None:
-    def trial(model: str, role: Role, seconds: float, rows_matched: int = 9) -> ModelTrial:
+    def trial(model: str, role: ModelRole, seconds: float, rows_matched: int = 9) -> ModelTrial:
         rows_tried = 0 if rows_matched < 0 else 9
         return ModelTrial(
             model=model,

@@ -16,7 +16,7 @@ from ..outcome import Detail, Outcome
 from ..position import Position
 from ..settings import IDENTIFIER, Settings
 from ..step import Step
-from .code_fixes import CodeFixes, best_fixed_outcome, fixes_field
+from .code_fixes import FIXES_FIELD, CodeFixSettings, best_fixed_outcome
 from .runner import syntax_error_text
 
 Construct = Literal["call", "import", "loop", "comprehension", "recursion"]
@@ -47,7 +47,7 @@ class CodeUsesSettings(Settings):
         examples=["numpy"],
         json_schema_extra=hint(applies_when={"looks_for": ["import"]}),
     )
-    fixes: CodeFixes = fixes_field()
+    fixes: CodeFixSettings = FIXES_FIELD
 
 
 class CodeUses(AnswerMethod[CodeUsesSettings]):
@@ -73,9 +73,9 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
         settings = self._settings_of(step)
         match settings.looks_for:
             case "call":
-                return f"Calls {_code_or(settings.function, 'a function')}."
+                return f"Calls {_code_span_or(settings.function, 'a function')}."
             case "import":
-                return f"Imports {_code_or(settings.module, 'a module')}."
+                return f"Imports {_code_span_or(settings.module, 'a module')}."
             case "loop":
                 return "Uses a loop."
             case "comprehension":
@@ -91,7 +91,7 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
             answer,
             settings.fixes,
             "",
-            lambda code: _outcome(settings, code),
+            lambda code: _construct_outcome(settings, code),
         )
 
     def problems(self, step: Step, position: Position) -> Iterator[Problem]:
@@ -102,7 +102,7 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
             yield Problem("Name the module.", field=("module",), is_incomplete=True)
 
 
-def _outcome(settings: CodeUsesSettings, code: str) -> Outcome:
+def _construct_outcome(settings: CodeUsesSettings, code: str) -> Outcome:
     """Whether any Python file of ``code`` uses the construct. Only the main file must parse."""
     nodes: list[ast.AST] = []
     for index, (path, source) in enumerate(python_files(split_answer(code)).items()):
@@ -112,10 +112,10 @@ def _outcome(settings: CodeUsesSettings, code: str) -> Outcome:
         except SyntaxError as error:
             if not is_main:
                 continue
-            on_line = f" on line {error.lineno}" if error.lineno else ""
+            line_note = f" on line {error.lineno}" if error.lineno else ""
             return Outcome(
                 0.0,
-                as_sentence(f"Couldn't read {path or 'the code'}: {error.msg}{on_line}"),
+                as_sentence(f"Couldn't read {path or 'the code'}: {error.msg}{line_note}"),
                 details=(Detail("Error", syntax_error_text(error, error.lineno, path), "error"),),
             )
     match settings.looks_for:
@@ -153,8 +153,8 @@ def _outcome(settings: CodeUsesSettings, code: str) -> Outcome:
     return Outcome(float(uses_construct), used_feedback if uses_construct else missing_feedback)
 
 
-def _code_or(name: str | None, unnamed: str) -> str:
-    return code_span(name) if name else unnamed
+def _code_span_or(name: str | None, fallback: str) -> str:
+    return code_span(name) if name else fallback
 
 
 def _called_name(func: ast.expr) -> str | None:

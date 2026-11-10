@@ -47,10 +47,10 @@ class QuestionSet(RootModel[dict[QuestionId, AnyQuestion]], Mapping[QuestionId, 
     def dump(self) -> dict[QuestionId, dict[str, Any]]:
         """The questions as YAML or JSON holds them, as ``load`` reads them: each with its type,
         without what it leaves at the defaults."""
-        return {key: question.dump() for key, question in self.items()}
+        return {question_id: question.dump() for question_id, question in self.items()}
 
-    def __getitem__(self, key: QuestionId) -> Question:
-        return self.root[key]
+    def __getitem__(self, question_id: QuestionId) -> Question:
+        return self.root[question_id]
 
     def __iter__(self) -> Iterator[QuestionId]:  # type: ignore[override]  # keys, as a mapping
         return iter(self.root)
@@ -62,30 +62,35 @@ class QuestionSet(RootModel[dict[QuestionId, AnyQuestion]], Mapping[QuestionId, 
         """Each answer as its question reads it; answers to questions outside the set are left
         out."""
         answers: dict[QuestionId, Answer | Unreadable] = {}
-        for key, text in sheet.answers.items():
-            if (question := self.get(key)) is not None:
+        for question_id, text in sheet.answers.items():
+            if (question := self.get(question_id)) is not None:
                 try:
-                    answers[key] = question.read(text)
+                    answers[question_id] = question.read(text)
                 except ValueError as error:
-                    answers[key] = Unreadable(text, str(error))
+                    answers[question_id] = Unreadable(str(error))
         return answers
 
     def updated_from(self, sheets: Sequence[AnswerSheet]) -> QuestionSet:
         """Only answered questions, with existing ones changed to accept their answers and new ones
         worked out, out of the highest marks a sheet was given for them."""
         questions: dict[QuestionId, Question] = {}
-        for key in dict.fromkeys(key for sheet in sheets for key in sheet.answers):
-            answers = [sheet.answers[key] for sheet in sheets if key in sheet.answers]
-            if (question := self.get(key)) is not None:
-                questions[key] = question.accepting(answers)
+        for question_id in dict.fromkeys(
+            question_id for sheet in sheets for question_id in sheet.answers
+        ):
+            answers = [
+                sheet.answers[question_id] for sheet in sheets if question_id in sheet.answers
+            ]
+            if (question := self.get(question_id)) is not None:
+                questions[question_id] = question.accepting(answers)
                 continue
-            inferred = infer_question(answers)
+            inferred_question = infer_question(answers)
             highest_marks = max(
-                (sheet.marks[key] for sheet in sheets if key in sheet.marks), default=0
+                (sheet.marks[question_id] for sheet in sheets if question_id in sheet.marks),
+                default=0,
             )
-            questions[key] = (
-                inferred.model_copy(update={"max_marks": highest_marks})
+            questions[question_id] = (
+                inferred_question.model_copy(update={"max_marks": highest_marks})
                 if highest_marks > 0
-                else inferred
+                else inferred_question
             )
-        return type(self)(questions)
+        return QuestionSet(questions)

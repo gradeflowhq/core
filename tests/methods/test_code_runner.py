@@ -20,7 +20,7 @@ class TestRun:
         assert run(code, {}, ("items",)) == {"items": {10, 20}}
         with pytest.raises(CodeError) as exc_info:
             run(code, {}, ("items", "o"))
-        assert exc_info.value.reason == "TypeError: o isn't a JSON value or a set"
+        assert str(exc_info.value) == "TypeError: o isn't a JSON value or a set"
 
     def test_variables_must_be_json_values(self) -> None:
         with pytest.raises(TypeError, match="JSON-serializable"):
@@ -36,18 +36,18 @@ class TestRun:
     def test_invalid_returned_variables_fail_only_their_run(self, code: str) -> None:
         with pytest.raises(CodeError) as exc_info:
             run(code, {}, ("x",))
-        assert exc_info.value.reason == "Code returned invalid variables."
+        assert str(exc_info.value) == "Code returned invalid variables."
         assert run("x = 1", {}, ("x",)) == {"x": 1}
 
     def test_a_failure_says_its_exception_without_the_traceback(self) -> None:
         with pytest.raises(CodeError) as exc_info:
             run("1 / 0", {"x": 1}, ())
-        assert exc_info.value.reason == "ZeroDivisionError: division by zero"
+        assert str(exc_info.value) == "ZeroDivisionError: division by zero"
 
     def test_a_timeout_says_how_long_the_code_had(self) -> None:
         with pytest.raises(CodeError) as exc_info:
             run("while True: pass", {}, (), time_limit_s=1)
-        assert exc_info.value.reason == "it took longer than 1 second"
+        assert str(exc_info.value) == "it took longer than 1 second"
 
     def test_a_timeout_does_not_prevent_the_next_execution(self) -> None:
         with pytest.raises(CodeError):
@@ -67,7 +67,7 @@ class TestRun:
         # Eryx 0.12 aborts the process running it when deep C recursion overflows its stack.
         with pytest.raises(CodeError) as exc_info:
             run("nested = []\nfor _ in range(5000): nested = [nested]", {}, ())
-        assert exc_info.value.reason == "it crashed the sandbox"
+        assert str(exc_info.value) == "it crashed the sandbox"
         assert run("correct = True", {}, ("correct",)) == {"correct": True}
 
     def test_a_worker_that_doesnt_answer_in_time_is_replaced(
@@ -88,7 +88,7 @@ class TestRun:
     def test_memory_is_capped(self) -> None:
         with pytest.raises(CodeError) as exc_info:
             run("data = b'x' * 1024**3", {}, ())
-        assert exc_info.value.reason.startswith("MemoryError")
+        assert str(exc_info.value).startswith("MemoryError")
 
     def test_memory_limit_is_set_per_run(self) -> None:
         code = "data = b'x' * (96 * 1024**2)\nallocated = len(data)\ndel data"
@@ -168,4 +168,4 @@ class TestRun:
     def test_a_module_that_doesnt_parse_is_named_in_the_error(self) -> None:
         with pytest.raises(CodeError) as excinfo:
             run("import board", {}, (), module_files={"board.py": "x = 1\n  y = 2"})
-        assert excinfo.value.reason == "IndentationError: unexpected indent (board.py, line 2)"
+        assert str(excinfo.value) == "IndentationError: unexpected indent (board.py, line 2)"

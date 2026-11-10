@@ -3,28 +3,26 @@ from functools import partial
 import httpx2
 import openai
 import pytest
-from openai.types.chat import ChatCompletion
+from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenLogprob
 
 from gradeflow_core import GradeFlowError
 from gradeflow_core.common import model_service
-from tests.fake_models import ENDPOINT, fake_client, install_client, reply
+from tests.fake_models import ENDPOINT, fake_client, install_client
 
 
-def completion(top_logprobs: list[dict[str, object]]) -> ChatCompletion:
+def tokens(top_logprobs: list[dict[str, object]]) -> list[ChatCompletionTokenLogprob]:
     token = {"token": "Yes", "logprob": -0.1, "top_logprobs": top_logprobs}
-    return ChatCompletion.model_validate(reply("Yes", [token]).json())
+    return [ChatCompletionTokenLogprob.model_validate(token)]
 
 
 def test_yes_probability_weighs_yes_against_no() -> None:
     top_logprobs = [{"token": " Yes", "logprob": -0.2231}, {"token": "No", "logprob": -1.6094}]
-    [probability] = model_service.yes_probabilities(completion(top_logprobs))
+    [probability] = model_service.yes_probabilities(tokens(top_logprobs))
     assert round(probability, 2) == 0.8
 
 
 def test_yes_probability_without_yes_or_no_among_the_alternatives_is_the_word_written() -> None:
-    assert model_service.yes_probabilities(completion([{"token": "Maybe", "logprob": -0.1}])) == [
-        1.0
-    ]
+    assert model_service.yes_probabilities(tokens([{"token": "Maybe", "logprob": -0.1}])) == [1.0]
 
 
 @pytest.mark.parametrize("operation", ["ask", "list_models"])
@@ -47,7 +45,15 @@ def test_service_failures_use_domain_errors(
 
     install_client(monkeypatch, fake_client(respond))
     call = (
-        partial(model_service.ask, ENDPOINT, "model", "system", "prompt", effort=None, max_tokens=4)
+        partial(
+            model_service.ask,
+            ENDPOINT,
+            "model",
+            "system",
+            "prompt",
+            reasoning_effort=None,
+            max_tokens=4,
+        )
         if operation == "ask"
         else partial(model_service.list_models, ENDPOINT)
     )

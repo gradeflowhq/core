@@ -2,7 +2,7 @@ from typing import ClassVar, Literal
 
 from ..common.schemas import type_field
 from .base import Question
-from .reading import TextReading, read_text, reading_field
+from .reading import TextReading, is_blank, reading_field
 
 
 class TextQuestion(Question):
@@ -16,4 +16,7 @@ class TextQuestion(Question):
         return "str | None"
 
     def read(self, answer: str) -> str | None:
-        return read_text(answer, self.reading)
+        # Case is changed after the blank check, so a blank marker in capitals still counts.
+        if self.reading.trim_spaces:
+            answer = answer.strip()
+        return None if is_blank(answer, self.reading) else self.reading.normalized(answer)

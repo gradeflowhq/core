@@ -14,7 +14,7 @@ from ...questions.values import ValuesQuestion
 from ..example import examples_beside
 from ..matching import duplicate_problems, unreadable_problems
 from ..method import AnswerMethod
-from ..outcome import CORRECT, Outcome
+from ..outcome import CORRECT_FEEDBACK, Outcome
 from ..position import Position
 from ..settings import NonBlankText, Settings
 from ..step import Step
@@ -69,32 +69,35 @@ class Order(AnswerMethod[OrderSettings]):
             else f", with partial marks for {MARKS_FOR_LABELS[settings.marks_for].lower()}"
         )
         if reads_better_listed(settings.order):
-            items = "\n".join(
+            item_lines = "\n".join(
                 f"{place}. {code_span(item)}" for place, item in enumerate(settings.order, 1)
             )
-            return f"Puts these in order{partial_marks_note}:\n{items}"
+            return f"Puts these in order{partial_marks_note}:\n{item_lines}"
         return f"Puts {', '.join(map(code_span, settings.order))} in order{partial_marks_note}."
 
     def _mark_answer(self, settings: OrderSettings, answer: Answer, question: Question) -> Outcome:
         assert isinstance(question, ValuesQuestion)
         assert isinstance(answer, list)
         correct_order = list(map(_item_reader(question), settings.order))
-        expected = f"Expected {', '.join(settings.order)}."
+        expected_sentence = f"Expected {', '.join(settings.order)}."
         match settings.marks_for:
             case "exact":
                 proportion = float(answer == correct_order)
-                feedback = expected
+                feedback = expected_sentence
             case "items_in_order":
-                in_order_count = LCSseq.similarity(answer, correct_order)
-                proportion = in_order_count / len(correct_order)
-                feedback = f"{in_order_count} of {len(correct_order)} in order. {expected}"
-            case "pairs_in_order":
-                pairs_in_order = len(set(pairwise(answer)) & set(pairwise(correct_order)))
-                proportion = pairs_in_order / (len(correct_order) - 1)
+                items_in_order_count = LCSseq.similarity(answer, correct_order)
+                proportion = items_in_order_count / len(correct_order)
                 feedback = (
-                    f"{pairs_in_order} of {len(correct_order) - 1} pairs in order. {expected}"
+                    f"{items_in_order_count} of {len(correct_order)} in order. {expected_sentence}"
                 )
-        return Outcome(1.0, CORRECT) if proportion >= 1 else Outcome(proportion, feedback)
+            case "pairs_in_order":
+                pairs_in_order_count = len(set(pairwise(answer)) & set(pairwise(correct_order)))
+                proportion = pairs_in_order_count / (len(correct_order) - 1)
+                feedback = (
+                    f"{pairs_in_order_count} of {len(correct_order) - 1} pairs in order. "
+                    f"{expected_sentence}"
+                )
+        return Outcome(1.0, CORRECT_FEEDBACK) if proportion >= 1 else Outcome(proportion, feedback)
 
     def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         question = position.question_model
@@ -117,6 +120,6 @@ class Order(AnswerMethod[OrderSettings]):
 
 def _item_reader(question: ValuesQuestion) -> Callable[[str], Value]:
     """How each item is read: as the first value is, the values being all of one type."""
-    first = question.value_question(1)
-    assert first is not None
-    return first.read
+    first_value_question = question.value_question(1)
+    assert first_value_question is not None
+    return first_value_question.read

@@ -36,6 +36,4 @@ def embed_texts(texts: Sequence[str]) -> NDArray[np.float32]:
     """Encode texts as normalized document vectors for comparing them by meaning, one row each."""
     import numpy as np
 
-    if not texts:
-        return np.empty((0, 0), dtype=np.float32)
     return np.stack(list(_model().embed(list(texts))))

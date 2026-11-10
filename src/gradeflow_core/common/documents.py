@@ -6,6 +6,7 @@ from io import StringIO
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.composer import Composer, ComposerError, MaxDepthExceededError
 from ruamel.yaml.constructor import DuplicateKeyError
 from ruamel.yaml.error import YAMLError
@@ -23,8 +24,8 @@ _DUPLICATE_KEY = re.compile(r'found duplicate (?:merge )?key "(.*?)"(?: with val
 
 class _Composer(Composer):
     def return_alias(self, a: Any) -> Any:
-        mark = self.parser.last_event.start_mark
-        raise ComposerError(None, None, "Anchors and aliases aren't supported", mark)
+        position = self.parser.last_event.start_mark
+        raise ComposerError(None, None, "Anchors and aliases aren't supported", position)
 
 
 class _Representer(RoundTripRepresenter):
@@ -52,48 +53,49 @@ def _new_yaml() -> YAML:
     return yaml
 
 
-def load_yaml_with_lines(text: str) -> Any:
-    """``text`` as YAML, keeping where each value is. Raises ``InvalidError`` if it isn't YAML."""
+def load_yaml_with_lines(text: str) -> tuple[Any, Any]:
+    """``text`` as YAML: the document, which keeps where each value is, and its plain dicts and
+    lists. Raises ``InvalidError`` if it isn't YAML."""
     try:
-        return _new_yaml().load(text)
+        document = _new_yaml().load(text)
     except YAMLError as error:
         position = getattr(error, "problem_mark", None)
-        where = f"Line {position.line + 1}: " if position is not None else ""
-        raise InvalidError([Problem(f"{where}{_yaml_problem(error)}.")]) from None
+        line_prefix = f"Line {position.line + 1}: " if position is not None else ""
+        raise InvalidError([Problem(f"{line_prefix}{_yaml_error_message(error)}.")]) from None
+    return document, _as_plain_data(document)
 
 
-def _yaml_problem(error: YAMLError) -> str:
+def _yaml_error_message(error: YAMLError) -> str:
     """What ruamel found wrong, naming a key written twice rather than both its values."""
     if isinstance(error, MaxDepthExceededError):
         return f"It nests more than {_MAX_DEPTH} levels deep"
-    problem = getattr(error, "problem", None) or str(error)
-    if isinstance(error, DuplicateKeyError) and (match := _DUPLICATE_KEY.match(problem)):
+    message = getattr(error, "problem", None) or str(error)
+    if isinstance(error, DuplicateKeyError) and (match := _DUPLICATE_KEY.match(message)):
         return f'"{match[1]}" is written twice'
-    return problem
+    return message
 
 
-def as_plain_data(node: Any) -> Any:
-    """``node`` as plain dicts and lists. Raises ``InvalidError`` for a ``{{ … }}`` left
+def _as_plain_data(value: Any) -> Any:
+    """``value`` as plain dicts and lists. Raises ``InvalidError`` for a ``{{ … }}`` left
     unquoted, which YAML reads as a mapping."""
-    if isinstance(node, Mapping):
-        for key in node:
+    if isinstance(value, CommentedMap):
+        for key in value:
             if isinstance(key, Mapping):
-                line = node.lc.key(key)[0] + 1 if hasattr(node, "lc") else None
-                where = f"Line {line}: " if line else ""
+                line = value.lc.key(key)[0] + 1
                 raise InvalidError(
-                    [Problem(f'{where}Quote {{{{ … }}}}, as in "{{{{ settings.name }}}}".')]
+                    [Problem(f'Line {line}: Quote {{{{ … }}}}, as in "{{{{ settings.name }}}}".')]
                 )
-        return {str(key): as_plain_data(value) for key, value in node.items()}
-    if isinstance(node, list):
-        return [as_plain_data(item) for item in node]
-    if isinstance(node, str):
-        return str(node)
-    return node
+        return {str(key): _as_plain_data(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_as_plain_data(item) for item in value]
+    if isinstance(value, str):
+        return str(value)
+    return value
 
 
 def load_yaml(text: str) -> Any:
     """``text`` as YAML, as plain dicts and lists. Raises ``InvalidError`` if it isn't YAML."""
-    return as_plain_data(load_yaml_with_lines(text))
+    return load_yaml_with_lines(text)[1]
 
 
 def dump_yaml(data: Any) -> str:
@@ -102,20 +104,20 @@ def dump_yaml(data: Any) -> str:
     return buffer.getvalue()
 
 
-def _line_of(document: Any, path: Location) -> int | None:
-    """The line, from 1, of the deepest value along ``path`` that ``document`` has."""
-    node, line = document, None
-    for part in path:
-        if isinstance(node, Mapping) and part in node:
-            line = node.lc.key(part)[0] + 1 if hasattr(node, "lc") else line
-            node = node[part]
-        elif isinstance(node, list) and isinstance(part, int) and 0 <= part < len(node):
-            line = node.lc.item(part)[0] + 1 if hasattr(node, "lc") else line
-            node = node[part]
+def _line_of(document: Any, location: Location) -> int | None:
+    """The line, from 1, of the deepest value along ``location`` that ``document`` has."""
+    value, line = document, None
+    for part in location:
+        if isinstance(value, Mapping) and part in value:
+            line = value.lc.key(part)[0] + 1 if hasattr(value, "lc") else line
+            value = value[part]
+        elif isinstance(value, list) and isinstance(part, int) and 0 <= part < len(value):
+            line = value.lc.item(part)[0] + 1 if hasattr(value, "lc") else line
+            value = value[part]
     return line
 
 
-def with_line(document: Any, path: Location, message: str) -> str:
-    """``message`` after the line of ``path`` in ``document``, if it has one."""
-    line = _line_of(document, path)
+def with_line(document: Any, location: Location, message: str) -> str:
+    """``message`` after the line of ``location`` in ``document``, if it has one."""
+    line = _line_of(document, location)
     return f"Line {line}: {message}" if line is not None else message

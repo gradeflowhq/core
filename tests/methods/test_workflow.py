@@ -164,12 +164,14 @@ def test_any_correct_across_questions_picks_one_check_by_its_total_marks() -> No
     )
     questions: dict[str, Question] = {"Q1": NumberQuestion(), "Q2": NumberQuestion(max_marks=2)}
     follow_through = mark_group(marking, {"Q1": "9", "Q2": "36"}, questions)
-    assert {key: result.proportion for key, result in follow_through.items()} == {
+    assert {question_id: result.proportion for question_id, result in follow_through.items()} == {
         "Q1": 0.5,
         "Q2": 0.5,
     }
     mixed_answers_results = mark_group(marking, {"Q1": "6", "Q2": "36"}, questions)
-    assert {key: result.proportion for key, result in mixed_answers_results.items()} == {
+    assert {
+        question_id: result.proportion for question_id, result in mixed_answers_results.items()
+    } == {
         "Q1": 1,
         "Q2": 0,
     }

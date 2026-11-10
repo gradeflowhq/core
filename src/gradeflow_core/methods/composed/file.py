@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from ...common.hints import hint
 from ...common.paths import Location
-from ...questions import TYPE_LABELS
+from ...questions import QUESTION_CLASSES
 from ...questions.types import QuestionType
 from ..example import Example
 from ..logic.workflow import Workflow
@@ -19,7 +19,7 @@ TEMPLATE_KEYS = frozenset({"if", "feedback", "input", "output_step"})
 """Keys of a step, or of its settings, in a method file that hold templates, read when it runs."""
 
 
-class ItemField(BaseModel):
+class DeclaredItemField(BaseModel):
     """How a declared setting titles a field of the items a repeated step goes through."""
 
     model_config = ConfigDict(extra="forbid")
@@ -45,7 +45,7 @@ class DeclaredSetting(BaseModel):
     applies_when: dict[str, list[JsonValue]] | None = None
     """It applies only when other settings have these values."""
     examples: list[JsonValue] | None = None
-    items: dict[str, ItemField] | None = None
+    items: dict[str, DeclaredItemField] | None = None
     """For a list a repeated step goes through: the fields ``item.…`` names, titled for it
     rather than as the settings they fill."""
 
@@ -77,7 +77,11 @@ class MethodFile(BaseModel):
         ),
     )
     question_types: list[QuestionType] | Literal["all"] = Field(
-        default=[], title="Question types", json_schema_extra=hint(labels=TYPE_LABELS)
+        default=[],
+        title="Question types",
+        json_schema_extra=hint(
+            labels={question_type: cls.label for question_type, cls in QUESTION_CLASSES.items()}
+        ),
     )
     marks_question_group: bool = False
     settings: dict[str, DeclaredSetting] = {}
@@ -106,7 +110,7 @@ class MethodFile(BaseModel):
             raise ValueError("Name the step whose output it gives.")
         return self
 
-    def workflow(self) -> dict[str, Any]:
+    def workflow_step_data(self) -> dict[str, Any]:
         """The workflow the method is, with its settings not yet filled in."""
         return as_workflow(self.model_dump(include=set(WORKFLOW_KEYS)))
 
@@ -117,28 +121,32 @@ def as_workflow(file: Mapping[str, Any]) -> dict[str, Any]:
     return {"uses": WORKFLOW_REF, "with": settings}
 
 
-def as_file_steps(step: Mapping[str, Any]) -> dict[str, Any]:
+def as_file_steps(step_data: Mapping[str, Any]) -> dict[str, Any]:
     """A step as a method file's steps: a workflow's own, or else the step alone."""
-    if step.get("uses") == WORKFLOW_REF and step.keys() <= {"uses", "with"}:
-        return {key: value for key, value in step.get("with", {}).items() if key in WORKFLOW_KEYS}
-    return {"steps": [step]}
+    if step_data.get("uses") == WORKFLOW_REF and step_data.keys() <= {"uses", "with"}:
+        return {
+            key: value for key, value in step_data.get("with", {}).items() if key in WORKFLOW_KEYS
+        }
+    return {"steps": [step_data]}
 
 
 class MethodFileFieldError(ValueError):
-    """What is wrong with a method file's fields. ``problems`` holds each message and path, its own
-    first."""
+    """What is wrong with a method file's fields. ``messages_with_paths`` holds each message and
+    path, its own first."""
 
     def __init__(self, message: str, path: Location) -> None:
         super().__init__(message)
-        self.path = path
-        self.problems = [(message, path)]
+        self.messages_with_paths = [(message, path)]
 
     @classmethod
     def combined(cls, errors: Sequence[MethodFileFieldError]) -> MethodFileFieldError:
         """One error for all of ``errors``."""
-        combined = cls(str(errors[0]), errors[0].path)
-        combined.problems = [problem for error in errors for problem in error.problems]
-        return combined
+        message, path = errors[0].messages_with_paths[0]
+        combined_error = cls(message, path)
+        combined_error.messages_with_paths = [
+            message_with_path for error in errors for message_with_path in error.messages_with_paths
+        ]
+        return combined_error
 
 
 def methods_used(yaml_data: Any) -> set[str]:

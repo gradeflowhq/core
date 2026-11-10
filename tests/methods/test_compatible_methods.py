@@ -30,7 +30,7 @@ def test_compatible_methods_are_the_supplied_objects_in_the_supplied_order() -> 
         for method in methods
         if method.level != "internal"
         and method.can_run_at(position)
-        and (method.gives_marks({}) or position.in_workflow)
+        and (method.gives_marks({}) or position.is_in_workflow)
     ]
     assert len(compatible) == len(expected)
     assert all(actual is supplied for actual, supplied in zip(compatible, expected, strict=True))
@@ -49,7 +49,7 @@ def test_compatible_methods_fit_the_question_or_group() -> None:
         "pattern",
         "custom-code",
     ]
-    assert compatible_names(Position(QUESTIONS, in_group=True)) == [
+    assert compatible_names(Position(QUESTIONS, is_in_group=True)) == [
         "workflow",
         "conditional",
         "answer-sets",
@@ -61,7 +61,7 @@ def test_a_value_of_an_answer_offers_what_marks_its_type() -> None:
     assert compatible_names(Position(QUESTIONS, "Q3"))[0] == "multiple-values"
     question = QUESTIONS["Q3"].value_question(2)
     assert question is not None
-    position = Position(QUESTIONS, "Q3", in_list=True).with_input(question, "value", 2)
+    position = Position(QUESTIONS, "Q3", is_in_list=True).with_input(question, "value", 2)
     assert compatible_names(position)[:3] == [
         "accepted-answers",
         "number-range",

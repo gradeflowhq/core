@@ -42,9 +42,9 @@ class Condition:
         )
 
 
-def read_condition(text: str) -> Condition | None:
+def read_condition(template: str) -> Condition | None:
     """The rows of a condition made of them, each naming its check by ID; None for any other."""
-    node = expression_node(text)
+    node = expression_node(template)
     if node is None:
         return None
     match: Match = "any" if isinstance(node, nodes.Or) else "all"
@@ -59,9 +59,9 @@ def read_condition(text: str) -> Condition | None:
 def condition_template(condition: Condition) -> str:
     """The condition as a check's ``if``, its rows naming checks by ID; empty, so always, without
     a row."""
-    parts = [_row_template(row) for row in condition.rows if row.check]
-    expression = f" {'or' if condition.match == 'any' else 'and'} ".join(parts)
-    return f"{{{{ {expression} }}}}" if parts else ""
+    row_templates = [_row_template(row) for row in condition.rows]
+    expression = f" {'or' if condition.match == 'any' else 'and'} ".join(row_templates)
+    return f"{{{{ {expression} }}}}" if row_templates else ""
 
 
 def _row_template(row: ConditionRow) -> str:
@@ -82,10 +82,12 @@ def _operands(node: nodes.Node, operator: type[nodes.BinExpr]) -> list[nodes.Nod
 def _condition_row(node: nodes.Node) -> ConditionRow | None:
     test: ConditionTest
     match node:
-        case nodes.Not(node=inner):
-            check, test = _check_id_read(inner, "correct"), "incorrect"
-        case nodes.Compare(expr=inner, ops=[nodes.Operand(op="gteq", expr=nodes.Const(value=0.5))]):
-            check, test = _check_id_read(inner, "proportion"), "half_correct"
+        case nodes.Not(node=operand):
+            check, test = _check_id_read(operand, "correct"), "incorrect"
+        case nodes.Compare(
+            expr=operand, ops=[nodes.Operand(op="gteq", expr=nodes.Const(value=0.5))]
+        ):
+            check, test = _check_id_read(operand, "proportion"), "half_correct"
         case _:
             check, test = _check_id_read(node, "correct"), "correct"
     return ConditionRow(check, test) if check else None
@@ -99,7 +101,7 @@ def _check_id_read(node: nodes.Node, attribute: str) -> str | None:
             node=nodes.Getattr(
                 node=nodes.Getattr(node=nodes.Name(name="steps"), attr=check_id), attr="output"
             ),
-            attr=read,
+            attr=attribute_read,
         ):
-            return check_id if read == attribute else None
+            return check_id if attribute_read == attribute else None
     return None

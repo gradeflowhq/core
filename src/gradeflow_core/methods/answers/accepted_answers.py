@@ -23,18 +23,18 @@ from ..matching import (
     SPELLING_CUTOFFS,
     STRICTNESS_FIELD,
     TOLERANCE_FIELD,
-    Match,
+    MatchMode,
     Strictness,
-    closest_spelling,
+    closest_spelling_index,
     expected_text,
+    is_within_tolerance,
     match_note,
     match_problems,
     model_context,
     unreadable_problems,
-    within,
 )
 from ..method import AnswerMethod
-from ..outcome import CORRECT, Outcome
+from ..outcome import CORRECT_FEEDBACK, Outcome
 from ..position import Position
 from ..settings import NonBlankText, Settings, specialized
 from ..step import Step
@@ -49,7 +49,7 @@ class AcceptedAnswersSettings(Settings):
         title="Accepted answers",
         json_schema_extra=hint(lists_answers=True),
     )
-    match: Match = MATCH_FIELD
+    match: MatchMode = MATCH_FIELD
     strictness: Strictness = STRICTNESS_FIELD
     tolerance: float = TOLERANCE_FIELD
 
@@ -82,7 +82,7 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
             "number": ("match", "strictness"),
             "code": ("match", "strictness", "tolerance"),
         }.get(position.question_type or "", ("tolerance",))
-        return specialized(AcceptedAnswersSettings, without=hidden_fields)
+        return specialized(AcceptedAnswersSettings, excluded_fields=hidden_fields)
 
     def describe(self, step: Step) -> str:
         settings = self._settings_of(step)
@@ -104,38 +104,38 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
     ) -> Outcome:
         if not settings.answers:
             return Outcome(0.0, "No accepted answers.")
-        accepted = {text: question.read(text) for text in settings.answers}
-        if isinstance(answer, int | float) and not isinstance(answer, bool):
+        accepted_values = [question.read(accepted_answer) for accepted_answer in settings.answers]
+        if isinstance(answer, int | float):
             within_tolerance = any(
-                within(answer, value, settings.tolerance)
-                for value in accepted.values()
+                is_within_tolerance(answer, value, settings.tolerance)
+                for value in accepted_values
                 if isinstance(value, int | float)
             )
             if within_tolerance:
-                return Outcome(1.0, CORRECT)
-            answers = plain_join(settings.answers, conjunction="or")
-            return Outcome(0.0, f"{expected_text(answers, settings.tolerance)}.")
-        text = str(answer)
-        if text in accepted.values():
-            return Outcome(1.0, CORRECT)
-        expected = Outcome(
+                return Outcome(1.0, CORRECT_FEEDBACK)
+            accepted_answers_phrase = plain_join(settings.answers, conjunction="or")
+            return Outcome(0.0, f"{expected_text(accepted_answers_phrase, settings.tolerance)}.")
+        answer_text = str(answer)
+        if answer_text in accepted_values:
+            return Outcome(1.0, CORRECT_FEEDBACK)
+        not_accepted_outcome = Outcome(
             0.0, as_sentence(f"Expected {quoted_join(settings.answers, conjunction='or')}")
         )
         if settings.match == "exact":
-            return expected
-        accepted_texts = list(accepted)
-        accepted_readings = [str(value) for value in accepted.values()]
+            return not_accepted_outcome
+        accepted_texts = list(map(str, accepted_values))
         if settings.match == "spelling":
-            index = closest_spelling(text, accepted_readings, SPELLING_CUTOFFS[settings.strictness])
+            index = closest_spelling_index(
+                answer_text, accepted_texts, SPELLING_CUTOFFS[settings.strictness]
+            )
         else:
             cutoff = ANSWER_MEANING_CUTOFFS[settings.strictness]
-            best_index, is_match = nli.best_match(
-                text, accepted_readings, model_context(question), cutoff
+            index = nli.first_match_index(
+                answer_text, accepted_texts, model_context(question), cutoff
             )
-            index = best_index if is_match else None
         if index is None:
-            return expected
-        return Outcome(1.0, f"Accepted as {quoted(accepted_texts[index])}.")
+            return not_accepted_outcome
+        return Outcome(1.0, f"Accepted as {quoted(settings.answers[index])}.")
 
     def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(step)

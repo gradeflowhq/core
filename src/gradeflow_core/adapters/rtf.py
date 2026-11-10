@@ -53,7 +53,7 @@ _TOKEN = re.compile(
 class _GroupState:
     is_skipped: bool = False
     is_picture: bool = False
-    unicode_fallback: int = 1
+    unicode_fallback_length: int = 1
 
 
 def paragraphs(text: str) -> list[list[ParagraphPart]]:
@@ -65,22 +65,24 @@ def paragraphs(text: str) -> list[list[ParagraphPart]]:
     position = 0
     while match := _TOKEN.match(text, position):
         position = match.end()
-        word, argument, hex_code, symbol, brace, plain_text = match.groups()
-        if word == "bin":
+        control_word, argument, hex_code, symbol, brace, plain_text = match.groups()
+        if control_word == "bin":
             size = max(int(argument or 0), 0)
             if size:
-                reader.picture(text[position : position + size].encode("latin-1"))
+                reader.add_picture(text[position : position + size].encode("latin-1"))
             position += size
-        elif word:
-            reader.control(word, argument)
+        elif control_word:
+            reader.read_control_word(control_word, argument)
         elif brace:
-            reader.brace(brace == "{")
+            reader.read_brace(brace == "{")
         elif hex_code:
-            reader.write(bytes([int(hex_code, 16)]).decode("cp1252", "replace"), fallback=True)
+            reader.write(
+                bytes([int(hex_code, 16)]).decode("cp1252", "replace"), may_be_fallback=True
+            )
         elif symbol:
-            reader.symbol(symbol)
+            reader.read_control_symbol(symbol)
         elif plain_text:
-            reader.write(plain_text, fallback=True)
+            reader.write(plain_text, may_be_fallback=True)
     return reader.finish()
 
 
@@ -93,12 +95,12 @@ class _RtfReader:
         """Table cells ended whose separators wait for the next text."""
         self.group = _GroupState()
         self.outer_groups: list[_GroupState] = []
-        self.after_star = False
-        self.pending_fallback = 0
+        self.follows_star = False
+        self.pending_fallback_length = 0
 
-    def brace(self, is_opening: bool) -> None:
-        self.after_star = False
-        self.pending_fallback = 0
+    def read_brace(self, is_opening: bool) -> None:
+        self.follows_star = False
+        self.pending_fallback_length = 0
         if is_opening:
             if len(self.outer_groups) >= MAX_GROUP_DEPTH:
                 raise ValueError("its groups are nested too deeply.")
@@ -106,42 +108,45 @@ class _RtfReader:
         elif self.outer_groups:
             self.group = self.outer_groups.pop()
 
-    def control(self, word: str, argument: str | None) -> None:
-        after_star, self.after_star = self.after_star, False
-        if word in _SKIPPED_DESTINATIONS or (after_star and word != "shppict"):
+    def read_control_word(self, control_word: str, argument: str | None) -> None:
+        follows_star, self.follows_star = self.follows_star, False
+        if control_word in _SKIPPED_DESTINATIONS or (follows_star and control_word != "shppict"):
             self.group = replace(self.group, is_skipped=True)
-        elif word == "pict":
+        elif control_word == "pict":
             self.group = replace(self.group, is_picture=True)
-        elif word == "uc":
-            self.group = replace(self.group, unicode_fallback=int(argument or 1))
-        elif word == "u":
-            number = int(argument or 0)
-            self.write(chr(number + 65536 if number < 0 else number))
-            self.pending_fallback = self.group.unicode_fallback
-        elif word in ("par", "row"):
+        elif control_word == "uc":
+            self.group = replace(self.group, unicode_fallback_length=int(argument or 1))
+        elif control_word == "u":
+            code_point = int(argument or 0)
+            self.write(chr(code_point + 65536 if code_point < 0 else code_point))
+            self.pending_fallback_length = self.group.unicode_fallback_length
+        elif control_word in ("par", "row"):
             self.end_paragraph()
-        elif word == "cell":
+        elif control_word == "cell":
             self.pending_cell_separators += 1
-        elif word in _CHARACTER_WORDS:
-            self.write(_CHARACTER_WORDS[word])
+        elif control_word in _CHARACTER_WORDS:
+            self.write(_CHARACTER_WORDS[control_word])
 
-    def symbol(self, symbol: str) -> None:
+    def read_control_symbol(self, symbol: str) -> None:
         if symbol == "*":
-            self.after_star = True
+            self.follows_star = True
         elif symbol in _ESCAPED_SYMBOLS:
             self.write(_ESCAPED_SYMBOLS[symbol])
 
-    def write(self, text: str, fallback: bool = False) -> None:
-        self.after_star = False
-        if fallback and self.pending_fallback:
-            skipped = min(self.pending_fallback, len(text))
-            text, self.pending_fallback = text[skipped:], self.pending_fallback - skipped
+    def write(self, text: str, may_be_fallback: bool = False) -> None:
+        self.follows_star = False
+        if may_be_fallback and self.pending_fallback_length:
+            skipped_length = min(self.pending_fallback_length, len(text))
+            text, self.pending_fallback_length = (
+                text[skipped_length:],
+                self.pending_fallback_length - skipped_length,
+            )
         if self.group.is_skipped or self.group.is_picture or not text:
             return
         self._separate_cell()
         self.pending_text.append(text)
 
-    def picture(self, data: bytes) -> None:
+    def add_picture(self, data: bytes) -> None:
         if not self.group.is_skipped:
             self._separate_cell()
             self._flush()
@@ -169,6 +174,6 @@ class _RtfReader:
     def _flush(self) -> None:
         """Ends the text so far. A character past U+FFFF comes as two surrogates, joined here."""
         if self.pending_text:
-            joined = "".join(self.pending_text).encode("utf-16", "surrogatepass")
-            self.paragraph.append(joined.decode("utf-16", "replace"))
+            utf16_bytes = "".join(self.pending_text).encode("utf-16", "surrogatepass")
+            self.paragraph.append(utf16_bytes.decode("utf-16", "replace"))
             self.pending_text = []

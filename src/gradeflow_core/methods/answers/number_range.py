@@ -9,7 +9,7 @@ from ...questions.base import Question
 from ...questions.types import Answer
 from ..example import examples_beside
 from ..method import AnswerMethod
-from ..outcome import CORRECT, Outcome
+from ..outcome import CORRECT_FEEDBACK, Outcome
 from ..settings import Settings, check_limits_in_order
 from ..step import Step
 
@@ -71,10 +71,14 @@ class NumberRange(AnswerMethod[NumberRangeSettings]):
         self, settings: NumberRangeSettings, answer: Answer, question: Question
     ) -> Outcome:
         assert isinstance(answer, int | float)  # number questions read numbers
-        low, high = settings.min_value, settings.max_value
-        too_low = low is not None and answer < low and not math.isclose(answer, low)
-        too_high = high is not None and answer > high and not math.isclose(answer, high)
+        min_value, max_value = settings.min_value, settings.max_value
+        too_low = (
+            min_value is not None and answer < min_value and not math.isclose(answer, min_value)
+        )
+        too_high = (
+            max_value is not None and answer > max_value and not math.isclose(answer, max_value)
+        )
         if not (too_low or too_high):
-            return Outcome(1.0, CORRECT)
-        expected = settings.range_phrase(format_number)
-        return Outcome(0.0, f"Too {'low' if too_low else 'high'}. Expected {expected}.")
+            return Outcome(1.0, CORRECT_FEEDBACK)
+        expected_range = settings.range_phrase(format_number)
+        return Outcome(0.0, f"Too {'low' if too_low else 'high'}. Expected {expected_range}.")

@@ -65,19 +65,19 @@ class ResultsCsv(BaseModel):
 
     def _header(self, questions: QuestionSet) -> list[str]:
         header = [self.student_id_column]
-        for key in questions:
-            header += [key] if self.include_answers else []
-            header += [f"{key} marks"] if self.include_marks else []
-            header += [f"{key} feedback"] if self.include_feedback else []
+        for question_id in questions:
+            header += [question_id] if self.include_answers else []
+            header += [f"{question_id} marks"] if self.include_marks else []
+            header += [f"{question_id} feedback"] if self.include_feedback else []
         header += ["total marks", "maximum marks"] if self.include_totals else []
         header += ["marking report"] if self.include_report else []
         return header
 
     def _row(self, submission: MarkedSubmission, questions: QuestionSet) -> list[str]:
         cells = [submission.student_id]
-        for key in questions:
-            result = submission.results.get(key)
-            cells += [submission.answers.get(key, "")] if self.include_answers else []
+        for question_id in questions:
+            result = submission.results.get(question_id)
+            cells += [submission.answers.get(question_id, "")] if self.include_answers else []
             if self.include_marks:
                 cells.append(format_marks(result.marks) if result else "")
             cells += [result.feedback if result else ""] if self.include_feedback else []

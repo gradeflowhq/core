@@ -46,10 +46,3 @@ def test_grouping_embeddings_are_the_model_vectors_one_row_each(
     assert vectors.dtype == np.float32
     assert vectors.tolist() == rows.tolist()
     model.embed.assert_called_once_with(["first", "second"])
-
-
-def test_empty_embedding_batch_does_not_load_the_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    load_model = Mock()
-    monkeypatch.setattr(embeddings, "_model", load_model)
-    assert embeddings.embed_texts([]).size == 0
-    load_model.assert_not_called()

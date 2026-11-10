@@ -115,8 +115,8 @@ def test_methods_declare_expected_results(name: str, marks: list[list[float]]) -
         assert all(
             (row.expected or not method.gives_marks({}))
             and all(
-                0 <= expected.marks <= example.questions[key].max_marks
-                for key, expected in row.expected.items()
+                0 <= expected.marks <= example.questions[question_id].max_marks
+                for question_id, expected in row.expected.items()
             )
             for row in example.rows
         )
@@ -146,6 +146,28 @@ def test_a_row_matches_only_when_it_declares_every_question_marked() -> None:
         rows=[row, row_without_q2],
     )
     assert (full_row.matches_expected, partial_row.matches_expected) == (True, False)
+
+
+@pytest.mark.parametrize(
+    ("reference", "settings", "message"),
+    [
+        ("gradeflow/nope@1", {}, "There's no method gradeflow/nope@1."),
+        ("gradeflow/accepted-answers@1", {"answers": 5}, "markings.0.answers: Must be a list."),
+        ("gradeflow/extract@1", {"bogus": 1}, "bogus: Unknown setting."),
+    ],
+)
+def test_marking_rows_refuses_unknown_methods_and_bad_settings(
+    reference: str, settings: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(GradeFlowError) as error:
+        mark_rows(
+            reference,
+            questions=QuestionSet.load({"Q1": {"type": "text"}}),
+            question="Q1",
+            settings=settings,
+            rows=[],
+        )
+    assert str(error.value) == message
 
 
 @pytest.mark.parametrize("seed", ["1", "2", "3"])

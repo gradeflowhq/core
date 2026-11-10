@@ -31,7 +31,7 @@ class AnswerComparison(BaseModel):
     similarity_links: tuple[_Link, ...] = Field(repr=False)
 
     @model_validator(mode="after")
-    def _valid_structure(self) -> Self:
+    def _check_structure(self) -> Self:
         key_count = len(set(self.key_indices))
         if len(self.key_indices) != len(self.texts) or set(self.key_indices) != set(
             range(key_count)
@@ -39,11 +39,13 @@ class AnswerComparison(BaseModel):
             raise ValueError("Comparison membership must cover every input text.")
         if self.similarity in ("exact", "normalized") and self.similarity_links:
             raise ValueError("Equal-answer comparisons cannot contain similarity links.")
-        sets = _DisjointSets(key_count)
+        disjoint_sets = _DisjointSets(key_count)
         for left, right, _ in self.similarity_links:
-            if max(left, right) >= key_count or sets.find(left) == sets.find(right):
+            if max(left, right) >= key_count or disjoint_sets.find(left) == disjoint_sets.find(
+                right
+            ):
                 raise ValueError("Comparison links must join known answers without forming a loop.")
-            sets.union(left, right)
+            disjoint_sets.union(left, right)
         return self
 
     def groups(self, threshold: float = 0.85) -> list[list[int]]:
@@ -57,13 +59,13 @@ class AnswerComparison(BaseModel):
         if self.similarity == "meaning":
             # Cosine scores and their inclusive thresholds use the same float32 precision.
             threshold = struct.unpack("f", struct.pack("f", threshold))[0]
-        sets = _DisjointSets(len(set(self.key_indices)))
+        disjoint_sets = _DisjointSets(len(set(self.key_indices)))
         for left, right, score in self.similarity_links:
             if score >= threshold:
-                sets.union(left, right)
+                disjoint_sets.union(left, right)
         groups_by_root: dict[int, list[int]] = {}
         for index, key_index in enumerate(self.key_indices):
-            groups_by_root.setdefault(sets.find(key_index), []).append(index)
+            groups_by_root.setdefault(disjoint_sets.find(key_index), []).append(index)
         return list(groups_by_root.values())
 
 
@@ -79,8 +81,8 @@ def compare_answers(
     index_of_key: dict[str, int] = {}
     key_indices = []
     for text in answers:
-        normalized = text if similarity == "exact" else _normalized(text)
-        key_indices.append(index_of_key.setdefault(normalized, len(index_of_key)))
+        key = text if similarity == "exact" else _normalized(text)
+        key_indices.append(index_of_key.setdefault(key, len(index_of_key)))
     similarity_links: list[_Link] = []
     if similarity in ("spelling", "meaning") and len(index_of_key) > 1:
         keys = list(index_of_key)
@@ -101,20 +103,22 @@ def _normalized(text: str) -> str:
 
 def _spelling_links(keys: list[str]) -> list[_Link]:
     """A maximum spanning forest preserves connected groups at every threshold, in n-1 links."""
-    remaining = set(range(1, len(keys)))
-    best_score = [ratio(keys[0], key) / 100 for key in keys]
-    nearest = [0] * len(keys)
+    unlinked_indices = set(range(1, len(keys)))
+    best_scores = [ratio(keys[0], key) / 100 for key in keys]
+    nearest_indices = [0] * len(keys)
     links = []
-    while remaining:
-        selected = max(remaining, key=lambda index: (best_score[index], -index))
-        remaining.remove(selected)
-        if best_score[selected] > 0:
-            links.append((nearest[selected], selected, best_score[selected]))
-        for index in remaining:
-            score = ratio(keys[selected], keys[index]) / 100
-            if score > best_score[index]:
-                best_score[index] = score
-                nearest[index] = selected
+    while unlinked_indices:
+        selected_index = max(unlinked_indices, key=lambda index: (best_scores[index], -index))
+        unlinked_indices.remove(selected_index)
+        if best_scores[selected_index] > 0:
+            links.append(
+                (nearest_indices[selected_index], selected_index, best_scores[selected_index])
+            )
+        for index in unlinked_indices:
+            score = ratio(keys[selected_index], keys[index]) / 100
+            if score > best_scores[index]:
+                best_scores[index] = score
+                nearest_indices[index] = selected_index
     return links
 
 
@@ -130,13 +134,17 @@ def _meaning_links(keys: list[str]) -> list[_Link]:
     except ImportError:
         raise GradeFlowError(MISSING_MODEL_MESSAGE) from None
     tree = linkage(pdist(vectors, "cosine"), method="complete")
-    first_answer = list(range(len(keys)))
+    first_answer_indices = list(range(len(keys)))
     links = []
     for left, right, distance, _ in tree:
-        first_answer.append(first_answer[int(left)])
+        first_answer_indices.append(first_answer_indices[int(left)])
         if distance <= 1:
             links.append(
-                (first_answer[int(left)], first_answer[int(right)], float(np.float32(1 - distance)))
+                (
+                    first_answer_indices[int(left)],
+                    first_answer_indices[int(right)],
+                    float(np.float32(1 - distance)),
+                )
             )
     return links
 

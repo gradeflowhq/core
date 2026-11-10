@@ -87,13 +87,6 @@ def is_blank(answer: str, reading: Reading) -> bool:
     return answer in (reading.blank_marker, "")
 
 
-def read_text(answer: str, reading: TextReading) -> str | None:
-    # Case is changed after the blank check, so a blank marker in capitals still counts.
-    if reading.trim_spaces:
-        answer = answer.strip()
-    return None if is_blank(answer, reading) else reading.normalized(answer)
-
-
 def read_code(answer: str, reading: Reading) -> str | None:
     """The code as typed, without indentation every line of a file shares."""
     files = {
@@ -130,20 +123,19 @@ def read_number(answer: str, reading: Reading) -> int | float | None:
     try:
         return parse_number(answer)
     except ValueError:
-        number_value = _number_with_unit(answer)
-        if number_value is None:
+        number = _number_with_unit(answer)
+        if number is None:
             raise
-        return number_value
+        return number
 
 
 def parse_number(text: str) -> int | float:
     """A whole number, decimal, scientific notation or plain fraction such as ``3/4``."""
-    text = text.strip()
-    for parse in (int, float, lambda written: float(Fraction(written))):
+    for parser in (int, float, lambda written: float(Fraction(written))):
         try:
-            value = parse(text)
-            if math.isfinite(value):
-                return value
+            number = parser(text)
+            if math.isfinite(number):
+                return number
         except ValueError, ZeroDivisionError, OverflowError:
             continue
         break
@@ -154,7 +146,7 @@ _MINUS_SIGN = str.maketrans("\u2212", "-")
 """The minus sign, as word processors and exam software write it, read as a hyphen."""
 _SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
 _SUPERSCRIPT_POWER = re.compile(r"10([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)")
-_WRITTEN_OUT = re.compile(
+_NUMBER_WITH_UNIT = re.compile(
     r"(?P<number>[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)"
     r"(?:\s*[x×*]\s*10\s*(?:\^|\*\*)\s*(?P<power>[-+]?\d+))?"
     r"(?:\s?(?P<unit>(?![x×]\d)(?:[^\W\d_]|[°%])[\w/^·*.°%-]{0,11}))?"
@@ -167,16 +159,16 @@ def _number_with_unit(text: str) -> float | None:
     text = _SUPERSCRIPT_POWER.sub(
         lambda power: "10^" + power[1].translate(_SUPERSCRIPT_DIGITS), text
     )
-    match = _WRITTEN_OUT.fullmatch(text.translate(_SUPERSCRIPT_DIGITS))
+    match = _NUMBER_WITH_UNIT.fullmatch(text.translate(_SUPERSCRIPT_DIGITS))
     if match is None or not (match["power"] or match["unit"]):
         return None
     if match["unit"] and match["unit"][0].isnumeric():  # \w matches numerals such as ½
         return None
     try:
-        value = float(Decimal(match["number"]).scaleb(int(match["power"] or 0)))
+        number = float(Decimal(match["number"]).scaleb(int(match["power"] or 0)))
     except ArithmeticError, ValueError:
         return None
-    return value if math.isfinite(value) else None
+    return number if math.isfinite(number) else None
 
 
 def sorted_options(options: Iterable[str]) -> list[str]:

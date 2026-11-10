@@ -24,21 +24,21 @@ _MAX_INLINE_LIST_LENGTH = 80
 """How long items may run, joined in a sentence, before a description lists them."""
 
 
-def format_number(value: float) -> str:
-    """``value`` as people write it: 3 not 3.0, 0.000001 not 1e-06, and 6.02e23 not 602000…000."""
-    if value and not 1e-6 <= abs(value) < 1e15:
-        return f"{value:.15g}".replace("e+", "e")
-    return format(Decimal(repr(value)).normalize(), "f")
+def format_number(number: float) -> str:
+    """``number`` as people write it: 3 not 3.0, 0.000001 not 1e-06, and 6.02e23 not 602000…000."""
+    if number and not 1e-6 <= abs(number) < 1e15:
+        return f"{number:.15g}".replace("e+", "e")
+    return format(Decimal(repr(number)).normalize(), "f")
 
 
-def format_fraction(value: float) -> str:
-    """``value`` as a fraction is written: ½ for 0.5, and as `format_number` otherwise."""
-    return _FRACTIONS.get(value) or format_number(value)
+def format_fraction(number: float) -> str:
+    """``number`` as a fraction is written: ½ for 0.5, and as `format_number` otherwise."""
+    return _FRACTIONS.get(number) or format_number(number)
 
 
-def format_marks(value: float) -> str:
-    """``value`` to two decimal places, as marks are written: 0.33 not 0.3333…"""
-    return format_number(round(value, 2))
+def format_marks(marks: float) -> str:
+    """``marks`` to two decimal places, as marks are written: 0.33 not 0.3333…"""
+    return format_number(round(marks, 2))
 
 
 def as_sentence(text: str) -> str:
@@ -116,10 +116,10 @@ def code_span(value: object) -> str:
     return f"{fence}{text}{fence}"
 
 
-def code_block(code: str, language: str = "python") -> str:
-    """``code`` as a Markdown code block, fenced longer than any run of backticks in it."""
+def code_block(code: str) -> str:
+    """Python ``code`` as a Markdown code block, fenced longer than any run of backticks in it."""
     fence = "`" * max([3, *(len(run) + 1 for run in _BACKTICK_RUN.findall(code))])
-    return f"{fence}{language}\n{code.rstrip()}\n{fence}"
+    return f"{fence}python\n{code.rstrip()}\n{fence}"
 
 
 def code_join(values: Iterable[object], *, conjunction: Literal["and", "or"]) -> str:

@@ -30,7 +30,7 @@ def test_marking_and_editing_without_the_llm_extra() -> None:
             assert draft.problems == []
 
             endpoint = ModelEndpoint(
-                url="https://models.test/v1", token="test",
+                url="https://models.test/v1", api_key="test",
                 fast_model="decider", careful_model="reasoner",
             )
             for operation in (list_models, lambda endpoint: next(try_models(endpoint))):

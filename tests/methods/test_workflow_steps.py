@@ -10,6 +10,7 @@ from gradeflow_core import (
     MethodFileError,
     Methods,
     NumberQuestion,
+    Question,
     QuestionResult,
     QuestionSet,
     Submission,
@@ -18,8 +19,10 @@ from gradeflow_core import (
     mark,
 )
 from gradeflow_core.editing import HINT_KEY, ExampleRow, MarkingDraft, MethodDraft, mark_rows
+from gradeflow_core.methods.logic.workflow import Workflow
 from gradeflow_core.methods.outcome import QuestionOutcomes
-from gradeflow_core.methods.step import Context, Step
+from gradeflow_core.methods.position import Position
+from gradeflow_core.methods.step import Context, Step, Transform
 from gradeflow_core.methods.text.key_point import KeyPoint
 from gradeflow_core.questions.reading import TextReading
 from gradeflow_core.questions.types import QuestionId
@@ -59,11 +62,13 @@ REASONING_AND_NUMBER_MARKING: dict[str, Any] = {
 }
 
 
-def result_of(marking: Mapping[str, Any], question: str = "Q1", **answers: str) -> QuestionResult:
+def result_of(
+    marking: Mapping[str, Any], question_id: str = "Q1", **answers: str
+) -> QuestionResult:
     scheme = MarkScheme.load([marking])
     assert scheme.problems(QUESTIONS) == []
     [marked_submission] = mark(QUESTIONS, scheme, [Submission(student_id="s1", answers=answers)])
-    return marked_submission.results[question]
+    return marked_submission.results[question_id]
 
 
 def problems_of(marking: Mapping[str, Any]) -> list[str]:
@@ -384,10 +389,10 @@ def test_without_a_model_sheets_are_marked_as_each_is_read() -> None:
         label = "Batch Sizes"
 
         def run(
-            self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+            self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
         ) -> list[QuestionOutcomes]:
             batch_sizes.append(len(contexts))
-            return super().run(step, contexts, question)
+            return super().run(step, contexts, question_id)
 
     methods = Methods([*BUILTINS, BatchSizeRecordingKeyPoint()])
     marking = workflow(
@@ -519,6 +524,43 @@ def test_a_step_reading_a_transform_says_which_one() -> None:
     assert "Reads the output of Final number" in draft.notes("with.steps.2")
 
 
+def test_a_steps_note_numbers_the_step_it_reads_among_all_the_steps_before_it() -> None:
+    check = {"id": "a", "name": "Part", "uses": KEY_POINTS, "with": {"points": ["formula"]}}
+    named = {**EXTRACT_LAST_NUMBER, "name": "Part"}
+    draft = MarkingDraft(
+        workflow("all_correct", check, named, LAST_NUMBER_IN_RANGE, question="Q1"), QUESTIONS, "Q1"
+    )
+    assert "Reads the output of Part 2" in draft.notes("with.steps.2")
+
+
+def test_a_steps_note_labels_a_step_whose_output_cant_be_read_yet() -> None:
+    reading = {**LAST_NUMBER_IN_RANGE, "question": "Q1"}
+    draft = MarkingDraft(workflow("all_correct", EXTRACT_LAST_NUMBER, reading), QUESTIONS, None)
+    assert "Reads the output of Extract: Finds the last number." in draft.notes("with.steps.1")
+
+
+@pytest.mark.parametrize("steps", [3, True, -1.5])
+def test_a_step_output_workflow_whose_steps_arent_a_list_has_a_schema(steps: object) -> None:
+    nested = {
+        "id": "number",
+        "uses": "gradeflow/workflow@1",
+        "with": {"output": "step_output", "steps": steps},
+    }
+    draft = MarkingDraft(workflow("all_correct", nested, question="Q1"), QUESTIONS, "Q1")
+    assert draft.schema("with.steps.0")["properties"]["output_step"]["enum"] == []
+
+
+@pytest.mark.parametrize("input_", [["a"], 3])
+def test_a_step_whose_input_isnt_text_has_a_schema(input_: object) -> None:
+    check = {"input": input_, "uses": NUMBER_RANGE, "with": {"min_value": 1}}
+    draft = MarkingDraft(workflow("all_correct", check, question="Q2"), QUESTIONS, "Q2")
+    assert draft.schema("with.steps.0")["properties"]["input"]["enum"] == [
+        "{{ answer }}",
+        "{{ values[0] }}",
+    ]
+    assert draft.settings_holding_steps("with.steps.0") == []
+
+
 def test_transforms_with_the_same_description_are_numbered() -> None:
     other = {"id": "other", "uses": EXTRACT, "with": {"occurrence": "last"}}
     draft = MarkingDraft(
@@ -539,7 +581,7 @@ def test_a_method_draft_chooses_marks_or_a_step_output() -> None:
     assert top_level_properties["output_step"][HINT_KEY]["applies_when"] == {
         "output": ["step_output"]
     }
-    assert draft.steps_draft.position("").in_workflow
+    assert draft.steps_draft.position("").is_in_workflow
 
 
 UNIT_PART = {
@@ -697,3 +739,136 @@ def test_a_method_giving_a_steps_output_has_no_id_of_its_own() -> None:
 def test_extracted_text_that_is_the_blank_marker_is_blank() -> None:
     settings = {"type": "text", "pattern": r"Answer: (.+)"}
     assert extracted(settings, "Answer: N/A", TextQuestion()) == "No answer."
+
+
+@pytest.mark.parametrize(
+    ("inner_step", "output_step"),
+    [
+        ({**EXTRACT_LAST_NUMBER, "input": "nonsense"}, "{{ steps.last_number.output }}"),
+        (EXTRACT_LAST_NUMBER, "nonsense"),
+    ],
+)
+def test_a_draft_reports_a_malformed_input_or_output_step_of_a_step_output_workflow(
+    inner_step: dict[str, Any], output_step: str
+) -> None:
+    nested = {
+        "id": "number",
+        "uses": "gradeflow/workflow@1",
+        "with": {"output": "step_output", "output_step": output_step, "steps": [inner_step]},
+    }
+    reading = {**LAST_NUMBER_IN_RANGE, "input": "{{ steps.number.output }}"}
+    draft = MarkingDraft(workflow("all_correct", nested, reading, question="Q1"), QUESTIONS, "Q1")
+    assert "with.steps.1" in draft.paths()
+    assert draft.problems
+
+
+@pytest.mark.parametrize(
+    ("question", "problems"),
+    [
+        (["Q1"], ["question: Must be text."]),
+        (
+            "Q9",
+            [
+                "question: Q9 isn't one of the questions.",
+                "Use a group marking to read or award Q9.",
+            ],
+        ),
+    ],
+)
+def test_a_draft_reports_only_the_bad_question_of_a_step_in_a_step_output_workflow(
+    question: object, problems: list[str]
+) -> None:
+    nested = {
+        "id": "number",
+        "uses": "gradeflow/workflow@1",
+        "with": {
+            "output": "step_output",
+            "output_step": "{{ steps.last_number.output }}",
+            "steps": [{**EXTRACT_LAST_NUMBER, "question": question}],
+        },
+    }
+    reading = {**LAST_NUMBER_IN_RANGE, "input": "{{ steps.number.output }}"}
+    draft = MarkingDraft(workflow("total", nested, reading, question="Q1"), QUESTIONS, "Q1")
+    assert [str(problem) for problem in draft.problems] == problems
+
+
+@pytest.mark.parametrize("reads_q1", [{"input": "{{ answers.Q1 }}"}, {"question": "Q1"}])
+def test_a_workflow_giving_a_step_output_gives_what_its_step_read_from_another_question(
+    reads_q1: dict[str, str],
+) -> None:
+    part = {"id": "part", **reads_q1, "uses": EXTRACT, "with": {"type": "text", "pattern": "(.+)"}}
+    step_output_workflow = {
+        "id": "found",
+        "question": "Q2",
+        "uses": "gradeflow/workflow@1",
+        "with": {
+            "output": "step_output",
+            "output_step": "{{ steps.part.output }}",
+            "steps": [part],
+        },
+    }
+    read_found = {
+        "question": "Q2",
+        "input": "{{ steps.found.output }}",
+        "uses": PATTERN,
+        "with": {"pattern": "m"},
+    }
+    marking = workflow("all_correct", step_output_workflow, read_found)
+    transform = Step.load(part)
+    assert isinstance(transform, Transform)
+    [result] = transform.transform([Context({"Q1": "m"}, QUESTIONS, {"Q1": "m"})], "Q2")
+    assert result.question is not None
+    draft = MarkingDraft(marking, QUESTIONS, None)
+    assert draft.position("with.steps.1").question_type == result.question.type == "text"
+    assert result_of(marking, "Q2", Q1="m", Q2="1.5, m").correct
+
+
+def test_a_step_output_workflow_whose_output_step_names_an_answer_gives_what_it_reads() -> None:
+    nested = {
+        "id": "number",
+        "uses": "gradeflow/workflow@1",
+        "with": {
+            "output": "step_output",
+            "output_step": "{{ answers.Q3 }}",
+            "steps": [EXTRACT_LAST_NUMBER],
+        },
+    }
+    reading = {**LAST_NUMBER_IN_RANGE, "input": "{{ steps.number.output }}"}
+    draft = MarkingDraft(workflow("total", nested, reading, question="Q1"), QUESTIONS, "Q1")
+    assert draft.position("with.steps.1").question_type == "text"
+
+
+def test_a_workflow_cant_give_a_checks_marks_as_its_output() -> None:
+    check = {"id": "point", "uses": KEY_POINTS, "with": {"points": ["formula"]}}
+    nested = {
+        "id": "found",
+        "uses": "gradeflow/workflow@1",
+        "with": {
+            "output": "step_output",
+            "output_step": "{{ steps.point.output }}",
+            "steps": [check],
+        },
+    }
+    reading = {**LAST_NUMBER_IN_RANGE, "input": "{{ steps.found.output }}"}
+    problems = MarkScheme.load([workflow("all_correct", nested, reading, question="Q1")]).problems(
+        QUESTIONS
+    )
+    assert (
+        "Marks can't be read as an answer.",
+        "markings.0.with.steps.0.output_step",
+    ) in [(problem.message, problem.where) for problem in problems]
+
+
+def test_a_step_output_workflow_reads_a_step_whose_settings_arent_a_mapping_as_without_any() -> (
+    None
+):
+    def output_question(extract: Mapping[str, Any]) -> Question | None:
+        settings = {
+            "output": "step_output",
+            "output_step": "{{ steps.last_number.output }}",
+            "steps": [extract],
+        }
+        return Workflow().output_question(settings, Position(QUESTIONS, "Q1"), BUILTINS.by_ref)
+
+    without_settings = {key: value for key, value in EXTRACT_LAST_NUMBER.items() if key != "with"}
+    assert output_question({**without_settings, "with": "x"}) == output_question(without_settings)

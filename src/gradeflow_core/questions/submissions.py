@@ -2,8 +2,6 @@ from pydantic import BaseModel, Field, FiniteFloat
 
 from .types import QuestionId
 
-StudentId = str
-
 
 class AnswerSheet(BaseModel):
     """Answers as written, by question, and any marks they were already given."""
@@ -20,4 +18,4 @@ class AnswerSheet(BaseModel):
 class Submission(AnswerSheet):
     """A student's answer sheet."""
 
-    student_id: StudentId
+    student_id: str

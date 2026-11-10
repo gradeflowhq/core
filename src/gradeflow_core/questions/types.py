@@ -3,7 +3,7 @@ from typing import Literal, get_args
 
 QuestionId = str
 QuestionType = Literal["text", "number", "choice", "values", "code"]
-ALL_TYPES: frozenset[QuestionType] = frozenset(get_args(QuestionType))
+ALL_QUESTION_TYPES: frozenset[QuestionType] = frozenset(get_args(QuestionType))
 ValueType = Literal["text", "number"]
 
 Value = str | int | float | None
@@ -14,7 +14,6 @@ Answer = Value | frozenset[str] | list[Value]
 
 @dataclass(frozen=True)
 class Unreadable:
-    """An answer the question couldn't read, as written, and why."""
+    """An answer the question couldn't read, and why."""
 
-    answer: str
     reason: str

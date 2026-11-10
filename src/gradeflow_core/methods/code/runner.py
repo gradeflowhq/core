@@ -7,8 +7,8 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Mapping
-from typing import IO, Any
+from collections.abc import Mapping, Sequence
+from typing import IO, Any, TypedDict
 
 import eryx
 
@@ -85,11 +85,10 @@ def execute(code, variables, return_names, module_files):
 
 
 class CodeError(GradeFlowError):
-    """Code didn't run to the end; ``reason`` says why, without saying it was code."""
+    """Code didn't run to the end; the message says why, without saying it was code."""
 
     def __init__(self, reason: str) -> None:
-        self.reason = shortened_reason(reason)
-        super().__init__(self.reason)
+        super().__init__(shortened_reason(reason))
 
 
 def syntax_error_text(error: SyntaxError, line: int | None, path: str = "") -> str:
@@ -112,7 +111,7 @@ def _timeout_error(time_limit_s: int) -> CodeError:
     return CodeError(f"it took longer than {time_limit_s} {plural('second', time_limit_s)}")
 
 
-def _returned_variables(execution: eryx.ExecuteResult) -> str:
+def _returned_variables_json(execution: eryx.ExecuteResult) -> str:
     """The guest's JSON of the variables it returned. The guest encodes them itself, as Eryx's
     encoding refuses NaN and infinity."""
     if execution.result_error:
@@ -125,11 +124,11 @@ def _returned_variables(execution: eryx.ExecuteResult) -> str:
     return execution.result_json
 
 
-def _decode(encoded: str) -> dict[str, Any]:
-    """``encoded`` read with nested sets. Code can break the guest's encoding, so a failure is the
-    code's own error."""
+def _decoded_variables(variables_json: str) -> dict[str, Any]:
+    """``variables_json`` read with nested sets. Code can break the guest's encoding, so a failure
+    is the code's own error."""
     try:
-        variables = json.loads(json.loads(encoded), object_hook=_decode_set)
+        variables = json.loads(json.loads(variables_json), object_hook=_decode_set)
     except (TypeError, ValueError, RecursionError) as error:
         raise CodeError("Code returned invalid variables.") from error
     if not isinstance(variables, dict):
@@ -137,11 +136,20 @@ def _decode(encoded: str) -> dict[str, Any]:
     return variables
 
 
+class _RunRequest(TypedDict):
+    code: str
+    variables_json: str
+    return_names: Sequence[str]
+    module_files: Mapping[str, str]
+    time_limit_s: int
+    memory_limit_mb: int
+
+
 def _execute(
     code: str,
-    variables: str,
-    return_names: list[str],
-    module_files: dict[str, str],
+    variables_json: str,
+    return_names: Sequence[str],
+    module_files: Mapping[str, str],
     time_limit_s: int,
     memory_limit_mb: int,
 ) -> str:
@@ -150,9 +158,9 @@ def _execute(
     process running it."""
     source = (
         f"{_GUEST_PROGRAM}\n"
-        f"result = execute({code!r}, {variables!r}, {return_names!r}, {module_files!r})\n"
+        f"result = execute({code!r}, {variables_json!r}, {return_names!r}, {module_files!r})\n"
     )
-    cancel = eryx.CancelToken()
+    cancel_token = eryx.CancelToken()
     output_bytes = 0
 
     def limit_output(chunk: bytes) -> None:
@@ -160,7 +168,7 @@ def _execute(
         output_bytes += len(chunk)
         # Reaching the limit counts: Eryx truncates a stream at 1 MiB, so it never passes it.
         if output_bytes >= OUTPUT_LIMIT_MB * 1024**2:
-            cancel.cancel()
+            cancel_token.cancel()
 
     try:
         sandbox = eryx.Sandbox(
@@ -175,7 +183,7 @@ def _execute(
     except eryx.InitializationError as error:
         raise GradeFlowError("Couldn't start the Python sandbox.") from error
     try:
-        execution = sandbox.execute(source, cancel=cancel)
+        execution = sandbox.execute(source, cancel=cancel_token)
     except eryx.CancelledError as error:
         raise CodeError(f"output reached the {OUTPUT_LIMIT_MB} MiB limit") from error
     except eryx.TimeoutError as error:
@@ -186,12 +194,12 @@ def _execute(
         raise CodeError("Code exceeded the sandbox's resource limits.") from error
     except eryx.ExecutionError as error:
         raise CodeError("Code stopped before returning a result.") from error
-    if cancel.cancelled:
+    if cancel_token.cancelled:
         raise CodeError(f"output reached the {OUTPUT_LIMIT_MB} MiB limit")
-    return _returned_variables(execution)
+    return _returned_variables_json(execution)
 
 
-def _send(stream: IO[bytes], message: dict[str, Any]) -> None:
+def _send(stream: IO[bytes], message: Mapping[str, object]) -> None:
     stream.write(json.dumps(message, separators=(",", ":")).encode() + b"\n")
     stream.flush()
 
@@ -228,9 +236,9 @@ def _serve() -> None:
     _disable_core_dumps()
     for line in sys.stdin.buffer:
         try:
-            response = {"variables": _execute(**json.loads(line))}
+            response = {"variables_json": _execute(**json.loads(line))}
         except CodeError as error:
-            response = {"code_error": error.reason}
+            response = {"code_error": str(error)}
         except GradeFlowError as error:
             response = {"sandbox_error": str(error)}
         _send(sys.stdout.buffer, response)
@@ -242,13 +250,13 @@ class _Worker:
     def __init__(self) -> None:
         self._process: subprocess.Popen[bytes] | None = None
 
-    def run(self, request: dict[str, Any], timeout_s: float) -> dict[str, str]:
+    def run(self, request: _RunRequest) -> dict[str, str]:
         process = self._running_process()
         assert process.stdin is not None
         assert process.stdout is not None
         try:
             _send(process.stdin, request)
-            line = _receive(process.stdout, timeout_s)
+            line = _receive(process.stdout, request["time_limit_s"] + _WORKER_GRACE_S)
         except TimeoutError as error:
             self.close()
             raise _timeout_error(request["time_limit_s"]) from error
@@ -295,7 +303,7 @@ def run(
     variables: Mapping[str, Any],
     return_names: tuple[str, ...],
     *,
-    module_files: Mapping[str, str] | None = None,
+    module_files: Mapping[str, str] = {},
     time_limit_s: int = TIME_LIMIT_S,
     memory_limit_mb: int = MEMORY_LIMIT_MB,
 ) -> dict[str, Any]:
@@ -307,21 +315,21 @@ def run(
     Sandboxes run one at a time in a worker process, so one that aborts its process fails only
     its own run.
     """
-    request = {
+    request: _RunRequest = {
         "code": code,
-        "variables": json.dumps(variables, default=_encode_set),
+        "variables_json": json.dumps(variables, default=_encode_set),
         "return_names": return_names,
-        "module_files": dict(module_files or {}),
+        "module_files": module_files,
         "time_limit_s": time_limit_s,
         "memory_limit_mb": memory_limit_mb,
     }
     with _worker_lock:
-        response = _worker.run(request, time_limit_s + _WORKER_GRACE_S)
+        response = _worker.run(request)
     if "sandbox_error" in response:
         raise GradeFlowError(response["sandbox_error"])
     if "code_error" in response:
         raise CodeError(response["code_error"])
-    return _decode(response["variables"])
+    return _decoded_variables(response["variables_json"])
 
 
 if __name__ == "__main__":

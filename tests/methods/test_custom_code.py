@@ -48,6 +48,11 @@ def test_marks_come_from_correct_or_proportion_with_the_feedback_set() -> None:
     assert mark(custom_code("x = 1"), "x").proportion == 0
 
 
+def test_feedback_set_to_none_is_no_feedback() -> None:
+    result = mark(custom_code("correct = True\nfeedback = None"), "x")
+    assert result.feedback == mark(custom_code("correct = True"), "x").feedback
+
+
 def test_code_reads_the_answer_as_the_question_reads_it() -> None:
     assert mark(custom_code("correct = answer == 9.81"), "9.81 m/s", NumberQuestion()).correct
     assert mark(
@@ -137,7 +142,7 @@ def test_the_code_description_names_the_type_each_answer_comes_as() -> None:
         "gradeflow/custom-code", Position(questions, "Q2")
     )
     assert "Reads answers (Q1: str | None, Q2: int | float | None)" in code_description(
-        "gradeflow/custom-code-for-a-group", Position(questions, in_group=True)
+        "gradeflow/custom-code-for-a-group", Position(questions, is_in_group=True)
     )
 
 
@@ -201,7 +206,9 @@ def test_group_code_marks_each_of_its_questions_from_its_results() -> None:
     results = mark_group(
         custom_code_for_a_group(source, "Q1", "Q2"), {"Q1": "a", "Q2": "1", "Q3": "c"}, QUESTIONS
     )
-    assert {key: (result.proportion, result.feedback) for key, result in results.items()} == {
+    assert {
+        question_id: (result.proportion, result.feedback) for question_id, result in results.items()
+    } == {
         "Q1": (1, "one"),
         "Q2": (0.5, ""),
     }

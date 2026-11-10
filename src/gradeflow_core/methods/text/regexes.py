@@ -24,14 +24,17 @@ def _compiled_for(pattern: str, question: Question) -> regex.Pattern[str]:
     return compile_pattern(pattern, regex.IGNORECASE if ignores_case else 0)
 
 
-def pattern_matches(pattern: str, text: str, question: Question) -> bool:
-    """Whether ``pattern`` is found in ``text``, an answer to ``question``. Raises
+def pattern_matches(pattern: str, answer_text: str, question: Question) -> bool:
+    """Whether ``pattern`` is found in ``answer_text``, an answer to ``question``. Raises
     ``TimeoutError`` if that takes too long."""
-    return _compiled_for(pattern, question).search(text, timeout=PATTERN_TIME_LIMIT_S) is not None
+    return (
+        _compiled_for(pattern, question).search(answer_text, timeout=PATTERN_TIME_LIMIT_S)
+        is not None
+    )
 
 
-def pattern_captures(pattern: str, text: str, question: Question) -> list[str]:
-    """What the one group of ``pattern`` captures in ``text``, an answer to ``question``. Raises
-    ``TimeoutError`` if that takes too long."""
-    matches = _compiled_for(pattern, question).findall(text, timeout=PATTERN_TIME_LIMIT_S)
-    return list(filter(None, matches))
+def pattern_captures(pattern: str, answer_text: str, question: Question) -> list[str]:
+    """What the one group of ``pattern`` captures in ``answer_text``, an answer to ``question``.
+    Raises ``TimeoutError`` if that takes too long."""
+    captures = _compiled_for(pattern, question).findall(answer_text, timeout=PATTERN_TIME_LIMIT_S)
+    return list(filter(None, captures))

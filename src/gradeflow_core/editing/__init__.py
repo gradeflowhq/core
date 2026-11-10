@@ -12,7 +12,7 @@ from ..methods.composed.file import methods_used
 from ..methods.example import Example, ExampleRow
 from ..methods.names import method_name, method_ref, split_ref
 from ..methods.position import Position
-from ..questions import QUESTION_TYPES, new_question
+from ..questions import QUESTION_CLASSES, new_question
 from ..questions.inference import converted_question
 from ..questions.types import QuestionType
 from .by_example import DECISIONS, Decision, can_mark_by_example
@@ -23,7 +23,7 @@ from .method_drafts import MethodDraft
 __all__ = [
     "DECISIONS",
     "HINT_KEY",
-    "QUESTION_TYPES",
+    "QUESTION_CLASSES",
     "Condition",
     "ConditionRow",
     "Decision",

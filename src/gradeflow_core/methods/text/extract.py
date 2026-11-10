@@ -13,6 +13,7 @@ from ...questions.types import Answer, Unreadable
 from ..example import examples_beside
 from ..method import Method, TransformMethod
 from ..outcome import TransformResult
+from ..position import Position
 from ..settings import Settings
 from ..step import Step
 from .regexes import PATTERN_TIMEOUT_MESSAGE, compile_pattern, pattern_captures
@@ -45,13 +46,13 @@ class ExtractSettings(Settings):
 
     @field_validator("pattern")
     @classmethod
-    def _validate_one_group(cls, pattern: str | None) -> str | None:
+    def _check_one_group(cls, pattern: str | None) -> str | None:
         if pattern is not None and compile_pattern(pattern).groups != 1:
             raise ValueError("Write a pattern with one group, in brackets.")
         return pattern
 
     @model_validator(mode="after")
-    def _validate_text_has_pattern(self) -> Self:
+    def _check_text_has_pattern(self) -> Self:
         if self.type == "text" and self.pattern is None:
             raise ValueError("Text needs a pattern to find it by.")
         return self
@@ -89,31 +90,37 @@ class Extract(TransformMethod[ExtractSettings]):
     def output_question(
         self,
         settings: Mapping[str, Any],
-        source_question: Question,
+        position: Position,
         methods: Mapping[str, Method[Any]],
     ) -> Question:
-        if settings.get("type", "number") == "text":
-            return source_question
-        return NumberQuestion(
-            max_marks=source_question.max_marks,
-            reading=Reading(blank_marker=source_question.reading.blank_marker),
-        )
+        source_question = position.question_model
+        assert source_question is not None  # a step reading no question gives no output
+        return _output_question(settings.get("type", "number"), source_question)
 
     def _transform(
         self, settings: ExtractSettings, answer: Answer, question: Question
     ) -> TransformResult:
-        text = str(answer)
-        output_question = self.output_question(dict(settings), question, {})
+        answer_text = str(answer)
         try:
-            candidates = _candidates(settings, text, question)
+            candidates = _candidates(settings, answer_text, question)
         except TimeoutError:
-            return Unreadable(text, PATTERN_TIMEOUT_MESSAGE)
+            return Unreadable(PATTERN_TIMEOUT_MESSAGE)
         if not candidates or (settings.occurrence == "only" and len(candidates) > 1):
-            return Unreadable(text, _extraction_failure_reason(settings, candidates))
-        found = candidates[-1] if settings.occurrence == "last" else candidates[0]
-        if _is_blank_marker(found, question):
+            return Unreadable(_extraction_failure_reason(settings, candidates))
+        candidate = candidates[-1] if settings.occurrence == "last" else candidates[0]
+        if _is_blank_marker(candidate, question):
             return None
-        return output_question.read(found)
+        return _output_question(settings.type, question).read(candidate)
+
+
+def _output_question(value_type: Literal["number", "text"], source_question: Question) -> Question:
+    """The question reading what is found of ``value_type`` in an answer to ``source_question``."""
+    if value_type == "text":
+        return source_question
+    return NumberQuestion(
+        max_marks=source_question.max_marks,
+        reading=Reading(blank_marker=source_question.reading.blank_marker),
+    )
 
 
 def _is_blank_marker(text: str, question: Question) -> bool:
@@ -122,10 +129,12 @@ def _is_blank_marker(text: str, question: Question) -> bool:
     return isinstance(reading, TextReading) and text == reading.normalized(reading.blank_marker)
 
 
-def _candidates(settings: ExtractSettings, text: str, question: Question) -> list[str]:
-    """What ``text``, an answer to ``question``, holds of the setting's type, in order."""
+def _candidates(settings: ExtractSettings, answer_text: str, question: Question) -> list[str]:
+    """What ``answer_text``, an answer to ``question``, holds of the setting's type, in order."""
     regions = (
-        [text] if settings.pattern is None else pattern_captures(settings.pattern, text, question)
+        [answer_text]
+        if settings.pattern is None
+        else pattern_captures(settings.pattern, answer_text, question)
     )
     if settings.type == "text":
         return regions

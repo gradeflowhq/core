@@ -40,9 +40,11 @@ class Example(BaseModel):
     rows: list[ExampleRow]
 
 
-def examples_beside(path: str) -> tuple[Example, ...]:
-    """The examples of the method written in the module at ``path``, from the YAML file beside it
-    named as the method is: ``accepted-answers.examples.yaml`` beside ``accepted_answers.py``."""
-    module = Path(path)
-    text = module.with_name(f"{module.stem.replace('_', '-')}.examples.yaml").read_text("utf-8")
-    return tuple(Example.model_validate(data) for data in load_yaml(text)["examples"])
+def examples_beside(module_file: str) -> tuple[Example, ...]:
+    """The examples of the method written in the module at ``module_file``, from the YAML file
+    beside it named as the method is: ``accepted-answers.examples.yaml`` beside
+    ``accepted_answers.py``."""
+    module_path = Path(module_file)
+    examples_path = module_path.with_name(f"{module_path.stem.replace('_', '-')}.examples.yaml")
+    yaml_text = examples_path.read_text("utf-8")
+    return tuple(Example.model_validate(data) for data in load_yaml(yaml_text)["examples"])

@@ -63,7 +63,7 @@ ListParameter.model_rebuild()
 TableParameter.model_rebuild()
 
 
-def _valid_parameter_name(name: str) -> str:
+def _validated_parameter_name(name: str) -> str:
     if not re.fullmatch(IDENTIFIER, name):
         raise ValueError("Use letters, digits and underscores, not starting with a digit.")
     if keyword.iskeyword(name):
@@ -73,7 +73,7 @@ def _valid_parameter_name(name: str) -> str:
     return name
 
 
-ParameterName = Annotated[str, AfterValidator(_valid_parameter_name)]
+ParameterName = Annotated[str, AfterValidator(_validated_parameter_name)]
 
 PARAMETERS_FIELD: dict[ParameterName, Parameter] = Field(
     default_factory=dict,
@@ -93,7 +93,9 @@ def parameter_values(parameters: Mapping[str, Parameter]) -> dict[str, JsonValue
 
 def _plain_value(parameter: Parameter) -> JsonValue:
     if isinstance(parameter, ListParameter):
-        return [_plain_value(item) for item in parameter.value]
+        return [_plain_value(nested_parameter) for nested_parameter in parameter.value]
     if isinstance(parameter, TableParameter):
-        return {key: _plain_value(item) for key, item in parameter.value.items()}
+        return {
+            key: _plain_value(nested_parameter) for key, nested_parameter in parameter.value.items()
+        }
     return parameter.value

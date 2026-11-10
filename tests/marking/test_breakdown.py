@@ -308,9 +308,9 @@ def test_a_marking_shows_the_code_as_written_when_fixing_it_gives_no_more() -> N
     assert result.breakdown.details == (), "the result's feedback says why"
 
 
-def number_range(question: str, min_value: float, max_value: float) -> dict[str, Any]:
+def number_range(question_id: str, min_value: float, max_value: float) -> dict[str, Any]:
     return {
-        "question": question,
+        "question": question_id,
         "uses": "gradeflow/number-range@1",
         "with": {"min_value": min_value, "max_value": max_value},
     }

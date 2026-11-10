@@ -62,15 +62,15 @@ class Length(AnswerMethod[LengthSettings]):
         return "Any length."
 
     def _mark_answer(self, settings: LengthSettings, answer: Answer, question: Question) -> Outcome:
-        text = str(answer)
-        count = len(text.split()) if settings.unit == "words" else len(text)
-        count_text = f"{count} {_unit_name(settings, count)}"
-        if settings.min_length is not None and count < settings.min_length:
+        answer_text = str(answer)
+        length = len(answer_text.split()) if settings.unit == "words" else len(answer_text)
+        length_text = f"{length} {_unit_name(settings, length)}"
+        if settings.min_length is not None and length < settings.min_length:
             return Outcome(
-                0.0, f"Too short: {count_text}. Expected at least {settings.min_length}."
+                0.0, f"Too short: {length_text}. Expected at least {settings.min_length}."
             )
-        if settings.max_length is not None and count > settings.max_length:
-            return Outcome(0.0, f"Too long: {count_text}. Expected at most {settings.max_length}.")
+        if settings.max_length is not None and length > settings.max_length:
+            return Outcome(0.0, f"Too long: {length_text}. Expected at most {settings.max_length}.")
         return Outcome(1.0, "Correct length.")
 
 

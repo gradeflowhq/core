@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Any, Literal, cast
 
@@ -17,7 +17,7 @@ from .example import Example
 from .names import method_ref
 from .outcome import MethodResult, Outcome, QuestionOutcomes, TransformResult
 from .position import Position
-from .settings import Settings, literal
+from .settings import Settings, literal_type
 from .step import STEP_OWN_FIELDS, Check, Context, Step, Transform, step_cardinality
 
 Level = Literal["basic", "advanced", "internal"]
@@ -65,9 +65,9 @@ class Method[S: Settings, R: MethodResult = MethodResult](ABC):
         ):
             raise TypeError(f"{cls.__name__} must declare a positive integer version.")
         if "settings" in cls.__dict__ and (
-            shared := STEP_OWN_FIELDS.keys() & cls.settings.model_fields
+            shared_keys := STEP_OWN_FIELDS.keys() & cls.settings.model_fields
         ):
-            raise TypeError(f"{cls.__name__}'s settings share a step's keys: {sorted(shared)}")
+            raise TypeError(f"{cls.__name__}'s settings share a step's keys: {sorted(shared_keys)}")
         if "settings" in cls.__dict__ and "label" in cls.__dict__:
             cls.settings.model_config["title"] = cls.label
             cls.settings.model_rebuild(force=True)
@@ -100,17 +100,19 @@ class Method[S: Settings, R: MethodResult = MethodResult](ABC):
         return self._build_step_model(Transform)
 
     def _build_step_model[T: Step](self, base: type[T]) -> type[T]:
-        required = any(field.is_required() for field in self.settings.model_fields.values())
+        has_required_setting = any(
+            field_info.is_required() for field_info in self.settings.model_fields.values()
+        )
         with_field = (
             Field(alias="with", title=self.label)
-            if required
+            if has_required_setting
             else Field(default_factory=dict, validate_default=True, alias="with", title=self.label)
         )
         model = create_model(
             "".join(part.capitalize() for part in self.name.split("/")[-1].split("-")) + "Step",
             __base__=base,
             __config__=ConfigDict(title=self.label),
-            uses=(literal([self.ref]), Field(title="Method")),
+            uses=(literal_type([self.ref]), Field(title="Method")),
             with_=(self.settings, with_field),
         )
         model.method = self
@@ -118,9 +120,9 @@ class Method[S: Settings, R: MethodResult = MethodResult](ABC):
 
     @abstractmethod
     def run(
-        self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+        self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> Sequence[R]:
-        """What the step gives each student in ``contexts``, reading ``question``: outcomes by
+        """What the step gives each student in ``contexts``, reading ``question_id``: outcomes by
         question if it gives marks, or else what it read. Unreadable answers, and blank ones
         unless it ``marks_blank_answers``, are dealt with before."""
 
@@ -136,11 +138,11 @@ class Method[S: Settings, R: MethodResult = MethodResult](ABC):
     def output_question(
         self,
         settings: Mapping[str, Any],
-        source_question: Question,
+        position: Position,
         methods: Mapping[str, Method[Any]],
     ) -> Question | None:
-        """The question that reads the output of a step reading ``source_question``; None if it
-        gives marks."""
+        """The question that reads the output of a step with ``settings``, as YAML holds them,
+        reading at ``position``; None if it gives marks."""
         return None
 
     def settings_model_at(self, position: Position) -> type[Settings]:
@@ -159,40 +161,40 @@ class Method[S: Settings, R: MethodResult = MethodResult](ABC):
     def describe(self, step: Step) -> str:
         """What the step does, in a sentence or two of markdown."""
 
-    def title(self, step: Step) -> str:
-        """What the step does, in a line of markdown: the first of its description."""
-        return self.describe(step).split("\n", 1)[0].removesuffix(":")
-
     @cached_property
     def _holds_steps(self) -> bool:
         """Whether its settings hold steps."""
-        return any(step_cardinality(info) for info in self.settings.model_fields.values())
+        return any(
+            step_cardinality(field_info) for field_info in self.settings.model_fields.values()
+        )
 
-    def questions_marked(self, step: Step, question: QuestionId | None) -> set[QuestionId]:
+    def questions_marked(self, step: Step, question_id: QuestionId | None) -> set[QuestionId]:
         """The questions the step gives marks to."""
         if not self._holds_steps:
-            return {question} if question else set()
+            return {question_id} if question_id else set()
         return {
-            key
-            for _, inner in self.expanded_steps(step)
-            if inner.has_weight
-            for key in inner.questions_marked(question)
+            marked_question_id
+            for _, inner_step in self.expanded_steps(step)
+            if inner_step.has_weight
+            for marked_question_id in inner_step.questions_marked(question_id)
         }
 
-    def questions_read(self, step: Step, question: QuestionId | None) -> set[QuestionId]:
+    def questions_read(self, step: Step, question_id: QuestionId | None) -> set[QuestionId]:
         """The questions whose answers the step reads, those it marks included."""
         if not self._holds_steps:
-            return self.questions_marked(step, question)
+            return self.questions_marked(step, question_id)
         return {
-            key for _, inner in self.expanded_steps(step) for key in inner.questions_read(question)
+            read_question_id
+            for _, inner_step in self.expanded_steps(step)
+            for read_question_id in inner_step.questions_read(question_id)
         }
 
     def inner_steps(self, step: Step) -> Iterator[tuple[Location, Step]]:
         """The steps written in its settings, and where they are."""
         settings = self._settings_of(step)
-        for name, info in type(settings).model_fields.items():
+        for name, field_info in type(settings).model_fields.items():
             value = getattr(settings, name)
-            match step_cardinality(info):
+            match step_cardinality(field_info):
                 case "one" if isinstance(value, Step):
                     yield ("with", name), value
                 case "many":
@@ -209,7 +211,7 @@ class Method[S: Settings, R: MethodResult = MethodResult](ABC):
 
     def inner_position(self, position: Position, location: Location) -> Position:
         """``position`` as a step at ``location`` in its settings sees it."""
-        return position.inner_position(in_list=isinstance(location[-1], int))
+        return replace(position, is_in_list=isinstance(location[-1], int), is_in_workflow=False)
 
     def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         """What is wrong with the step's own settings at ``position``, each at its setting."""
@@ -220,13 +222,14 @@ class MarkingMethod[S: Settings](Method[S, QuestionOutcomes]):
     """A method that marks one student at a time."""
 
     def run(
-        self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+        self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> list[QuestionOutcomes]:
-        return [self._mark_student(cast(Check, step), context, question) for context in contexts]
+        settings = self._settings_of(step)
+        return [self._mark_student(settings, context, question_id) for context in contexts]
 
     @abstractmethod
     def _mark_student(
-        self, check: Check, context: Context, question: QuestionId | None
+        self, settings: S, context: Context, question_id: QuestionId | None
     ) -> QuestionOutcomes: ...
 
 
@@ -234,14 +237,12 @@ class AnswerMethod[S: Settings](MarkingMethod[S]):
     """A method that marks one answer: the question's, or what a step's input gives."""
 
     def _mark_student(
-        self, check: Check, context: Context, question: QuestionId | None
+        self, settings: S, context: Context, question_id: QuestionId | None
     ) -> QuestionOutcomes:
-        assert question is not None  # a check that marks an answer has a question
-        answer = context.answers.get(question)
+        assert question_id is not None  # a check that marks an answer has a question
+        answer = context.answers.get(question_id)
         assert not isinstance(answer, Unreadable)  # marking deals with these first
-        question_model = context.questions.get(question)
-        assert question_model is not None  # problems refuse checks of questions not in the set
-        return {question: self._mark_answer(self._settings_of(check), answer, question_model)}
+        return {question_id: self._mark_answer(settings, answer, context.questions[question_id])}
 
     @abstractmethod
     def _mark_answer(self, settings: S, answer: Answer, question: Question) -> Outcome: ...
@@ -252,15 +253,15 @@ class TransformMethod[S: Settings](Method[S, TransformResult]):
     marks."""
 
     def run(
-        self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+        self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> list[TransformResult]:
-        assert question is not None  # a transform reads one question's answer
+        assert question_id is not None  # a transform reads one question's answer
         settings = self._settings_of(step)
         results = []
         for context in contexts:
-            answer = context.answers.get(question)
+            answer = context.answers.get(question_id)
             assert not isinstance(answer, Unreadable)  # marking deals with these first
-            results.append(self._transform(settings, answer, context.questions[question]))
+            results.append(self._transform(settings, answer, context.questions[question_id]))
         return results
 
     @abstractmethod
@@ -274,6 +275,6 @@ class TransformMethod[S: Settings](Method[S, TransformResult]):
     def output_question(
         self,
         settings: Mapping[str, Any],
-        source_question: Question,
+        position: Position,
         methods: Mapping[str, Method[Any]],
     ) -> Question: ...

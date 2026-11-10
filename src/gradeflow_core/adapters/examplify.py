@@ -12,10 +12,10 @@ A question's text becomes Markdown, its formulas LaTeX between ``$`` signs.
 import math
 import re
 import struct
-from dataclasses import dataclass
 from typing import Any
 from xml.etree.ElementTree import ParseError
 
+from ..common.error_formatting import shortened_reason
 from ..common.exceptions import GradeFlowError
 from ..questions.base import Question
 from ..questions.choice import ChoiceQuestion
@@ -23,34 +23,21 @@ from ..questions.number import reads_as_number
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId, ValueType
 from ..questions.values import EXAMSOFT_SEPARATOR
-from .errors import file_read_errors
 from .mathml import mathml_to_latex
 from .rtf import ParagraphPart, paragraphs
 
-_QUESTION = re.compile(r"Question #:\s*(\d+)")
+_QUESTION_LINE = re.compile(r"Question #:\s*(\d+)")
 _ITEM_FIELD = re.compile(r"Item (\w+):\s*(.*)")
-_CHOICE = re.compile(r"✓?([A-Z])\.(?:\s.*)?")
+_CHOICE_LINE = re.compile(r"✓?([A-Z])\.(?:\s.*)?")
 _ACCEPTED_ANSWERS_LINE = re.compile(r"(\d+)\.(?:\s(.*))?")
-_BLANK = re.compile(r"\xa0+(\d+)\xa0+")
+_BLANK_NUMBER = re.compile(r"\xa0+(\d+)\xa0+")
 _UNDERLINE_RULE = re.compile(r"_{10,}")
 _INLINE_MARKUP = re.compile(r"[\\`*_$]|\[(?=.*\][(\[:])|<(?=[^<>\s]*>)|&(?=#?\w+;)")
 """What Markdown would read as formatting, a link, an autolink or an entity, wherever it is."""
 _BLOCK_MARKUP = re.compile(r"\d{1,9}(?=[.)](?:\s|$))|(?=[#>+=~-])")
 """What Markdown would read as a heading, list, quote, rule or fence at a paragraph's start."""
 _CLOSING_PUNCTUATION = ".,;:?!)]"
-_PNG = b"\x89PNG\r\n\x1a\n"
-
-
-@dataclass(frozen=True)
-class _DocumentQuestion:
-    description: str
-    max_marks: float | None
-    choices: tuple[str, ...]
-    """The choices' letters, if it has choices."""
-    correct_choice_count: int
-    """How many choices are marked correct."""
-    blanks: tuple[tuple[str, ...], ...]
-    """Each blank's accepted answers, if it has blanks."""
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def read_question_document(data: bytes, questions: QuestionSet) -> QuestionSet:
@@ -61,33 +48,82 @@ def read_question_document(data: bytes, questions: QuestionSet) -> QuestionSet:
     choices nor blanks keeps its type, and a choice question that allows several options still
     does. Raises ``InvalidError`` for a question it can't set up, such as one with a choice twice.
     """
-    items = _document_questions(data)
-    return QuestionSet.load(
-        {
-            key: _question_data(item, question)
-            for key, question in questions.items()
-            if (item := items.get(key)) is not None
+    try:
+        lines_by_question = _lines_by_question(data)
+        data_by_question = {
+            question_id: _question_data(lines, question)
+            for question_id, question in questions.items()
+            if (lines := lines_by_question.get(question_id)) is not None
         }
+    except GradeFlowError:
+        raise
+    except Exception as error:
+        raise GradeFlowError(f"Couldn't read the file: {shortened_reason(str(error))}") from error
+    return QuestionSet.load(data_by_question)
+
+
+def _lines_by_question(data: bytes) -> dict[QuestionId, list[str]]:
+    lines_by_question: dict[QuestionId, list[str]] = {}
+    if data.startswith(b"{\\rtf"):
+        current_lines: list[str] | None = None
+        for line in _lines(data.decode("latin-1")):
+            if match := _QUESTION_LINE.fullmatch(line):
+                current_lines = lines_by_question.setdefault(f"Q{match[1]}", [])
+            elif current_lines is not None:
+                current_lines.append(line)
+    if not lines_by_question:
+        raise GradeFlowError("Couldn't read the file: it isn't an ExamSoft question document.")
+    return lines_by_question
+
+
+def _question_data(lines: list[str], current_question: Question) -> dict[str, Any]:
+    fields_start = next(
+        (i for i, line in enumerate(lines) if _ITEM_FIELD.fullmatch(line)), len(lines)
     )
-
-
-def _question_data(item: _DocumentQuestion, existing: Question) -> dict[str, Any]:
-    common_fields = {
-        "description": item.description,
-        "max_marks": existing.max_marks if item.max_marks is None else item.max_marks,
+    fields = {
+        match[1]: match[2]
+        for line in lines[fields_start:]
+        if (match := _ITEM_FIELD.fullmatch(line))
     }
-    if item.choices:
-        allows_multiple = isinstance(existing, ChoiceQuestion) and existing.allow_multiple
+    stem_lines, accepted_answers_by_blank = _split_accepted_answers(lines[:fields_start])
+    choices_start = None
+    if not accepted_answers_by_blank:
+        choices_start = next(
+            (i for i in reversed(range(fields_start)) if _choice_letter(stem_lines[i]) == "A"), None
+        )
+    choice_letters: tuple[str, ...] = ()
+    has_several_correct_choices = False
+    if choices_start is not None:
+        choice_letters = tuple(
+            letter for line in stem_lines[choices_start:] if (letter := _choice_letter(line))
+        )
+        has_several_correct_choices = (
+            sum(line.startswith("✓") for line in stem_lines[choices_start:]) > 1
+        )
+        stem_lines = [
+            *stem_lines[:choices_start],
+            *(line.removeprefix("✓") for line in stem_lines[choices_start:]),
+        ]
+    marks = _marks_or_none(fields.get("Weight", ""))
+    common_fields = {
+        "description": "\n\n".join(map(_escaped_paragraph, stem_lines)),
+        "max_marks": current_question.max_marks if marks is None else marks,
+    }
+    if choice_letters:
+        allows_multiple = (
+            isinstance(current_question, ChoiceQuestion) and current_question.allow_multiple
+        )
         return {
             "type": "choice",
             **common_fields,
-            "options": item.choices,
-            "allow_multiple": allows_multiple or item.correct_choice_count > 1,
+            "options": choice_letters,
+            "allow_multiple": allows_multiple or has_several_correct_choices,
         }
-    if not item.blanks:
-        return existing.dump() | common_fields
+    if not accepted_answers_by_blank:
+        return current_question.dump() | common_fields
     value_types: list[ValueType] = [
-        "number" if _all_numbers(blank) else "text" for blank in item.blanks
+        "number" if _are_all_numbers(accepted_answers) else "text"
+        for accepted_answers in accepted_answers_by_blank
     ]
     if len(value_types) > 1:
         return {
@@ -99,56 +135,9 @@ def _question_data(item: _DocumentQuestion, existing: Question) -> dict[str, Any
     return {"type": "number" if value_types == ["number"] else "text", **common_fields}
 
 
-def _all_numbers(accepted: tuple[str, ...]) -> bool:
+def _are_all_numbers(accepted_answers: tuple[str, ...]) -> bool:
     """Whether every accepted answer is a number."""
-    return bool(accepted) and all(map(reads_as_number, accepted))
-
-
-@file_read_errors()
-def _document_questions(data: bytes) -> dict[QuestionId, _DocumentQuestion]:
-    lines_by_question: dict[QuestionId, list[str]] = {}
-    if data.startswith(b"{\\rtf"):
-        current_lines: list[str] | None = None
-        for line in _lines(data.decode("latin-1")):
-            if question := _QUESTION.fullmatch(line):
-                current_lines = lines_by_question.setdefault(f"Q{question[1]}", [])
-            elif current_lines is not None:
-                current_lines.append(line)
-    if not lines_by_question:
-        raise GradeFlowError("Couldn't read the file: it isn't an ExamSoft question document.")
-    return {key: _document_question(lines) for key, lines in lines_by_question.items()}
-
-
-def _document_question(lines: list[str]) -> _DocumentQuestion:
-    fields_start = next(
-        (i for i, line in enumerate(lines) if _ITEM_FIELD.fullmatch(line)), len(lines)
-    )
-    fields = {
-        match[1]: match[2]
-        for line in lines[fields_start:]
-        if (match := _ITEM_FIELD.fullmatch(line))
-    }
-    stem_lines, blanks = _split_accepted_answers(lines[:fields_start])
-    choices_start = None
-    if not blanks:
-        choices_start = next(
-            (i for i in reversed(range(fields_start)) if _choice_letter(stem_lines[i]) == "A"), None
-        )
-    choices: tuple[str, ...] = ()
-    correct_choice_count = 0
-    if choices_start is not None:
-        choices = tuple(
-            letter for line in stem_lines[choices_start:] if (letter := _choice_letter(line))
-        )
-        correct_choice_count = sum(line.startswith("✓") for line in stem_lines[choices_start:])
-        stem_lines = [
-            *stem_lines[:choices_start],
-            *(line.removeprefix("✓") for line in stem_lines[choices_start:]),
-        ]
-    description = "\n\n".join(map(_escaped_paragraph, stem_lines))
-    return _DocumentQuestion(
-        description, _marks_or_none(fields.get("Weight", "")), choices, correct_choice_count, blanks
-    )
+    return bool(accepted_answers) and all(map(reads_as_number, accepted_answers))
 
 
 def _escaped_paragraph(line: str) -> str:
@@ -158,7 +147,7 @@ def _escaped_paragraph(line: str) -> str:
 
 
 def _choice_letter(line: str) -> str | None:
-    return match[1] if (match := _CHOICE.fullmatch(line)) else None
+    return match[1] if (match := _CHOICE_LINE.fullmatch(line)) else None
 
 
 def _marks_or_none(text: str) -> float | None:
@@ -181,12 +170,12 @@ def _split_accepted_answers(lines: list[str]) -> tuple[list[str], tuple[tuple[st
     matches = [_ACCEPTED_ANSWERS_LINE.fullmatch(line) for line in lines[-blank_count:]]
     if [int(match[1]) if match else 0 for match in matches] != list(range(1, blank_count + 1)):
         return lines, ()
-    blanks = tuple(
+    accepted_answers_by_blank = tuple(
         tuple(answer for answer in (match[2] or "").split("|") if answer.strip())
         for match in matches
         if match
     )
-    return lines[:-blank_count], blanks
+    return lines[:-blank_count], accepted_answers_by_blank
 
 
 def _lines(text: str) -> list[str]:
@@ -198,7 +187,7 @@ def _lines(text: str) -> list[str]:
         if not line:
             continue
         joins_previous = is_inline or (previous_is_inline and not _starts_entry(line))
-        if joins_previous and lines and not _starts_entry(lines[-1], (_QUESTION, _ITEM_FIELD)):
+        if joins_previous and lines and not _starts_entry(lines[-1], (_QUESTION_LINE, _ITEM_FIELD)):
             lines[-1] += line if line[0] in _CLOSING_PUNCTUATION else f" {line}"
         else:
             lines.append(line)
@@ -215,8 +204,8 @@ def _markdown_line(parts: list[ParagraphPart]) -> tuple[str, bool]:
         _INLINE_MARKUP.sub(r"\\\g<0>", part) if isinstance(part, str) else _formula(part)
         for part in parts
     )
-    if blank := _BLANK.fullmatch(markdown.strip(" \t")):
-        return f"({blank[1]})", True
+    if match := _BLANK_NUMBER.fullmatch(markdown.strip(" \t")):
+        return f"({match[1]})", True
     line = " ".join(markdown.split())
     return line, bool(line) and all(isinstance(part, bytes) or part.isspace() for part in parts)
 
@@ -224,9 +213,9 @@ def _markdown_line(parts: list[ParagraphPart]) -> tuple[str, bool]:
 def _starts_entry(
     line: str,
     patterns: tuple[re.Pattern[str], ...] = (
-        _CHOICE,
+        _CHOICE_LINE,
         _ITEM_FIELD,
-        _QUESTION,
+        _QUESTION_LINE,
         _ACCEPTED_ANSWERS_LINE,
     ),
 ) -> bool:
@@ -235,9 +224,9 @@ def _starts_entry(
 
 def _formula(picture: bytes) -> str:
     """The MathML a PNG carries, as LaTeX between ``$`` signs; blank for other pictures."""
-    if not picture.startswith(_PNG):
+    if not picture.startswith(_PNG_SIGNATURE):
         return ""
-    position = len(_PNG)
+    position = len(_PNG_SIGNATURE)
     while position + 8 <= len(picture):
         length, chunk_type = struct.unpack_from(">I4s", picture, position)
         keyword, _, text = picture[position + 8 : position + 8 + length].partition(b"\0")

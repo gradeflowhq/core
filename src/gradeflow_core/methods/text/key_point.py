@@ -14,9 +14,9 @@ from ..matching import (
     MATCH_FIELD,
     SPELLING_CUTOFFS,
     STRICTNESS_FIELD,
-    Match,
+    MatchMode,
     Strictness,
-    closest_spelling,
+    closest_spelling_index,
     match_note,
     match_problems,
     model_context,
@@ -33,7 +33,7 @@ POINT_MEANING_CUTOFFS: dict[Strictness, float] = {"lenient": -0.05, "normal": 0.
 
 class KeyPointSettings(Settings):
     point: NonBlankText = Field(title="Point")
-    match: Match = MATCH_FIELD
+    match: MatchMode = MATCH_FIELD
     strictness: Strictness = STRICTNESS_FIELD
     whole_words: bool = Field(
         default=False,
@@ -102,7 +102,7 @@ def _closest_words(point: str, answer: str, cutoff: float) -> str | None:
         " ".join(words[start : start + point_word_count])
         for start in range(len(words) - point_word_count + 1)
     ]
-    best_index = closest_spelling(point, word_sequences, cutoff)
+    best_index = closest_spelling_index(point, word_sequences, cutoff)
     return None if best_index is None else word_sequences[best_index]
 
 

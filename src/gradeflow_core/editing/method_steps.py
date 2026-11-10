@@ -9,14 +9,14 @@ from typing import Any
 from pydantic.fields import FieldInfo
 
 from ..common.exceptions import EditingError
-from ..common.paths import get, set_at
+from ..common.paths import get_at, set_at
 from ..common.problems import Problem
 from ..common.schemas import JsonDict
 from ..methods.collection import Methods
 from ..methods.composed.file import TEMPLATE_KEYS, WORKFLOW_REF
 from ..methods.position import Position
 from ..methods.step import STEP_OWN_FIELDS, Step, load_step, step_cardinality
-from ..methods.templates import Shape, reference
+from ..methods.templates import Shape, reference_expression
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
 from .drafts import MarkingDraft, field_path, fields_of
@@ -46,21 +46,21 @@ class MethodStepsDraft(MarkingDraft):
     @test_values.setter
     def test_values(self, values: Mapping[str, Any]) -> None:
         self._test_values = dict(values)
-        self._changed()
+        self._clear_caches()
 
     def set_declared_setting(self, name: str, declaration: dict[str, Any]) -> None:
         """Declare the setting ``name``, or replace its declaration."""
         self._declared_settings[name] = declaration
-        self._changed()
+        self._clear_caches()
 
     def remove_declared_setting(self, name: str) -> None:
         self._declared_settings.pop(name, None)
         self._test_values.pop(name, None)
-        self._changed()
+        self._clear_caches()
 
     @property
-    def _root(self) -> Position:
-        return replace(super()._root, in_workflow=True)
+    def _root_position(self) -> Position:
+        return replace(super()._root_position, is_in_workflow=True)
 
     def methods(self, path: str, question: QuestionId | None = None) -> Methods:
         return (
@@ -83,38 +83,44 @@ class MethodStepsDraft(MarkingDraft):
             for name, value in super().values(path).items()
         }
 
-    def _resolved_value(self, value: Any) -> Any:
-        """``value``, or the default of the declared setting it is bound to."""
-        name = referenced_setting_name(value)
-        if name is None or name not in self._declared_settings:
+    def bound_setting(self, value: Any) -> str | None:
+        """The declared setting ``value`` names, as in ``{{ settings.minimum }}``."""
+        match = re.fullmatch(r"settings\.(\w+)", reference_expression(value) or "")
+        return match[1] if match and match[1] in self._declared_settings else None
+
+    def _resolved_value(self, value: Any, test_values: Mapping[str, Any] = {}) -> Any:
+        """``value``, or the default of the declared setting it is bound to, else its value in
+        ``test_values``."""
+        name = self.bound_setting(value)
+        if name is None:
             return deepcopy(value)
-        return deepcopy(self._declared_settings[name].get("default"))
+        return deepcopy(self._declared_settings[name].get("default", test_values.get(name)))
 
     def update(self, path: str, values: Mapping[str, Any]) -> None:
         """Sets the step's fields; a bound field sets its declared setting's default instead."""
-        old_step = self._step_data(path)
-        fields = fields_of(old_step)
-        bound_settings = {
+        old_step_data = self._step_data(path)
+        fields = fields_of(old_step_data)
+        bound_settings_by_key = {
             key: name
             for key, value in fields.items()
-            if key not in (*TEMPLATE_KEYS, "for_each")
-            and (name := referenced_setting_name(value)) in self._declared_settings
+            if key not in (*TEMPLATE_KEYS, "for_each") and (name := self.bound_setting(value))
         }
         defaults: dict[str, Any] = {}
-        for key, name in bound_settings.items():
+        for key, name in bound_settings_by_key.items():
             if key not in values or values[key] == self._resolved_value(fields[key]):
                 continue
             if name in defaults and defaults[name] != values[key]:
                 raise EditingError(f"Fields sharing setting {name} must have the same default.")
             defaults[name] = values[key]
         super().update(path, values)
-        node = self._step_data(path)
-        for key in bound_settings:
-            set_at(node, field_path("", key), fields[key])
+        step_data = self._step_data(path)
+        for key in bound_settings_by_key:
+            set_at(step_data, field_path("", key), fields[key])
         for name, value in defaults.items():
             self._declared_settings[name].pop("default", None)
             if not is_empty(value):
                 self._declared_settings[name]["default"] = deepcopy(value)
+        self._clear_caches()
 
     @property
     def _template_names(self) -> Mapping[str, Shape]:
@@ -129,7 +135,7 @@ class MethodStepsDraft(MarkingDraft):
         return load_step(data, self._methods.by_ref)
 
     def _validation_of(self, data: JsonDict) -> tuple[Step | None, list[Problem]]:
-        return super()._validation_of(self._resolved_tree(data))
+        return super()._validation_of(self._resolved_data(data))
 
     def _is_filled_by_setting(self, problem: Problem) -> bool:
         if not problem.field or not self.is_step(problem.step_path):
@@ -138,27 +144,19 @@ class MethodStepsDraft(MarkingDraft):
         if not can_setting_fill(key, method.settings.model_fields if method else {}):
             return False
         return (
-            referenced_setting_name(get(self._data, field_path(problem.step_path, key)))
-            in self._declared_settings
+            self.bound_setting(get_at(self._data, field_path(problem.step_path, key))) is not None
         )
 
-    def _resolved_tree(self, value: Any) -> Any:
+    def _resolved_data(self, value: Any) -> Any:
         """``value`` with each bound field filled in: its default, or else its test value."""
         if isinstance(value, dict):
             return {
-                key: item if key in TEMPLATE_KEYS else self._resolved_tree(item)
+                key: item if key in TEMPLATE_KEYS else self._resolved_data(item)
                 for key, item in value.items()
             }
         if isinstance(value, list):
-            return [self._resolved_tree(item) for item in value]
-        name = referenced_setting_name(value)
-        if (
-            name in self._declared_settings
-            and "default" not in self._declared_settings[name]
-            and name in self.test_values
-        ):
-            return deepcopy(self.test_values[name])
-        return self._resolved_value(value)
+            return [self._resolved_data(item) for item in value]
+        return self._resolved_value(value, self.test_values)
 
 
 def can_setting_fill(key: str, settings: Mapping[str, FieldInfo]) -> bool:
@@ -166,12 +164,6 @@ def can_setting_fill(key: str, settings: Mapping[str, FieldInfo]) -> bool:
     return key not in TEMPLATE_KEYS and (
         key not in settings or step_cardinality(settings[key]) is None
     )
-
-
-def referenced_setting_name(value: Any) -> str | None:
-    """The declared setting ``value`` names, as in ``{{ settings.minimum }}``."""
-    match = re.fullmatch(r"settings\.(\w+)", reference(value) or "")
-    return match[1] if match else None
 
 
 def is_empty(value: Any) -> bool:

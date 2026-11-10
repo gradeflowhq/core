@@ -7,12 +7,12 @@ from ...common.problems import Problem
 from ...common.text import code_span, format_number, plain_join, plural
 from ...questions.types import Answer, QuestionId, Unreadable
 from ..example import examples_beside
-from ..matching import TOLERANCE_FIELD, expected_text, within
+from ..matching import TOLERANCE_FIELD, expected_text, is_within_tolerance
 from ..method import MarkingMethod
-from ..outcome import CORRECT, Outcome, unanswered_outcome
+from ..outcome import CORRECT_FEEDBACK, Outcome, unanswered_outcome
 from ..position import Position
-from ..settings import NonBlankText, Settings, literal, specialized
-from ..step import Check, Context, Step
+from ..settings import NonBlankText, Settings, literal_type, specialized
+from ..step import Context, Step
 from . import expressions
 from .expressions import Expression
 
@@ -50,13 +50,15 @@ class FormulaOfAnswers(MarkingMethod[FormulaOfAnswersSettings]):
     examples = examples_beside(__file__)
 
     def can_run_at(self, position: Position) -> bool:
-        return position.question is None and len(_number_questions(position)) > 1
+        return position.question is None and len(_number_question_ids(position)) > 1
 
     def settings_model_at(self, position: Position) -> type[Settings]:
-        keys = _number_questions(position)
-        if not keys:
+        question_ids = _number_question_ids(position)
+        if not question_ids:
             return self.settings
-        return specialized(self.settings, question_to_mark={"annotation": literal(keys)})
+        return specialized(
+            self.settings, question_to_mark={"annotation": literal_type(question_ids)}
+        )
 
     def describe(self, step: Step) -> str:
         settings = self._settings_of(step)
@@ -69,15 +71,14 @@ class FormulaOfAnswers(MarkingMethod[FormulaOfAnswersSettings]):
         return f"**{settings.question_to_mark}** {comparison}, from the student's own answers."
 
     def _mark_student(
-        self, check: Check, context: Context, question: QuestionId | None
+        self, settings: FormulaOfAnswersSettings, context: Context, question_id: QuestionId | None
     ) -> dict[QuestionId, Outcome]:
-        settings = self._settings_of(check)
         return {settings.question_to_mark: _mark_with_formula(settings, context)}
 
-    def questions_marked(self, step: Step, question: QuestionId | None) -> set[QuestionId]:
+    def questions_marked(self, step: Step, question_id: QuestionId | None) -> set[QuestionId]:
         return {self._settings_of(step).question_to_mark}
 
-    def questions_read(self, step: Step, question: QuestionId | None) -> set[QuestionId]:
+    def questions_read(self, step: Step, question_id: QuestionId | None) -> set[QuestionId]:
         settings = self._settings_of(step)
         try:
             return {settings.question_to_mark, *_parse_formula(settings.formula).variables}
@@ -86,21 +87,21 @@ class FormulaOfAnswers(MarkingMethod[FormulaOfAnswersSettings]):
 
     def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         settings = self._settings_of(step)
-        if message := _number_question_problem(settings.question_to_mark, position):
+        if message := _number_question_message(settings.question_to_mark, position):
             yield Problem(message, field=("question_to_mark",))
         try:
-            question_keys = _parse_formula(settings.formula).variables
+            question_ids = _parse_formula(settings.formula).variables
         except ValueError as error:
             yield Problem(str(error), field=("formula",))
             return
-        if not question_keys:
+        if not question_ids:
             yield Problem("Use another answer, such as Q1 * 12.", field=("formula",))
-        if settings.question_to_mark in question_keys:
+        if settings.question_to_mark in question_ids:
             yield Problem(
                 f"{settings.question_to_mark} can't follow from itself.", field=("formula",)
             )
-        for key in natsorted(question_keys - {settings.question_to_mark}):
-            if message := _number_question_problem(key, position):
+        for question_id in natsorted(question_ids - {settings.question_to_mark}):
+            if message := _number_question_message(question_id, position):
                 yield Problem(message, field=("formula",))
 
 
@@ -108,15 +109,19 @@ def _parse_formula(formula: str) -> Expression:
     return expressions.parse(formula, names_as_written=True)
 
 
-def _number_questions(position: Position) -> list[QuestionId]:
-    return [key for key, question in position.questions.items() if question.type == "number"]
+def _number_question_ids(position: Position) -> list[QuestionId]:
+    return [
+        question_id
+        for question_id, question in position.questions.items()
+        if question.type == "number"
+    ]
 
 
-def _number_question_problem(key: QuestionId, position: Position) -> str | None:
-    question = position.questions.get(key)
+def _number_question_message(question_id: QuestionId, position: Position) -> str | None:
+    question = position.questions.get(question_id)
     if question is None:
-        return f"There's no question {key}."
-    return None if question.type == "number" else f"{key} isn't a number question."
+        return f"There's no question {question_id}."
+    return None if question.type == "number" else f"{question_id} isn't a number question."
 
 
 def _mark_with_formula(settings: FormulaOfAnswersSettings, context: Context) -> Outcome:
@@ -124,25 +129,31 @@ def _mark_with_formula(settings: FormulaOfAnswersSettings, context: Context) -> 
     if (outcome := unanswered_outcome(answer)) is not None:
         return outcome
     expression = _parse_formula(settings.formula)
-    keys = natsorted(expression.variables)
-    values: dict[str, float] = {}
-    for key in keys:
-        other_answer = context.answers.get(key)
+    question_ids = natsorted(expression.variables)
+    numbers_by_question_id: dict[str, float] = {}
+    for question_id in question_ids:
+        other_answer = context.answers.get(question_id)
         if other_answer is None:
-            return Outcome(0.0, f"No answer to {key} to work from.")
+            return Outcome(0.0, f"No answer to {question_id} to work from.")
         if isinstance(other_answer, Unreadable):
-            return Outcome(0.0, f"{key}: {other_answer.reason}", marked=False)
-        values[key] = _as_number(other_answer)
-    answers_used = f"the {plural('answer', len(keys))} to {plain_join(keys, conjunction='and')}"
+            return Outcome(0.0, f"{question_id}: {other_answer.reason}", marked=False)
+        numbers_by_question_id[question_id] = _as_number(other_answer)
+    answers_used_phrase = (
+        f"the {plural('answer', len(question_ids))} "
+        f"to {plain_join(question_ids, conjunction='and')}"
+    )
     try:
-        expected = expression.value(values)
+        expected_value = expression.value(numbers_by_question_id)
     except ValueError as error:
-        return Outcome(0.0, f"Can't work out the expected answer from {answers_used}. {error}")
-    if within(_as_number(answer), expected, settings.tolerance):
-        return Outcome(1.0, CORRECT)
-    expected_number = format_number(float(f"{expected:.10g}"))
+        return Outcome(
+            0.0, f"Can't work out the expected answer from {answers_used_phrase}. {error}"
+        )
+    if is_within_tolerance(_as_number(answer), expected_value, settings.tolerance):
+        return Outcome(1.0, CORRECT_FEEDBACK)
+    expected_number_text = format_number(float(f"{expected_value:.10g}"))
     return Outcome(
-        0.0, f"{expected_text(expected_number, settings.tolerance)}, from {answers_used}."
+        0.0,
+        f"{expected_text(expected_number_text, settings.tolerance)}, from {answers_used_phrase}.",
     )
 
 

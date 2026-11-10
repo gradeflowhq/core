@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict
+from typing import Literal, TypedDict
 
 from ..questions.base import Question
 from ..questions.types import Answer, QuestionId, Unreadable
@@ -33,16 +33,16 @@ class Outcome:
 
     proportion: float
     feedback: str = ""
-    method: str = ""
+    method_label: str = ""
     """The label of the method that gave it."""
     marked: bool = True
     name: str | None = None
     """The name of the check that gave it, if it has one."""
     parts: tuple[Outcome, ...] = ()
     """The outcomes of the check's own checks, in order."""
-    skipped: bool = False
+    is_skipped: bool = False
     """Its condition was false."""
-    models: tuple[str, ...] = ()
+    model_names: tuple[str, ...] = ()
     """The language models that decided it."""
     title: str = ""
     """What the check that gave it checks, in a line of markdown."""
@@ -64,11 +64,14 @@ class Outcome:
             filter(None, (part.first_error() for part in self.parts)), None
         )
 
-    def all_models(self) -> tuple[str, ...]:
+    def all_model_names(self) -> tuple[str, ...]:
         """The language models that decided it or any of its parts, each once."""
         return tuple(
             dict.fromkeys(
-                (*self.models, *(model for part in self.parts for model in part.all_models()))
+                (
+                    *self.model_names,
+                    *(model for part in self.parts for model in part.all_model_names()),
+                )
             )
         )
 
@@ -76,16 +79,16 @@ class Outcome:
     def correct(self) -> bool:
         return self.proportion >= FULL_MARKS_PROPORTION
 
-    def template_values(self, question: str) -> dict[str, Any]:
+    def template_values(self, question_id: str) -> PartResult:
         """The outcome as templates see it."""
         return {
-            "name": self.name or self.method,
+            "name": self.name or self.method_label,
             "correct": self.correct,
             "proportion": self.proportion,
             "feedback": self.feedback,
-            "question": question,
+            "question": question_id,
             "marked": self.marked,
-            "skipped": self.skipped,
+            "skipped": self.is_skipped,
         }
 
 
@@ -96,15 +99,15 @@ def effect_of(outcome: Outcome) -> Effect:
     return "earned" if outcome.correct else "partial" if outcome.proportion > 0 else "no_marks"
 
 
-CORRECT = "Correct."
-NO_ANSWER = "No answer."
+CORRECT_FEEDBACK = "Correct."
+NO_ANSWER_FEEDBACK = "No answer."
 
 
 def unanswered_outcome(answer: Answer | Unreadable) -> Outcome | None:
     """The outcome of a blank or unreadable answer, which no method marks; None for any other."""
     if isinstance(answer, Unreadable):
         return Outcome(0.0, answer.reason, marked=False)
-    return Outcome(0.0, NO_ANSWER) if answer is None else None
+    return Outcome(0.0, NO_ANSWER_FEEDBACK) if answer is None else None
 
 
 def clamped(proportion: float) -> float:
@@ -122,16 +125,24 @@ class CheckOutput(TypedDict):
     """False when it couldn't mark an answer, so what it decides can't be marked either."""
 
 
+class PartResult(CheckOutput):
+    """One of a check's parts as its feedback reads it, as an item of ``parts``."""
+
+    name: str
+    question: str
+    skipped: bool
+
+
 type QuestionOutcomes = dict[QuestionId, Outcome]
 type TransformResult = Answer | Unreadable
 
 
 @dataclass(frozen=True)
-class Skipped:
+class SkippedStep:
     """What a workflow gives for the output of a step that didn't run."""
 
 
-type MethodResult = QuestionOutcomes | TransformResult | Skipped
+type MethodResult = QuestionOutcomes | TransformResult | SkippedStep
 
 
 @dataclass(frozen=True)
@@ -149,18 +160,18 @@ class StepResult:
         return None if isinstance(self.value, Unreadable) else self.value
 
     @property
-    def condition_short_circuit(self) -> Outcome | None:
+    def short_circuit_outcome(self) -> Outcome | None:
         """The outcome of a condition reading it, when it has nothing to test."""
         match self.value:
             case Unreadable(reason=reason):
                 return Outcome(0.0, reason, marked=False)
             case None:
-                return Outcome(0.0, skipped=True)
+                return Outcome(0.0, is_skipped=True)
             case {"marked": False, "feedback": str(feedback)}:
                 return Outcome(0.0, feedback, marked=False)
         return None
 
     @property
-    def transform_result(self) -> TransformResult | Skipped:
+    def transform_result(self) -> TransformResult | SkippedStep:
         """What a later step reads of it: a check has no answer to read."""
-        return Skipped() if self.skipped or isinstance(self.value, dict) else self.value
+        return SkippedStep() if self.skipped or isinstance(self.value, dict) else self.value

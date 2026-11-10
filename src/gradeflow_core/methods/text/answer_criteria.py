@@ -7,11 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Literal, Self
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ...common import model_service
 from ...common.hints import hint
-from ...common.model_service import Effort, ModelEndpoint
+from ...common.model_service import ModelEndpoint, ReasoningEffort
 from ...common.text import as_sentence, escaped_markdown, format_number, markdown_list, plural
 from ...questions.base import Question
 from ...questions.types import QuestionId
@@ -23,8 +23,7 @@ from ..outcome import FULL_MARKS_PROPORTION, Outcome, QuestionOutcomes
 from ..settings import NonBlankText, Settings
 from ..step import Context, Step
 
-Role = Literal["fast", "careful"]
-DecideWith = Literal["fast", "careful", "fast_then_careful"]
+ModelRole = Literal["fast", "careful"]
 CONCURRENT_REQUESTS = 8
 REPLY_ATTEMPTS = 2
 """How many times a model is asked for a reply that can be read."""
@@ -58,21 +57,17 @@ BEST_FIT_CAREFUL_SYSTEM_PROMPT = (
 )
 NO_REPLY = "no reply from the model"
 _VERDICT_LINE = re.compile(r"^\W*(A\d+)\W+(\d+)\W*:\s*(yes|no|unsure)\b\W*(.*?)\W*$", re.IGNORECASE)
-_OPTION_LINE = re.compile(r"^\W*(A\d+)\W*:\s*(\d+|unsure)\b\W*(.*?)\W*$", re.IGNORECASE)
+_BEST_FIT_LINE = re.compile(r"^\W*(A\d+)\W*:\s*(\d+|unsure)\b\W*(.*?)\W*$", re.IGNORECASE)
 _ANSWER_TAG = re.compile(r"<(?=\s*/?\s*answer)", re.IGNORECASE)
 """The ``<`` of an answer tag, which a student's answer can't write."""
 
 
 class Criterion(Settings):
-    model_config = ConfigDict(frozen=True)
-
     text: NonBlankText = Field(title="Criterion")
     marks: float = Field(default=1, title="Marks")
 
 
 class AnswerCriteriaSettings(Settings):
-    model_config = ConfigDict(frozen=True)
-
     criteria: tuple[Criterion, ...] = Field(
         min_length=1,
         title="Criteria",
@@ -90,7 +85,7 @@ class AnswerCriteriaSettings(Settings):
         title="Model answer",
         description="A worked answer the AI compares answers with.",
     )
-    decide_with: DecideWith = Field(
+    decide_with: Literal["fast", "careful", "fast_then_careful"] = Field(
         default="fast",
         title="How to decide",
         description="Careful takes minutes rather than seconds, and leaves what it's unsure of to "
@@ -181,31 +176,27 @@ class AnswerCriteria(Method[AnswerCriteriaSettings, QuestionOutcomes]):
         return f"AI checks the answer for each of these:\n{markdown_list(lines)}"
 
     def run(
-        self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+        self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> list[QuestionOutcomes]:
-        assert question is not None  # a check that marks an answer has a question
+        assert question_id is not None  # a check that marks an answer has a question
         settings = self._settings_of(step)
-        answers = [_answer_text(context, question) for context in contexts]
+        answers = [str(context.answers[question_id]).strip() for context in contexts]
         verdicts: Verdicts = {}
         if (endpoint := contexts[0].model_endpoint) is not None:
             requests_class = (
                 _BestFitRequests if settings.marks_by == "best_fit" else _CriteriaRequests
             )
             verdicts = requests_class(
-                endpoint, settings, contexts[0].questions[question], contexts[0].report_progress
+                endpoint, settings, contexts[0].questions[question_id], contexts[0].report_progress
             ).decide(sorted(set(answers)))
         return [
             {
-                question: _answer_outcome(
-                    settings, answer, verdicts, context.questions[question].max_marks
+                question_id: _answer_outcome(
+                    settings, answer, verdicts, context.questions[question_id].max_marks
                 )
             }
             for answer, context in zip(answers, contexts, strict=True)
         ]
-
-
-def _answer_text(context: Context, question: QuestionId) -> str:
-    return str(context.answers[question]).strip()
 
 
 def _answer_outcome(
@@ -229,7 +220,10 @@ def _answer_outcome(
             replace(part, effect="uncounted") if part.marked and not part.correct else part
             for part in parts
         )
-        feedback = _best_fit_feedback(parts)
+        feedback = next(
+            (part.feedback for part in parts if part.correct or not part.marked),
+            "Fits no criterion.",
+        )
     else:
         feedback = _total_feedback(settings.criteria, parts, proportion)
     return Outcome(
@@ -252,7 +246,7 @@ def _criterion_outcome(criterion_text: str, verdict: Verdict) -> Outcome:
         marked=verdict.is_met is not None,
         name=criterion_text,
         labels=(criterion_text,),
-        models=verdict.models,
+        model_names=verdict.models,
     )
 
 
@@ -272,14 +266,7 @@ def _total_feedback(
     return "\n".join(dict.fromkeys(lines))
 
 
-def _best_fit_feedback(parts: Iterable[Outcome]) -> str:
-    return next(
-        (part.feedback for part in parts if part.correct or not part.marked),
-        "Fits no criterion.",
-    )
-
-
-def _reason_from_error(error: Exception) -> str:
+def _reason_from_error(error: model_service.ServiceError) -> str:
     """Why criteria stay undecided: a failure's sentence, put after "Couldn't decide (…)"."""
     message = str(error)
     return message[0].lower() + message[1:].rstrip(".")
@@ -287,7 +274,7 @@ def _reason_from_error(error: Exception) -> str:
 
 def _undecided_verdicts(
     pairs: Iterable[tuple[str, str]], models: tuple[str, ...], reason: str
-) -> dict[tuple[str, str], Verdict]:
+) -> Verdicts:
     return dict.fromkeys(pairs, Verdict(None, models, reason))
 
 
@@ -299,34 +286,33 @@ class _CriteriaRequests:
         endpoint: ModelEndpoint,
         settings: AnswerCriteriaSettings,
         question: Question,
-        report: Callable[[Progress], None],
+        report_progress: Callable[[Progress], None],
     ) -> None:
         self.endpoint = endpoint
         self.settings = settings
         self.criterion_texts = list(
             dict.fromkeys(criterion.text for criterion in settings.criteria)
         )
-        self.report = report
+        self.report_progress = report_progress
         self.failures: dict[str, str] = {}
         """Why asking a model failed, by model, where asking again would fail the same way."""
         numbered_criteria = "\n".join(
             f"{number}. {criterion_text}"
             for number, criterion_text in enumerate(self.criterion_texts, 1)
         )
-        context = (
+        prompt_lines = (
             [f"Question: {question_description}"]
             if (question_description := model_context(question))
             else []
         )
         if settings.model_answer:
-            context.append(f"Model answer: {settings.model_answer}")
-        self.prompt_context = "\n".join([*context, f"Criteria:\n{numbered_criteria}"])
+            prompt_lines.append(f"Model answer: {settings.model_answer}")
+        self.prompt_context = "\n".join([*prompt_lines, f"Criteria:\n{numbered_criteria}"])
 
-    def decide(self, answers: list[str]) -> dict[tuple[str, str], Verdict]:
+    def decide(self, answers: list[str]) -> Verdicts:
         settings = self.settings
         if settings.decide_with == "careful":
-            all_criteria = list(range(len(self.criterion_texts)))
-            return self._decide_carefully(dict.fromkeys(answers, all_criteria), ())
+            return self._decide_carefully(dict.fromkeys(answers, self.criterion_texts), ())
         model = self.endpoint.fast_model
         if model is None:
             return _undecided_verdicts(
@@ -335,22 +321,17 @@ class _CriteriaRequests:
         verdicts = self._decide_fast(model, answers)
         if settings.decide_with == "fast":
             return verdicts
-        unsure_criteria: dict[str, list[int]] = {}
+        unsure_criteria: dict[str, list[str]] = {}
         for (answer, criterion_text), verdict in verdicts.items():
             if verdict.is_met is None:
-                unsure_criteria.setdefault(answer, []).append(
-                    self.criterion_texts.index(criterion_text)
-                )
-        sure_verdicts = {
-            key: verdict for key, verdict in verdicts.items() if verdict.is_met is not None
-        }
-        return sure_verdicts | self._decide_carefully(unsure_criteria, (model,))
+                unsure_criteria.setdefault(answer, []).append(criterion_text)
+        return verdicts | self._decide_carefully(unsure_criteria, (model,))
 
-    def _decide_fast(self, model: str, answers: list[str]) -> dict[tuple[str, str], Verdict]:
+    def _decide_fast(self, model: str, answers: list[str]) -> Verdicts:
         """The fast model's verdict on each answer and criterion, left undecided where the model is
         less sure than the confidence needed or gave none."""
 
-        def decide_batch(batch: Sequence[str]) -> dict[tuple[str, str], Verdict]:
+        def decide_batch(batch: Sequence[str]) -> Verdicts:
             try:
                 verdicts = self._ask(model, lambda: self._fast_verdicts(model, batch))
             except model_service.ServiceError as error:
@@ -373,20 +354,16 @@ class _CriteriaRequests:
 
         return self._ask_in_batches(decide_batch, answers, "Deciding criteria")
 
-    def _fast_verdicts(
-        self, model: str, batch: Sequence[str]
-    ) -> dict[tuple[str, str], Verdict] | None:
+    def _fast_verdicts(self, model: str, batch: Sequence[str]) -> Verdicts | None:
         """The fast model's verdicts on ``batch``, or None if its reply can't be read."""
-        reply = model_service.ask(
+        tokens = model_service.ask_token_logprobs(
             self.endpoint,
             model,
             FAST_SYSTEM_PROMPT,
             self._fast_prompt(batch, " ".join(["Yes"] * len(self.criterion_texts))),
-            effort="none",
-            logprobs=True,
             max_tokens=8 * len(batch) * len(self.criterion_texts) + 16,
         )
-        probabilities = model_service.yes_probabilities(reply)
+        probabilities = model_service.yes_probabilities(tokens)
         if len(probabilities) != len(batch) * len(self.criterion_texts):
             return None
         confidence_needed = self._confidence_needed
@@ -415,20 +392,20 @@ class _CriteriaRequests:
         return settings.confidence_needed if settings.decide_with == "fast_then_careful" else 0.0
 
     @property
-    def _reasoning_effort(self) -> Effort | None:
+    def _reasoning_effort(self) -> ReasoningEffort | None:
         return None if (effort := self.settings.careful_effort) == "automatic" else effort
 
     def _decide_carefully(
-        self, criteria_to_ask: Mapping[str, list[int]], earlier_models: tuple[str, ...]
-    ) -> dict[tuple[str, str], Verdict]:
+        self, criteria_to_ask: Mapping[str, list[str]], earlier_models: tuple[str, ...]
+    ) -> Verdicts:
         """The careful model's verdicts on the criteria of each answer listed, or, without a
         careful model, those criteria undecided."""
 
         def pairs_to_ask(answers: Iterable[str]) -> list[tuple[str, str]]:
             return [
-                (answer, self.criterion_texts[i])
+                (answer, criterion_text)
                 for answer in answers
-                for i in criteria_to_ask[answer]
+                for criterion_text in criteria_to_ask[answer]
             ]
 
         model = self.endpoint.careful_model
@@ -438,84 +415,92 @@ class _CriteriaRequests:
             )
         models = (*earlier_models, model)
 
-        def decide_batch(batch: Sequence[str]) -> dict[tuple[str, str], Verdict]:
+        def decide_batch(batch: Sequence[str]) -> Verdicts:
             try:
-                parsed_verdicts = self._ask(
-                    model, lambda: self._careful_verdicts(model, batch, criteria_to_ask)
+                verdicts = self._ask(
+                    model, lambda: self._careful_verdicts(models, batch, criteria_to_ask)
                 )
             except model_service.ServiceError as error:
                 return _undecided_verdicts(pairs_to_ask(batch), models, _reason_from_error(error))
-            if parsed_verdicts is None:
+            if verdicts is None:
                 return _undecided_verdicts(pairs_to_ask(batch), models, NO_REPLY)
-            return {
-                key: Verdict(is_met, models, reason)
-                for key, (is_met, reason) in parsed_verdicts.items()
-            }
+            return verdicts
 
         return self._ask_in_batches(decide_batch, list(criteria_to_ask), "Deciding carefully")
 
     def _careful_verdicts(
-        self, model: str, batch: Sequence[str], criteria_to_ask: Mapping[str, list[int]]
-    ) -> dict[tuple[str, str], tuple[bool | None, str]] | None:
-        """Whether each answer meets each criterion asked about, None where the model is unsure,
-        and why."""
-        answers_by_label = _labelled_answers(batch)
+        self,
+        models: tuple[str, ...],
+        batch: Sequence[str],
+        criteria_to_ask: Mapping[str, list[str]],
+    ) -> Verdicts | None:
+        """The last of ``models``' verdicts on each answer and criterion asked about, undecided
+        where it is unsure, or None if its reply can't be read."""
+        answers_by_label = _answers_by_label(batch)
         tagged_answers = "\n\n".join(
             f"{_tagged_answer(label, answer)}\nDecide criteria for {label}: "
-            + ", ".join(str(i + 1) for i in criteria_to_ask[answer])
+            + ", ".join(
+                str(self.criterion_texts.index(criterion_text) + 1)
+                for criterion_text in criteria_to_ask[answer]
+            )
             for label, answer in answers_by_label.items()
         )
         reply = model_service.ask(
             self.endpoint,
-            model,
+            models[-1],
             CAREFUL_SYSTEM_PROMPT,
             f"{self.prompt_context}\n\n{tagged_answers}",
-            effort=self._reasoning_effort,
+            reasoning_effort=self._reasoning_effort,
             max_tokens=16_000,
         )
-        verdicts = {}
-        for line in model_service.reply_text(reply).splitlines():
-            if (match := _VERDICT_LINE.match(line.strip())) and match[1] in answers_by_label:
-                verdicts[answers_by_label[match[1]], int(match[2]) - 1] = (
-                    match[3].lower(),
-                    match[4],
-                )
-        asked_pairs = {(answer, i) for answer in batch for i in criteria_to_ask[answer]}
+        criteria_by_number = dict(enumerate(self.criterion_texts, 1))
+        verdicts = {
+            (answers_by_label[match[1]], criterion_text): Verdict(
+                None if match[3].lower() == "unsure" else match[3].lower() == "yes",
+                models,
+                match[4] or "the model was unsure",
+            )
+            for line in reply.splitlines()
+            if (match := _VERDICT_LINE.match(line.strip()))
+            and match[1] in answers_by_label
+            and (criterion_text := criteria_by_number.get(int(match[2])))
+        }
+        asked_pairs = {
+            (answer, criterion_text)
+            for answer in batch
+            for criterion_text in criteria_to_ask[answer]
+        }
         if not asked_pairs <= verdicts.keys():
             return None
-        return {
-            (answer, self.criterion_texts[i]): (
-                None if verdicts[answer, i][0] == "unsure" else verdicts[answer, i][0] == "yes",
-                verdicts[answer, i][1] or "the model was unsure",
-            )
-            for answer, i in asked_pairs
-        }
+        return {pair: verdicts[pair] for pair in asked_pairs}
 
     def _ask_in_batches(
         self,
-        decide_batch: Callable[[Sequence[str]], dict[tuple[str, str], Verdict]],
+        decide_batch: Callable[[Sequence[str]], Verdicts],
         answers: list[str],
-        step: str,
-    ) -> dict[tuple[str, str], Verdict]:
+        progress_step: str,
+    ) -> Verdicts:
         """What ``decide_batch`` decides for each batch of ``answers``, asking several batches at a
         time."""
         batches = list(itertools.batched(answers, self.endpoint.answers_per_request, strict=False))
-        verdicts: dict[tuple[str, str], Verdict] = {}
+        verdicts: Verdicts = {}
         with ThreadPoolExecutor(CONCURRENT_REQUESTS) as pool:
             for batches_done, batch_verdicts in enumerate(pool.map(decide_batch, batches), 1):
                 verdicts |= batch_verdicts
-                self.report(Progress(completed=batches_done, total=len(batches), step=step))
+                self.report_progress(
+                    Progress(completed=batches_done, total=len(batches), step=progress_step)
+                )
         return verdicts
 
-    def _ask[T](self, model: str, ask: Callable[[], T | None]) -> T | None:
+    def _ask(self, model: str, ask: Callable[[], Verdicts | None]) -> Verdicts | None:
         """What ``ask`` gets of ``model``, asking again if the reply couldn't be read. After a
         failure that would fail every request, raises it again without asking."""
         if model in self.failures:
             raise model_service.ServiceError(self.failures[model], fails_every_request=True)
         try:
             for _ in range(REPLY_ATTEMPTS):
-                if (reply := ask()) is not None:
-                    return reply
+                if (verdicts := ask()) is not None:
+                    return verdicts
         except model_service.ServiceError as error:
             if error.fails_every_request:
                 self.failures[model] = str(error)
@@ -527,71 +512,71 @@ class _BestFitRequests(_CriteriaRequests):
     """The requests choosing one criterion for each answer."""
 
     @property
-    def _options(self) -> list[str]:
+    def _criterion_numbers(self) -> list[str]:
         return [str(number) for number in range(len(self.criterion_texts) + 1)]
 
-    def _fast_verdicts(
-        self, model: str, batch: Sequence[str]
-    ) -> dict[tuple[str, str], Verdict] | None:
-        reply = model_service.ask(
+    def _fast_verdicts(self, model: str, batch: Sequence[str]) -> Verdicts | None:
+        tokens = model_service.ask_token_logprobs(
             self.endpoint,
             model,
             BEST_FIT_FAST_SYSTEM_PROMPT,
             self._fast_prompt(batch, "1"),
-            effort="none",
-            logprobs=True,
             max_tokens=8 * len(batch) + 16,
         )
-        chosen_options = model_service.option_probabilities(reply, self._options)
-        if len(chosen_options) != len(batch):
+        pick_probabilities = model_service.option_probabilities(tokens, self._criterion_numbers)
+        if len(pick_probabilities) != len(batch):
             return None
         return {
             (answer, criterion_text): Verdict(
-                None if probability < self._confidence_needed else str(number) == option, (model,)
+                None if probability < self._confidence_needed else str(number) == pick, (model,)
             )
-            for answer, (option, probability) in zip(batch, chosen_options, strict=True)
+            for answer, (pick, probability) in zip(batch, pick_probabilities, strict=True)
             for number, criterion_text in enumerate(self.criterion_texts, 1)
         }
 
     def _careful_verdicts(
-        self, model: str, batch: Sequence[str], criteria_to_ask: Mapping[str, list[int]]
-    ) -> dict[tuple[str, str], tuple[bool | None, str]] | None:
-        answers_by_label = _labelled_answers(batch)
+        self,
+        models: tuple[str, ...],
+        batch: Sequence[str],
+        criteria_to_ask: Mapping[str, list[str]],
+    ) -> Verdicts | None:
+        answers_by_label = _answers_by_label(batch)
         reply = model_service.ask(
             self.endpoint,
-            model,
+            models[-1],
             BEST_FIT_CAREFUL_SYSTEM_PROMPT,
             f"{self.prompt_context}\n\n{_tagged_answers(batch)}",
-            effort=self._reasoning_effort,
+            reasoning_effort=self._reasoning_effort,
             max_tokens=16_000,
         )
-        allowed_options = {*self._options, "unsure"}
-        options_by_answer = {
+        allowed_picks = {*self._criterion_numbers, "unsure"}
+        pick_by_answer = {
             answers_by_label[match[1]]: (match[2].lower(), match[3])
-            for line in model_service.reply_text(reply).splitlines()
-            if (match := _OPTION_LINE.match(line.strip()))
+            for line in reply.splitlines()
+            if (match := _BEST_FIT_LINE.match(line.strip()))
             and match[1] in answers_by_label
-            and match[2].lower() in allowed_options
+            and match[2].lower() in allowed_picks
         }
-        if len(options_by_answer) != len(batch):
+        if len(pick_by_answer) != len(batch):
             return None
         return {
-            (answer, criterion_text): (
-                None if option == "unsure" else str(number) == option,
+            (answer, criterion_text): Verdict(
+                None if pick == "unsure" else str(number) == pick,
+                models,
                 reason or "the model was unsure",
             )
-            for answer, (option, reason) in options_by_answer.items()
+            for answer, (pick, reason) in pick_by_answer.items()
             for number, criterion_text in enumerate(self.criterion_texts, 1)
         }
 
 
-def _labelled_answers(batch: Sequence[str]) -> dict[str, str]:
+def _answers_by_label(batch: Sequence[str]) -> dict[str, str]:
     return {f"A{number}": answer for number, answer in enumerate(batch, 1)}
 
 
 def _tagged_answers(batch: Sequence[str]) -> str:
     return "\n\n".join(
-        _tagged_answer(label, answer) for label, answer in _labelled_answers(batch).items()
+        _tagged_answer(label, answer) for label, answer in _answers_by_label(batch).items()
     )
 
 

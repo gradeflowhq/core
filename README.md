@@ -103,7 +103,7 @@ criteria = [
 scheme = MarkScheme.load(
     [{"question": "Q1", "uses": "gradeflow/answer-criteria@1", "with": {"criteria": criteria}}]
 )
-endpoint = ModelEndpoint(url="https://models.example.com/v1", token="your-token")
+endpoint = ModelEndpoint(url="https://models.example.com/v1", api_key="your-api-key")
 fast_model, careful_model = best_models(try_models(endpoint))
 endpoint = endpoint.model_copy(update={"fast_model": fast_model, "careful_model": careful_model})
 students = [Submission(student_id="1", answers={"Q1": "Because ice is less dense than water."})]

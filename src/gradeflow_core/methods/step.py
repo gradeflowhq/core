@@ -6,7 +6,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal
 
 from pydantic import (
     BaseModel,
@@ -32,21 +32,21 @@ from ..questions.base import Question
 from ..questions.question_set import Answers, QuestionSet, value_of
 from ..questions.reading import write_answer
 from ..questions.types import Answer, QuestionId, Unreadable
-from .input_sources import ResolvedInput, StepOutputSource, input_source
+from .input_sources import StepOutputSource, input_source
 from .outcome import (
     CheckOutput,
     Detail,
-    MethodResult,
     Outcome,
     QuestionOutcomes,
-    Skipped,
+    SkippedStep,
     StepResult,
     TransformResult,
     unanswered_outcome,
 )
+from .position import Position
 from .problems import located_problems
 from .settings import IDENTIFIER, Settings, item_field
-from .templates import TemplateError, condition, evaluate, names_read, render
+from .templates import TemplateError, condition_expression, evaluate, names_read, render
 
 if TYPE_CHECKING:
     from .collection import Methods
@@ -80,32 +80,36 @@ class Context:
     report_progress: Callable[[Progress], None] = lambda _: None
 
     def with_answer(
-        self, key: QuestionId, answer: Answer | Unreadable, question: Question
+        self, question_id: QuestionId, answer: Answer | Unreadable, question: Question
     ) -> Context:
-        """This context, with ``key`` answered by ``answer`` and read as ``question``, and
+        """This context, with ``question_id`` answered by ``answer`` and read as ``question``, and
         feedback showing ``answer``."""
-        marked_question = self.questions[key]
+        marked_question = self.questions[question_id]
         input_question = question.model_copy(update={"max_marks": marked_question.max_marks})
         written_answer = "" if isinstance(answer, Unreadable) else write_answer(answer)
         return replace(
             self,
-            answers={**self.answers, key: answer},
-            written_answers={**self.written_answers, key: written_answer},
+            answers={**self.answers, question_id: answer},
+            written_answers={**self.written_answers, question_id: written_answer},
             questions=QuestionSet.model_construct(
-                root={**self.questions.root, key: input_question}
+                root={**self.questions.root, question_id: input_question}
             ),
-            source_answers={key: (self.answers.get(key), marked_question), **self.source_answers},
+            source_answers={
+                question_id: (self.answers.get(question_id), marked_question),
+                **self.source_answers,
+            },
         )
 
-    def with_value_as_answer(self, key: QuestionId, number: int) -> Context:
-        """This context, with value ``number`` of the answer to ``key`` as its answer."""
+    def with_value_as_answer(self, question_id: QuestionId, value_number: int) -> Context:
+        """This context, with value ``value_number`` of the answer to ``question_id`` as its
+        answer."""
         source_answer, source_question = self.source_answers.get(
-            key, (self.answers.get(key), self.questions[key])
+            question_id, (self.answers.get(question_id), self.questions[question_id])
         )
-        question = source_question.value_question(number)
+        question = source_question.value_question(value_number)
         if question is None:
             return self
-        return self.with_answer(key, value_of(source_answer, number), question)
+        return self.with_answer(question_id, value_of(source_answer, value_number), question)
 
     def with_step_result(self, step_id: str, result: StepResult) -> Context:
         """This context, with a step's result among the earlier ones."""
@@ -122,8 +126,16 @@ def _check_result(outcomes: Mapping[QuestionId, Outcome]) -> StepResult:
         ),
         "marked": all(outcome.marked for outcome in outcomes.values()),
     }
-    skipped = bool(outcomes) and all(outcome.skipped for outcome in outcomes.values())
-    return StepResult(output, skipped)
+    is_skipped = bool(outcomes) and all(outcome.is_skipped for outcome in outcomes.values())
+    return StepResult(output, is_skipped)
+
+
+@dataclass(frozen=True)
+class ResolvedInput:
+    """A step's input read for one student. ``short_circuit_outcome`` replaces running the step."""
+
+    context: Context
+    short_circuit_outcome: Outcome | None = None
 
 
 class OutcomeFeedback(BaseModel):
@@ -135,7 +147,7 @@ class OutcomeFeedback(BaseModel):
     partly_correct: str = Field(default="", title="When it's partly correct")
     incorrect: str = Field(default="", title="When it's incorrect")
 
-    def of(self, outcome: Outcome) -> str:
+    def template_for(self, outcome: Outcome) -> str:
         if outcome.correct:
             return self.correct
         return self.partly_correct if outcome.proportion > 0 else self.incorrect
@@ -159,13 +171,12 @@ class Step(BaseModel, ABC):
         title="Name",
         description="What lists and feedback call this step.",
         examples=["Sign error"],
-        json_schema_extra=hint(is_name=True, advanced=True),
+        json_schema_extra=hint(advanced=True),
     )
     question: QuestionId | None = Field(
         default=None,
         title="Question",
         description="The question this step reads and marks.",
-        json_schema_extra=hint(kind="question"),
     )
     input: str | None = Field(
         default=None,
@@ -214,9 +225,9 @@ class Step(BaseModel, ABC):
 
     @abstractmethod
     def run(
-        self, contexts: Sequence[Context], question: QuestionId | None = None
-    ) -> list[tuple[Context, dict[QuestionId, Outcome] | None]]:
-        """Each student's context after it, and the outcomes it gave if it marks."""
+        self, contexts: Sequence[Context], question_id: QuestionId | None
+    ) -> tuple[list[Context], list[QuestionOutcomes]]:
+        """Each student's context after it, and the outcomes it gave: none if it doesn't mark."""
 
     def described_in_list(self, weight_notes: Sequence[str]) -> str:
         """What it does, as an item of a list, with a check's ``weight_notes``."""
@@ -230,13 +241,13 @@ class Step(BaseModel, ABC):
         """What it does, in a sentence or two of markdown."""
         return self.method.describe(self)
 
-    def questions_marked(self, question: QuestionId | None = None) -> set[QuestionId]:
-        return self.method.questions_marked(self, self.question or question)
+    def questions_marked(self, question_id: QuestionId | None = None) -> set[QuestionId]:
+        return self.method.questions_marked(self, self.question or question_id)
 
-    def questions_read(self, question: QuestionId | None = None) -> set[QuestionId]:
-        question = self.question or question
-        questions_read = self.method.questions_read(self, question) | (
-            {question} if question else set()
+    def questions_read(self, question_id: QuestionId | None = None) -> set[QuestionId]:
+        question_id = self.question or question_id
+        questions_read = self.method.questions_read(self, question_id) | (
+            {question_id} if question_id else set()
         )
         return questions_read | input_source(self.input).questions_read()
 
@@ -246,7 +257,8 @@ class Step(BaseModel, ABC):
             return True
         try:
             return any(
-                inner.needs_model_endpoint() for _, inner in self.method.expanded_steps(self)
+                inner_step.needs_model_endpoint()
+                for _, inner_step in self.method.expanded_steps(self)
             )
         except InvalidError, TemplateError:
             return False
@@ -262,62 +274,52 @@ class Step(BaseModel, ABC):
             data.pop("with")
         return {key: data[key] for key in STEP_KEYS if key in data}
 
-    def question_key(self, question: QuestionId | None) -> QuestionId | None:
-        """The key of the answer it reads and marks, at ``question`` unless it names its own."""
-        return input_source(self.input).question_key(self.question or question)
+    def marked_question_id(self, question_id: QuestionId | None) -> QuestionId | None:
+        """The key of the answer it reads and marks, at ``question_id`` unless it names its own."""
+        return input_source(self.input).marked_question_id(self.question or question_id)
 
-    def _resolved_input(self, context: Context, key: QuestionId | None) -> ResolvedInput:
+    def _resolved_input(self, context: Context, question_id: QuestionId | None) -> ResolvedInput:
         """The step's input read and its condition tested, for one student."""
-        resolved_input = input_source(self.input).resolve(context, key)
-        if resolved_input.short_circuit_outcome is not None:
-            return resolved_input
-        short_circuit_outcome = self._condition_short_circuit(resolved_input.context)
-        if short_circuit_outcome is None and key is not None:
-            answer = resolved_input.context.answers.get(key)
+        input_context = input_source(self.input).resolved_context(context, question_id)
+        if input_context is None:
+            return ResolvedInput(context, Outcome(0.0, is_skipped=True))
+        short_circuit_outcome = self._condition_short_circuit_outcome(input_context)
+        if short_circuit_outcome is None and question_id is not None:
+            answer = input_context.answers.get(question_id)
             short_circuit_outcome = unanswered_outcome(answer)
             if answer is None and self.method.marks_blank_answers:
                 short_circuit_outcome = None
-        return replace(resolved_input, short_circuit_outcome=short_circuit_outcome)
+        return ResolvedInput(input_context, short_circuit_outcome)
 
-    def _run_method(
-        self, contexts: Sequence[Context], key: QuestionId | None
-    ) -> list[tuple[ResolvedInput, MethodResult]]:
-        """Each student's resolved input, and what the method gave or None if it didn't run."""
-        resolved_inputs = [self._resolved_input(context, key) for context in contexts]
-        inputs_to_run = [
-            resolved_input
+    def _resolved_inputs_and_contexts_to_run(
+        self, contexts: Sequence[Context], question_id: QuestionId | None
+    ) -> tuple[list[ResolvedInput], list[Context]]:
+        """Each student's resolved input, and the contexts of those the method runs for."""
+        resolved_inputs = [self._resolved_input(context, question_id) for context in contexts]
+        return resolved_inputs, [
+            resolved_input.context
             for resolved_input in resolved_inputs
             if resolved_input.short_circuit_outcome is None
         ]
-        method_results = iter(
-            self.method.run(self, [resolved.context for resolved in inputs_to_run], key)
-            if inputs_to_run
-            else ()
-        )
-        return [
-            (
-                resolved_input,
-                next(method_results) if resolved_input.short_circuit_outcome is None else None,
-            )
-            for resolved_input in resolved_inputs
-        ]
 
-    def _condition_short_circuit(self, context: Context) -> Outcome | None:
+    def _condition_short_circuit_outcome(self, context: Context) -> Outcome | None:
         if self.if_ is None:
             return None
-        expression = condition(self.if_)
-        for key in sorted(names_read(self.if_, "steps")):
-            if key not in context.earlier_results:
-                raise TemplateError(f"There's no earlier step {key}.")
-            if (outcome := context.earlier_results[key].condition_short_circuit) is not None:
+        expression = condition_expression(self.if_)
+        for step_id in sorted(names_read(self.if_, "steps")):
+            if step_id not in context.earlier_results:
+                raise TemplateError(f"There's no earlier step {step_id}.")
+            if (outcome := context.earlier_results[step_id].short_circuit_outcome) is not None:
                 return outcome
         if not evaluate(expression, {**self._scope, "steps": context.earlier_results}):
-            return Outcome(0.0, skipped=True)
+            return Outcome(0.0, is_skipped=True)
         return None
 
 
 class Check(Step):
     """A step that gives marks."""
+
+    method: ClassVar[Method[Any, QuestionOutcomes]]
 
     weight: float = Field(
         default=1,
@@ -349,26 +351,20 @@ class Check(Step):
         return self.weight
 
     def run(
-        self, contexts: Sequence[Context], question: QuestionId | None = None
-    ) -> list[tuple[Context, dict[QuestionId, Outcome] | None]]:
-        outcomes_by_student = self.mark(contexts, question)
+        self, contexts: Sequence[Context], question_id: QuestionId | None
+    ) -> tuple[list[Context], list[QuestionOutcomes]]:
+        outcomes_by_student = self.mark(contexts, question_id)
         return [
-            (
-                context.with_step_result(self.id, _check_result(outcomes)) if self.id else context,
-                outcomes,
-            )
+            context.with_step_result(self.id, _check_result(outcomes)) if self.id else context
             for context, outcomes in zip(contexts, outcomes_by_student, strict=True)
-        ]
+        ], outcomes_by_student
 
     def described_in_list(self, weight_notes: Sequence[str]) -> str:
-        return self.described_with_heading(weight_notes)
-
-    def described_with_heading(self, notes: Sequence[str] = ()) -> str:
-        """What it checks after its question and its name, with ``notes`` after them, as a check
-        among others: ``**Q2, Sign error** (50% of the marks): …``."""
+        """What it checks after its question and its name, with ``weight_notes`` after them, as a
+        check among others: ``**Q2, Sign error** (50% of the marks): …``."""
         description = self.describe()
         heading = ", ".join(part for part in (self.question, self.name) if part)
-        notes_text = ", ".join(notes)
+        notes_text = ", ".join(weight_notes)
         if heading and notes_text:
             return f"**{heading}** ({notes_text}): {description}"
         if title := heading or capitalized(notes_text):
@@ -376,122 +372,158 @@ class Check(Step):
         return description
 
     def mark(
-        self, contexts: Sequence[Context], question: QuestionId | None = None
+        self, contexts: Sequence[Context], question_id: QuestionId | None = None
     ) -> list[dict[QuestionId, Outcome]]:
-        """The outcomes of each student in ``contexts``, reading ``question`` unless the check
+        """The outcomes of each student in ``contexts``, reading ``question_id`` unless the check
         names its own."""
-        key = self.question_key(question)
-        results: list[dict[QuestionId, Outcome]] = []
-        for resolved_input, method_result in self._run_method(contexts, key):
+        marked_question_id = self.marked_question_id(question_id)
+        resolved_inputs, contexts_to_run = self._resolved_inputs_and_contexts_to_run(
+            contexts, marked_question_id
+        )
+        method_results = iter(
+            self.method.run(self, contexts_to_run, marked_question_id) if contexts_to_run else ()
+        )
+        outcomes_by_student: list[dict[QuestionId, Outcome]] = []
+        for resolved_input in resolved_inputs:
             if resolved_input.short_circuit_outcome is None:
-                outcomes = cast(QuestionOutcomes, method_result)
-                results.append(self._with_feedback_and_details(outcomes, resolved_input, key))
+                outcomes = next(method_results)
+                outcomes_by_student.append(
+                    self._with_feedback_and_details(
+                        outcomes, resolved_input.context, marked_question_id
+                    )
+                )
                 continue
-            keys = (
-                {key} if key else self.questions_marked(question) or self.questions_read(question)
+            marked_question_ids = (
+                {marked_question_id}
+                if marked_question_id
+                else self.questions_marked(question_id) or self.questions_read(question_id)
             )
-            results.append(dict.fromkeys(keys, resolved_input.short_circuit_outcome))
+            outcomes_by_student.append(
+                dict.fromkeys(marked_question_ids, resolved_input.short_circuit_outcome)
+            )
         return [
             {
-                key: self._titled(replace(outcome, method=outcome.method or self.method.label), key)
-                for key, outcome in outcomes.items()
+                marked_question_id: self._titled(
+                    replace(outcome, method_label=self.method.label), marked_question_id
+                )
+                for marked_question_id, outcome in outcomes.items()
             }
-            for outcomes in results
+            for outcomes in outcomes_by_student
         ]
 
     def _with_feedback_and_details(
         self,
         outcomes: Mapping[QuestionId, Outcome],
-        resolved_input: ResolvedInput,
-        key: QuestionId | None,
+        context: Context,
+        marked_question_id: QuestionId | None,
     ) -> dict[QuestionId, Outcome]:
         """``outcomes`` with the check's own feedback, and the transform's answer it read."""
         read_as_details: tuple[Detail, ...] = ()
-        if key is not None and isinstance(input_source(self.input), StepOutputSource):
-            answer = resolved_input.context.answers[key]
+        if marked_question_id is not None and isinstance(
+            input_source(self.input), StepOutputSource
+        ):
+            answer = context.answers[marked_question_id]
             assert not isinstance(answer, Unreadable)  # marking deals with these first
             read_as_details = (Detail("Read as", write_answer(answer)),)
         return {
-            key: replace(
+            question_id: replace(
                 outcome,
-                feedback=self._feedback(outcome, resolved_input.context, key)
+                feedback=self._feedback(outcome, context, question_id)
                 if self.feedback
                 else outcome.feedback,
                 details=(*read_as_details, *outcome.details),
             )
-            for key, outcome in outcomes.items()
+            for question_id, outcome in outcomes.items()
         }
 
-    def _titled(self, outcome: Outcome, key: QuestionId) -> Outcome:
+    def _titled(self, outcome: Outcome, question_id: QuestionId) -> Outcome:
         """``outcome`` with what its breakdown says of the check: labelled by its name, and its
         question where that isn't the one marked. A named check with checks inside is titled by its
         name alone."""
-        labels = tuple(label for label in (self.question, self.name) if label and label != key)
-        title = "" if self.name and outcome.children else outcome.title or self.method.title(self)
+        labels = tuple(
+            label for label in (self.question, self.name) if label and label != question_id
+        )
+        title = (
+            ""
+            if self.name and outcome.children
+            else outcome.title or self.describe().split("\n", 1)[0].removesuffix(":")
+        )
         return replace(outcome, title=title, labels=(*labels, *outcome.labels))
 
-    def _feedback(self, outcome: Outcome, context: Context, question: QuestionId) -> str:
+    def _feedback(self, outcome: Outcome, context: Context, question_id: QuestionId) -> str:
         feedback = self.feedback
-        template = feedback.of(outcome) if isinstance(feedback, OutcomeFeedback) else feedback
+        template = (
+            feedback.template_for(outcome) if isinstance(feedback, OutcomeFeedback) else feedback
+        )
         if not template or not outcome.marked:
             return outcome.feedback
         scope = {**self._scope, "steps": dict(context.earlier_results)}
-        return rendered_feedback(template, scope, outcome, context, question)
+        return rendered_feedback(template, scope, outcome, context, question_id)
 
 
 class Transform(Step):
     """A step that turns an answer into another for later steps to read, and gives no marks."""
 
+    method: ClassVar[Method[Any, TransformResult | SkippedStep]]
+
     def transform(
-        self, contexts: Sequence[Context], question: QuestionId | None = None
+        self, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> list[StepResult]:
-        """What it gives each student in ``contexts``, reading ``question`` unless it names its
+        """What it gives each student in ``contexts``, reading ``question_id`` unless it names its
         own."""
-        key = self.question_key(question)
-        runs = self._run_method(contexts, key)
-        output_question = self._output_question(key, [resolved for resolved, _ in runs])
+        marked_question_id = self.marked_question_id(question_id)
+        resolved_inputs, contexts_to_run = self._resolved_inputs_and_contexts_to_run(
+            contexts, marked_question_id
+        )
+        method_results = iter(
+            self.method.run(self, contexts_to_run, marked_question_id) if contexts_to_run else ()
+        )
+        output_question = self._output_question(marked_question_id, resolved_inputs)
         results = []
-        for resolved_input, method_result in runs:
+        for resolved_input in resolved_inputs:
             outcome = resolved_input.short_circuit_outcome
+            transform_result: TransformResult | SkippedStep
             if outcome is None:
-                value = cast(TransformResult | Skipped, method_result)
-            elif outcome.skipped:
-                value = Skipped()
+                transform_result = next(method_results)
+            elif outcome.is_skipped:
+                transform_result = SkippedStep()
             else:
-                value = None if outcome.marked else Unreadable("", outcome.feedback)
+                transform_result = None if outcome.marked else Unreadable(outcome.feedback)
             results.append(
                 StepResult(None, skipped=True)
-                if isinstance(value, Skipped)
-                else StepResult(value, question=output_question)
+                if isinstance(transform_result, SkippedStep)
+                else StepResult(transform_result, question=output_question)
             )
         return results
 
     def _output_question(
-        self, key: QuestionId | None, resolved_inputs: Sequence[ResolvedInput]
+        self, question_id: QuestionId | None, resolved_inputs: Sequence[ResolvedInput]
     ) -> Question | None:
         """The question that reads what it gives."""
-        read = next(
+        input_context = next(
             (
                 resolved_input.context
                 for resolved_input in resolved_inputs
                 if resolved_input.short_circuit_outcome is None
-                or not resolved_input.short_circuit_outcome.skipped
+                or not resolved_input.short_circuit_outcome.is_skipped
             ),
             None,
         )
-        if read is None or key is None:
+        if input_context is None or question_id is None:
             return None
         settings = self.dump().get("with", {})
-        return self.method.output_question(settings, read.questions[key], self._methods)
+        return self.method.output_question(
+            settings, Position(input_context.questions, question_id), self._methods
+        )
 
     def run(
-        self, contexts: Sequence[Context], question: QuestionId | None = None
-    ) -> list[tuple[Context, dict[QuestionId, Outcome] | None]]:
-        results = self.transform(contexts, question)
+        self, contexts: Sequence[Context], question_id: QuestionId | None
+    ) -> tuple[list[Context], list[QuestionOutcomes]]:
+        results = self.transform(contexts, question_id)
         return [
-            (context.with_step_result(self.id, result) if self.id else context, None)
+            context.with_step_result(self.id, result) if self.id else context
             for context, result in zip(contexts, results, strict=True)
-        ]
+        ], [{} for _ in contexts]
 
     def problems_in_list(self, step_ids_read_later: Set[str], index: int) -> Iterator[Problem]:
         if self.id is None:
@@ -507,20 +539,18 @@ def rendered_feedback(
     scope: Mapping[str, Any],
     outcome: Outcome,
     context: Context,
-    question: QuestionId,
+    question_id: QuestionId,
 ) -> str:
     """``template`` filled in with ``scope`` and how ``outcome`` marked the answer."""
-    written = context.written_answers.get(question)
-    answer = written.strip() if written is not None else context.answers.get(question)
     return render(
         template,
         {
             **scope,
-            "answer": answer.answer if isinstance(answer, Unreadable) else write_answer(answer),
+            "answer": context.written_answers.get(question_id, "").strip(),
             "correct": outcome.correct,
             "proportion": outcome.proportion,
             "feedback": outcome.feedback,
-            "parts": [part.template_values(question) for part in outcome.parts],
+            "parts": [part.template_values(question_id) for part in outcome.parts],
         },
     )
 
@@ -538,8 +568,8 @@ STEP_KEYS = (
 )
 """A step's keys, in the order YAML shows them."""
 STEP_OWN_FIELDS = {
-    info.alias or name: info
-    for name, info in Check.model_fields.items()
+    field_info.alias or name: field_info
+    for name, field_info in Check.model_fields.items()
     if name not in ("uses", "with_")
 }
 """The keys a step has beside its method and its settings, which no setting may share."""
@@ -575,9 +605,7 @@ def _validate_step(data: Any, info: ValidationInfo) -> Step:
     method = methods_by_ref.get(str(uses))
     if method is None:
         raise _uses_error("unknown_method", f"There's no method {uses}.", uses)
-    settings = data.get("with")
-    gives_marks = method.gives_marks(settings if isinstance(settings, Mapping) else {})
-    model = method.check_model if gives_marks else method.transform_model
+    model = method.check_model if method.gives_marks(settings_of(data)) else method.transform_model
     step = model.model_validate(data, context=info.context)
     step._methods = methods_by_ref
     return step
@@ -617,12 +645,20 @@ _MARKING_ADAPTER: TypeAdapter[Check] = TypeAdapter(Marking)
 _STEP_ADAPTER: TypeAdapter[Step] = TypeAdapter(AnyStep)
 
 
-def step_cardinality(info: FieldInfo) -> Literal["one", "many"] | None:
+def step_cardinality(field_info: FieldInfo) -> Literal["one", "many"] | None:
     """Whether a setting holds a step, a list of steps, or neither."""
-    if hint_of(info).kind == "step":
+    if hint_of(field_info).kind == "step":
         return "one"
-    item = item_field(info)
-    return "many" if item is not None and hint_of(item).kind == "step" else None
+    item_field_info = item_field(field_info)
+    return (
+        "many" if item_field_info is not None and hint_of(item_field_info).kind == "step" else None
+    )
+
+
+def settings_of(step_data: Mapping[str, Any]) -> Mapping[str, Any]:
+    """A step's settings as written; none unless they are a mapping."""
+    settings = step_data.get("with")
+    return settings if isinstance(settings, Mapping) else {}
 
 
 def load_check(data: object, methods_by_ref: Mapping[str, Method[Any]]) -> Check:

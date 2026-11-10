@@ -1,5 +1,5 @@
 from ...questions.base import Question
-from ...questions.types import ALL_TYPES, Answer
+from ...questions.types import ALL_QUESTION_TYPES, Answer
 from ..example import examples_beside
 from ..method import AnswerMethod
 from ..outcome import Outcome
@@ -23,7 +23,7 @@ class FullMarks(AnswerMethod[FullMarksSettings]):
         "**Related:** To give marks only to students who answered, use Length with **At least** "
         "`1` character."
     )
-    question_types = ALL_TYPES
+    question_types = ALL_QUESTION_TYPES
     marks_blank_answers = True
     settings = FullMarksSettings
     examples = examples_beside(__file__)

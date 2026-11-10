@@ -6,6 +6,7 @@ import pytest
 from gradeflow_core import (
     BUILTINS,
     InvalidError,
+    MarkScheme,
     ModelEndpoint,
     Progress,
     QuestionResult,
@@ -54,6 +55,15 @@ def test_criteria_are_listed_as_written_with_their_marks() -> None:
     assert describe(answer_criteria(criteria=one_criterion)) == (
         "AI checks the answer for States that the complexity is O\\(n log n\\) (0.5 marks)."
     )
+
+
+def test_a_malformed_criterion_is_reported_with_the_empty_list_it_leaves() -> None:
+    with pytest.raises(InvalidError) as error:
+        MarkScheme.load([{"question": "Q1", **answer_criteria(criteria=["a"])}])
+    assert [str(problem) for problem in error.value.problems] == [
+        "criteria: Must be an object.",
+        "criteria: Add at least one.",
+    ]
 
 
 def mark_with_criteria(

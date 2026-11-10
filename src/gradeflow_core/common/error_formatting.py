@@ -40,27 +40,27 @@ _ERROR_MESSAGES = {
 
 
 def shortened_reason(reason: str) -> str:
-    compact = " ".join(reason.split())
-    if not compact:
+    compact_reason = " ".join(reason.split())
+    if not compact_reason:
         return "Unknown error."
-    if len(compact) <= _MAX_REASON_LENGTH:
-        return compact
-    return f"{compact[: _MAX_REASON_LENGTH - 1]}..."
+    if len(compact_reason) <= _MAX_REASON_LENGTH:
+        return compact_reason
+    return f"{compact_reason[: _MAX_REASON_LENGTH - 1]}..."
 
 
-def error_message(error: ErrorDetails) -> str:
+def error_message(error_details: ErrorDetails) -> str:
     """What is wrong with the value at the error's location, as a sentence that doesn't name it."""
-    kind = error["type"]
-    context: dict[str, Any] = error.get("ctx") or {}
-    if kind == "union_tag_invalid":
+    error_type = error_details["type"]
+    context: dict[str, Any] = error_details.get("ctx") or {}
+    if error_type == "union_tag_invalid":
         tag = context.get("tag")
         return "Choose a type." if tag in {None, "", "None"} else f"There's no type {tag}."
-    if kind in {"value_error", "assertion_error"}:
-        return as_sentence(shortened_reason(str(context.get("error") or error["msg"])))
-    if kind == "too_short" and context.get("min_length") == 1:
+    if error_type in {"value_error", "assertion_error"}:
+        return as_sentence(shortened_reason(str(context.get("error") or error_details["msg"])))
+    if error_type == "too_short" and context.get("min_length") == 1:
         return "Add at least one."
-    if kind == "string_too_short" and context.get("min_length") == 1:
+    if error_type == "string_too_short" and context.get("min_length") == 1:
         return _ERROR_MESSAGES["missing"]
-    if template := _ERROR_MESSAGES.get(kind):
+    if template := _ERROR_MESSAGES.get(error_type):
         return template.format(**{key: as_text(value) for key, value in context.items()})
-    return as_sentence(shortened_reason(error["msg"]))
+    return as_sentence(shortened_reason(error_details["msg"]))

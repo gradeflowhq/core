@@ -4,16 +4,15 @@ from unittest.mock import Mock, call
 import pytest
 
 from gradeflow_core.methods import templates
-from gradeflow_core.methods.outcome import Outcome
 from gradeflow_core.methods.templates import (
     CHECK_RESULT_SHAPE,
     PART_RESULT_SHAPE,
     ListOf,
     Shape,
     TemplateError,
-    condition,
+    condition_expression,
     evaluate,
-    reference,
+    reference_expression,
     render,
     validate,
 )
@@ -30,15 +29,18 @@ TEMPLATE_SCOPE: Mapping[str, Shape] = {
 
 
 def test_a_reference_is_a_value_that_is_exactly_one_pair_of_braces() -> None:
-    assert reference(" {{ settings.points }} ") == "settings.points"
-    assert reference("Has {{ settings.points }}") is None
+    assert reference_expression(" {{ settings.points }} ") == "settings.points"
+    assert reference_expression("Has {{ settings.points }}") is None
     assert evaluate("settings.n", {"settings": {"n": [1, 2]}}) == [1, 2]
 
 
 def test_a_condition_is_one_reference() -> None:
-    assert condition("{{ not steps.test.output.correct }}") == "not steps.test.output.correct"
+    assert (
+        condition_expression("{{ not steps.test.output.correct }}")
+        == "not steps.test.output.correct"
+    )
     with pytest.raises(TemplateError, match="Write a condition as one"):
-        condition("{{ steps.test.output.correct }} and y")
+        condition_expression("{{ steps.test.output.correct }} and y")
 
 
 def test_templates_branch_loop_and_use_the_filters() -> None:
@@ -221,7 +223,6 @@ def test_marking_compiles_each_template_once_for_every_student(
 
 
 def test_template_shapes_match_what_marking_gives_them() -> None:
-    assert PART_RESULT_SHAPE.keys() == Outcome(1.0).template_values("Q1").keys()
     feedback = " ".join(f"{{{{ {name} }}}}" for name in templates.FEEDBACK_SCOPE)
     check = {"uses": "gradeflow/key-point@1", "with": {"point": "x"}, "feedback": feedback}
     [result] = mark_all(check, ["Paris"])

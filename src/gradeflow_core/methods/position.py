@@ -19,11 +19,11 @@ class Position:
     """The question that reads its input, when that isn't the answer as it is."""
     input_kind: Literal["value", "output"] | None = None
     """What its input is, when it isn't another question's answer."""
-    in_list: bool = False
+    is_in_list: bool = False
     """In another check's list, where checks have names, weights and conditions."""
-    in_group: bool = False
+    is_in_group: bool = False
     """In a marking of a question group, where checks choose their questions."""
-    in_workflow: bool = False
+    is_in_workflow: bool = False
     """In a workflow's steps, where transforms can be and inputs can be chosen."""
 
     @property
@@ -65,7 +65,3 @@ class Position:
     ) -> Position:
         """This position, reading what ``input_question`` reads."""
         return replace(self, input_question=input_question, input_kind=input_kind, value=value)
-
-    def inner_position(self, *, in_list: bool) -> Position:
-        """The position of a step in the settings of a step here."""
-        return replace(self, in_list=in_list, in_workflow=False)

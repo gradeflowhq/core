@@ -21,7 +21,7 @@ from ...questions.types import Answer
 from ..example import examples_beside
 from ..matching import read_or_none
 from ..method import AnswerMethod
-from ..outcome import CORRECT, Outcome
+from ..outcome import CORRECT_FEEDBACK, Outcome
 from ..position import Position
 from ..settings import NonBlankText, Settings
 from ..step import Step
@@ -72,21 +72,28 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
     def _mark_answer(
         self, settings: EquivalentExpressionSettings, answer: Answer, question: Question
     ) -> Outcome:
-        accepted = [_read(text, question) for text in settings.answers]
-        variables = frozenset().union(*(expression.variables for expression in accepted))
-        expected = as_sentence(
+        accepted_expressions = [
+            _accepted_expression(expression_text, question) for expression_text in settings.answers
+        ]
+        variables = frozenset().union(
+            *(expression.variables for expression in accepted_expressions)
+        )
+        expected_sentence = as_sentence(
             f"Expected an expression equal to {quoted_join(settings.answers, conjunction='or')}"
         )
         answer_expression = read_or_none(expressions.parse, str(answer))
         if answer_expression is None:
-            return Outcome(0.0, f"Couldn't read it as an expression. {expected}")
+            return Outcome(0.0, f"Couldn't read it as an expression. {expected_sentence}")
         if unknown_variables := answer_expression.variables - variables:
             variable_names = plain_join(sorted(unknown_variables), conjunction="and")
-            return Outcome(0.0, f"Uses {variable_names}. {expected}")
+            return Outcome(0.0, f"Uses {variable_names}. {expected_sentence}")
         points = _sample_points(variables)
-        if any(_is_equivalent(answer_expression, expression, points) for expression in accepted):
-            return Outcome(1.0, CORRECT)
-        return Outcome(0.0, expected)
+        if any(
+            _is_equivalent(answer_expression, expression, points)
+            for expression in accepted_expressions
+        ):
+            return Outcome(1.0, CORRECT_FEEDBACK)
+        return Outcome(0.0, expected_sentence)
 
     def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         question = position.question_model
@@ -97,16 +104,20 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
                 "expressions need."
             )
             return
-        accepted: dict[int, Expression] = {}
-        for index, text in enumerate(self._settings_of(step).answers):
+        accepted_expressions_by_index: dict[int, Expression] = {}
+        for index, expression_text in enumerate(self._settings_of(step).answers):
             try:
-                accepted[index] = _read(text, question)
+                accepted_expressions_by_index[index] = _accepted_expression(
+                    expression_text, question
+                )
             except ValueError as error:
                 yield Problem(str(error), field=("answers", index))
         points = _sample_points(
-            frozenset().union(*(expression.variables for expression in accepted.values()))
+            frozenset().union(
+                *(expression.variables for expression in accepted_expressions_by_index.values())
+            )
         )
-        for index, expression in accepted.items():
+        for index, expression in accepted_expressions_by_index.items():
             if len(_values_at_points(expression, points)) < MIN_WORKABLE_POINTS:
                 yield Problem(
                     "Can't be worked out for enough values of its variables.",
@@ -114,10 +125,10 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
                 )
 
 
-def _read(text: str, question: Question) -> Expression:
+def _accepted_expression(expression_text: str, question: Question) -> Expression:
     """An accepted expression, read as answers to ``question`` are, so capitals match when they're
     ignored."""
-    return expressions.parse(str(question.read(text) or text))
+    return expressions.parse(str(question.read(expression_text) or expression_text))
 
 
 def _sample_points(variables: frozenset[str]) -> list[dict[str, float]]:
@@ -141,21 +152,24 @@ def _values_at_points(
     expression: Expression, points: Sequence[Mapping[str, float]]
 ) -> dict[int, float]:
     """``expression``'s value at each of ``points`` it can be worked out at, by index."""
-    values: dict[int, float] = {}
+    values_by_point_index: dict[int, float] = {}
     for index, point in enumerate(points):
         try:
-            values[index] = expression.value(point)
+            values_by_point_index[index] = expression.value(point)
         except ValueError:
             continue
-    return values
+    return values_by_point_index
 
 
 def _is_equivalent(
-    answer_expression: Expression, accepted: Expression, points: Sequence[Mapping[str, float]]
+    answer_expression: Expression,
+    accepted_expression: Expression,
+    points: Sequence[Mapping[str, float]],
 ) -> bool:
-    expected = _values_at_points(accepted, points)
-    actual = _values_at_points(answer_expression, points)
+    accepted_values = _values_at_points(accepted_expression, points)
+    answer_values = _values_at_points(answer_expression, points)
     return all(
-        index in actual and math.isclose(actual[index], value, rel_tol=1e-6, abs_tol=1e-9)
-        for index, value in expected.items()
+        index in answer_values
+        and math.isclose(answer_values[index], value, rel_tol=1e-6, abs_tol=1e-9)
+        for index, value in accepted_values.items()
     )

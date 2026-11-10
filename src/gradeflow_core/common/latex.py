@@ -76,7 +76,7 @@ _TEXT_COMMANDS = frozenset(
         "boldsymbol",
     }
 )
-MATRICES = {
+MATRIX_BRACKETS = {
     "pmatrix": ("(", ")"),
     "bmatrix": ("[", "]"),
     "Bmatrix": ("{", "}"),
@@ -112,14 +112,14 @@ class _LatexReader:
             command or character for command, character in _TOKEN.findall(latex)
         ]
         self.position = 0
-        self.in_text = False
+        self.is_in_text = False
         """Whether spaces count, as they do in ``\\text{…}``."""
 
-    def read_until(self, closing: str) -> str:
+    def read_until(self, closing_token: str) -> str:
         parts: list[str] = []
         while self.position < len(self.tokens):
             token = self._next()
-            if token == closing:
+            if token == closing_token:
                 break
             parts.append(self._read_item(token))
         return "".join(parts)
@@ -131,7 +131,7 @@ class _LatexReader:
     def _peek(self) -> str:
         return self.tokens[self.position] if self.position < len(self.tokens) else ""
 
-    def _argument(self) -> str:
+    def _read_argument(self) -> str:
         while self._peek().isspace():
             self.position += 1
         return self._read_item(self._next()) if self._peek() else ""
@@ -140,40 +140,44 @@ class _LatexReader:
         if token == "{":
             return self.read_until("}")
         if token in ("^", "_"):
-            return token + _bracketed(self._argument())
+            return token + _bracketed(self._read_argument())
         if token == "&":
             return ", "
         if token.isspace():
-            return " " if self.in_text else ""
+            return " " if self.is_in_text else ""
         if not token.startswith("\\") or len(token) == 1:
             return token
-        text = self._command(token[1:])
-        return f"{text} " if text[-1:].isalpha() and self._letter_follows() else text
+        command_text = self._read_command(token[1:])
+        return (
+            f"{command_text} "
+            if command_text[-1:].isalpha() and self._letter_follows()
+            else command_text
+        )
 
     def _letter_follows(self) -> bool:
-        following = next(
+        next_token = next(
             (token for token in self.tokens[self.position :] if not token.isspace()), ""
         )
-        return following[:1].isalpha()
+        return next_token[:1].isalpha()
 
-    def _command(self, name: str) -> str:
+    def _read_command(self, name: str) -> str:
         if name == "frac":
-            numerator = _bracketed(self._argument())
-            return f"{numerator}/{_bracketed(self._argument())}"
+            numerator = _bracketed(self._read_argument())
+            return f"{numerator}/{_bracketed(self._read_argument())}"
         if name == "sqrt":
             index = ""
             if self._peek() == "[":
                 self.position += 1
                 index = self.read_until("]")
-            body = self._argument()
+            body = self._read_argument()
             return f"root({body}, {index})" if index else f"sqrt({body})"
         if name in ("begin", "end"):
-            opening, closing = MATRICES.get(self._argument(), ("", ""))
-            return closing if name == "end" else opening
+            opening_bracket, closing_bracket = MATRIX_BRACKETS.get(self._read_argument(), ("", ""))
+            return closing_bracket if name == "end" else opening_bracket
         if name in _TEXT_COMMANDS:
-            was_in_text, self.in_text = self.in_text, True
-            text = self._argument()
-            self.in_text = was_in_text
+            was_in_text, self.is_in_text = self.is_in_text, True
+            text = self._read_argument()
+            self.is_in_text = was_in_text
             return text
         if name == "\\":
             return "; "

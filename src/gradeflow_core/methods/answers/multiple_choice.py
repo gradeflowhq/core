@@ -18,13 +18,13 @@ from ...questions.types import Answer
 from ..example import examples_beside
 from ..matching import duplicate_problems
 from ..method import AnswerMethod
-from ..outcome import CORRECT, Outcome
+from ..outcome import CORRECT_FEEDBACK, Outcome
 from ..position import Position
-from ..settings import Settings, literal, specialized
+from ..settings import Settings, literal_type, specialized
 from ..step import Step
 
-Compare = Literal["exactly", "all", "none", "any", "share_each"]
-COMPARE_LABELS = {
+Comparison = Literal["exactly", "all", "none", "any", "share_each"]
+COMPARISON_LABELS = {
     "exactly": "Exactly these",
     "all": "All of these, other options allowed",
     "none": "None of these",
@@ -39,16 +39,16 @@ class MultipleChoiceSettings(Settings):
         title="Correct options",
         json_schema_extra={"uniqueItems": True},
     )
-    compare: Compare = Field(
+    compare: Comparison = Field(
         default="exactly",
         title="How to compare",
         description="A share for each gives a share for each correct option and a penalty of one "
         "share for each wrong one.",
-        json_schema_extra=hint(labels=COMPARE_LABELS),
+        json_schema_extra=hint(labels=COMPARISON_LABELS),
     )
 
 
-_DESCRIPTIONS: dict[Compare, tuple[str, str, Literal["and", "or"]]] = {
+_DESCRIPTION_WORDING: dict[Comparison, tuple[str, str, Literal["and", "or"]]] = {
     "exactly": ("Chooses exactly {}.", "Chooses exactly these", "and"),
     "all": (
         "Chooses {}, other options allowed.",
@@ -83,24 +83,25 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         question = position.question_model
         if not isinstance(question, ChoiceQuestion):
             return self.settings
-        options = literal(question.options)
-        return specialized(self.settings, correct={"annotation": list[options]})  # type: ignore[valid-type]
+        option_literal = literal_type(question.options)
+        return specialized(self.settings, correct={"annotation": list[option_literal]})  # type: ignore[valid-type]
 
     def settings_read_at(self, settings: Mapping[str, Any], position: Position) -> dict[str, Any]:
-        question, correct = position.question_model, settings.get("correct")
-        if not isinstance(question, ChoiceQuestion) or not isinstance(correct, list):
+        question, correct_options = position.question_model, settings.get("correct")
+        if not isinstance(question, ChoiceQuestion) or not isinstance(correct_options, list):
             return dict(settings)
         normalized_options = (
-            question.reading.normalized(each) if isinstance(each, str) else each for each in correct
+            question.reading.normalized(option) if isinstance(option, str) else option
+            for option in correct_options
         )
         return {**settings, "correct": list(normalized_options)}
 
     def describe(self, step: Step) -> str:
         settings = self._settings_of(step)
-        inline, listed, conjunction = _DESCRIPTIONS[settings.compare]
+        inline_template, list_opening, conjunction = _DESCRIPTION_WORDING[settings.compare]
         if reads_better_listed(settings.correct):
-            return f"{listed}:\n{markdown_code_list(settings.correct)}"
-        return inline.format(code_join(settings.correct, conjunction=conjunction))
+            return f"{list_opening}:\n{markdown_code_list(settings.correct)}"
+        return inline_template.format(code_join(settings.correct, conjunction=conjunction))
 
     def _mark_answer(
         self, settings: MultipleChoiceSettings, answer: Answer, question: Question
@@ -119,14 +120,15 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
             case "any":
                 proportion = float(bool(correct_options & chosen_options))
             case "share_each":
-                chosen_correct = len(chosen_options & correct_options)
-                chosen_wrong = len(chosen_options - correct_options)
-                proportion = max(0.0, (chosen_correct - chosen_wrong) / len(correct_options))
+                chosen_correct_count = len(chosen_options & correct_options)
+                chosen_wrong_count = len(chosen_options - correct_options)
+                proportion = max(
+                    0.0, (chosen_correct_count - chosen_wrong_count) / len(correct_options)
+                )
         if proportion >= 1:
-            return Outcome(1.0, CORRECT)
-        expected_options = quoted_join(
-            settings.correct, conjunction=_DESCRIPTIONS[settings.compare][2]
-        )
+            return Outcome(1.0, CORRECT_FEEDBACK)
+        _, _, conjunction = _DESCRIPTION_WORDING[settings.compare]
+        expected_options = quoted_join(settings.correct, conjunction=conjunction)
         none_of_prefix = "none of " if settings.compare == "none" else ""
         return Outcome(proportion, as_sentence(f"Expected {none_of_prefix}{expected_options}"))
 
@@ -134,8 +136,8 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         question = position.question_model
         if not isinstance(question, ChoiceQuestion):
             return
-        correct = self._settings_of(step).correct
-        for index, option in enumerate(correct):
+        correct_options = self._settings_of(step).correct
+        for index, option in enumerate(correct_options):
             if question.reading.normalized(option) not in question.options:
                 yield Problem(f"{option} isn't one of the options.", field=("correct", index))
-        yield from duplicate_problems(correct, question.reading.normalized, "correct")
+        yield from duplicate_problems(correct_options, question.reading.normalized, "correct")

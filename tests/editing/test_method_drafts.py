@@ -439,6 +439,8 @@ def test_two_questions_make_a_group_method_and_keep_bound_checks() -> None:
     draft.bind_new_setting("with.steps.0.with.min_value")
     draft.set_questions(TWO_NUMBER_QUESTIONS)
     assert (draft.question, draft.finalized().marks_question_group) == (None, True)
+    assert draft.metadata["marks_question_group"] is True
+    draft.update_metadata(**draft.metadata)
     assert draft.steps_draft.values("with.steps.0")["question"] == "Q1"
     assert (
         next(
@@ -819,7 +821,7 @@ def test_setting_options_validate_known_default_before_mutation() -> None:
 
 @pytest.mark.parametrize(
     "file",
-    catalogue.METHOD_FILES,
+    catalogue.METHOD_FILE_PATHS,
     ids=lambda file: file.stem,
 )
 def test_packaged_composed_methods_preserve_yaml_and_still_execute(file: Path) -> None:

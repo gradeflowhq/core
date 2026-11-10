@@ -20,7 +20,7 @@ from ..logic.workflow import (
     run_steps,
 )
 from ..method import MarkingMethod
-from ..outcome import CORRECT, Outcome
+from ..outcome import CORRECT_FEEDBACK, Outcome
 from ..position import Position
 from ..settings import Settings, specialized
 from ..step import Check, Context, Step
@@ -68,8 +68,10 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
         question = position.question_model
         if not isinstance(question, ValuesQuestion):
             return self.settings
-        count = question.value_count
-        return specialized(self.settings, checks={"min_length": count, "max_length": count})
+        value_count = question.value_count
+        return specialized(
+            self.settings, checks={"min_length": value_count, "max_length": value_count}
+        )
 
     def initial_settings(self, position: Position) -> dict[str, Any]:
         question = position.question_model
@@ -88,62 +90,58 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
 
     def describe(self, step: Step) -> str:
         settings = self._settings_of(step)
-        values = markdown_list(
-            f"**{inner_check.name or f'Value {value_number}'}:** {inner_check.describe()}"
-            for value_number, inner_check in enumerate(settings.checks, start=1)
+        check_lines = markdown_list(
+            f"**{check.name or f'Value {value_number}'}:** {check.describe()}"
+            for value_number, check in enumerate(settings.checks, start=1)
         )
         heading = description_heading(
             settings.marks_by, *(["in any order"] if settings.any_order else [])
         )
-        return f"{heading}\n{values}"
+        return f"{heading}\n{check_lines}"
 
     def _mark_student(
-        self, check: Check, context: Context, question: QuestionId | None
+        self, settings: MultipleValuesSettings, context: Context, question_id: QuestionId | None
     ) -> dict[QuestionId, Outcome]:
-        assert question is not None  # it marks a values question
-        settings = self._settings_of(check)
+        assert question_id is not None  # it marks a values question
         checks = settings.checks
         if not settings.any_order:
-            [ordered_check_outcomes], _ = run_steps(checks, [context], question)
-            named_outcomes = [
-                (inner_check, _named_by_value(outcomes, inner_check, value_number))
-                for value_number, (inner_check, outcomes) in enumerate(
-                    ordered_check_outcomes, start=1
-                )
+            [check_outcomes], _ = run_steps(checks, [context], question_id)
+            named_check_outcomes = [
+                (check, _named_by_value(outcomes, check, value_number))
+                for value_number, (check, outcomes) in enumerate(check_outcomes, start=1)
             ]
             return _with_correct_feedback(
-                combine(settings.marks_by, named_outcomes, context.questions)
+                combine(settings.marks_by, named_check_outcomes, context.questions)
             )
-        answer = context.answers.get(question)
-        assert answer is None or isinstance(answer, list)  # it marks a values question
-        count = len(answer or [])
+        answer = context.answers.get(question_id)
+        assert isinstance(answer, list)  # it marks a values question
+        value_count = len(answer)
         outcomes_by_check_and_value = {
             (index, value_number): _named_by_value(
-                inner_check.model_copy(update={"input": None}).mark(
-                    [context.with_value_as_answer(question, value_number)], question
+                check.model_copy(update={"input": None}).mark(
+                    [context.with_value_as_answer(question_id, value_number)], question_id
                 )[0],
-                inner_check,
+                check,
                 value_number,
             )
-            for index, inner_check in enumerate(checks)
-            for value_number in range(1, count + 1)
+            for index, check in enumerate(checks)
+            for value_number in range(1, value_count + 1)
         }
 
         def combined_for_pairing(value_numbers: tuple[int, ...]) -> dict[QuestionId, Outcome]:
             check_outcomes = [
-                (inner_check, outcomes_by_check_and_value[index, value_number])
-                for index, (inner_check, value_number) in enumerate(
-                    zip(checks, value_numbers, strict=False)
+                (check, outcomes_by_check_and_value[index, value_number])
+                for index, (check, value_number) in enumerate(
+                    zip(checks, value_numbers, strict=True)
                 )
             ]
             return combine(settings.marks_by, check_outcomes, context.questions)
 
-        pairings = permutations(range(1, count + 1), len(checks))
+        pairings = permutations(range(1, value_count + 1), len(checks))
         return _with_correct_feedback(
             max(
                 (combined_for_pairing(value_numbers) for value_numbers in pairings),
-                key=lambda outcomes: outcomes.get(question, Outcome(0.0)).proportion,
-                default={},
+                key=lambda outcomes: outcomes.get(question_id, Outcome(0.0)).proportion,
             )
         )
 
@@ -170,17 +168,20 @@ def _named_by_value(
 ) -> dict[QuestionId, Outcome]:
     """Outcomes named by the value they marked, so each line of feedback says which it is."""
     if check.name:
-        return {key: replace(outcome, name=check.name) for key, outcome in outcomes.items()}
-    value = f"Value {value_number}"
+        return {
+            question_id: replace(outcome, name=check.name)
+            for question_id, outcome in outcomes.items()
+        }
+    value_label = f"Value {value_number}"
     return {
-        key: replace(outcome, name=value, labels=(*outcome.labels, value))
-        for key, outcome in outcomes.items()
+        question_id: replace(outcome, name=value_label, labels=(*outcome.labels, value_label))
+        for question_id, outcome in outcomes.items()
     }
 
 
 def _with_correct_feedback(outcomes: dict[QuestionId, Outcome]) -> dict[QuestionId, Outcome]:
     """An answer whose every value is correct is “Correct.”, without a line for each."""
     return {
-        key: replace(outcome, feedback=CORRECT) if outcome.correct else outcome
-        for key, outcome in outcomes.items()
+        question_id: replace(outcome, feedback=CORRECT_FEEDBACK) if outcome.correct else outcome
+        for question_id, outcome in outcomes.items()
     }

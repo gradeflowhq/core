@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from ..common.documents import dump_yaml, load_yaml
 from ..common.exceptions import InvalidError
-from ..common.paths import join
+from ..common.paths import join_path
 from ..common.problems import Problem, invalid_errors
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
@@ -49,18 +49,18 @@ class MarkScheme(BaseModel):
     def problems(self, questions: QuestionSet) -> list[Problem]:
         problems = [
             problem
-            for number, marking in enumerate(self.markings)
-            for problem in located_problems(marking, questions, ("markings", number))
+            for index, marking in enumerate(self.markings)
+            for problem in located_problems(marking, questions, ("markings", index))
         ]
-        first_marking_of: dict[QuestionId, int] = {}
-        for number, marking in enumerate(self.markings):
+        first_marking_index_by_question: dict[QuestionId, int] = {}
+        for index, marking in enumerate(self.markings):
             try:
                 questions_marked = marking.questions_marked()
             except InvalidError, TemplateError:
                 continue  # Its generated body already has a validation problem above.
             problems += [
-                Problem(f"{key} is marked twice.", join("markings", number))
-                for key in sorted(questions_marked)
-                if first_marking_of.setdefault(key, number) != number
+                Problem(f"{question_id} is marked twice.", join_path("markings", index))
+                for question_id in sorted(questions_marked)
+                if first_marking_index_by_question.setdefault(question_id, index) != index
             ]
         return problems

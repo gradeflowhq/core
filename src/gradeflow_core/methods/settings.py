@@ -17,13 +17,13 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
-def _not_blank(text: str) -> str:
+def _require_not_blank(text: str) -> str:
     if not text.strip():
         raise ValueError("Can't be blank.")
     return text
 
 
-NonBlankText = Annotated[str, AfterValidator(_not_blank)]
+NonBlankText = Annotated[str, AfterValidator(_require_not_blank)]
 """Text a check marks with, such as an accepted answer, which can't be only spaces."""
 
 
@@ -33,7 +33,7 @@ def check_limits_in_order(low: float | None, high: float | None, message: str) -
         raise ValueError(message)
 
 
-def literal(values: Iterable[Any]) -> Any:
+def literal_type(values: Iterable[Any]) -> Any:
     return Literal.__getitem__(tuple(values))
 
 
@@ -42,24 +42,25 @@ def annotated(annotation: Any, *metadata: Any) -> Any:
     return Annotated.__getitem__((annotation, *metadata)) if metadata else annotation
 
 
-def item_field(info: FieldInfo) -> FieldInfo | None:
+def item_field(field_info: FieldInfo) -> FieldInfo | None:
     """The field of each item of a list setting; None for any other setting."""
-    if get_origin(info.annotation) is not list:
+    if get_origin(field_info.annotation) is not list:
         return None
-    return FieldInfo.from_annotation(get_args(info.annotation)[0])
+    return FieldInfo.from_annotation(get_args(field_info.annotation)[0])
 
 
 def specialized(
-    settings: type[Settings], *, without: Iterable[str] = (), **changes: Mapping[str, Any]
+    settings: type[Settings], *, excluded_fields: Iterable[str] = (), **changes: Mapping[str, Any]
 ) -> type[Settings]:
-    """``settings`` narrowed to a place in a marking: without the fields in ``without``, and with
-    ``changes``, such as a suggestion hint or narrower type, merged into others."""
+    """``settings`` narrowed to a place in a marking: without the fields in
+    ``excluded_fields``, and with ``changes``, such as a suggestion hint or narrower type, merged
+    into others."""
     fields: dict[str, Any] = {}
-    for name, info in settings.model_fields.items():
-        if name not in without:
+    for name, field_info in settings.model_fields.items():
+        if name not in excluded_fields:
             change = dict(changes.get(name, {}))
-            annotation = change.pop("annotation", info.annotation)
-            fields[name] = annotated(annotation, info, Field(**change))
+            annotation = change.pop("annotation", field_info.annotation)
+            fields[name] = annotated(annotation, field_info, Field(**change))
     return create_model(
         settings.model_config.get("title") or settings.__name__, __base__=Settings, **fields
     )

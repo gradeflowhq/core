@@ -12,8 +12,15 @@ from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
-from ..methods.helpers import describe
-from .helpers import ACCEPTS_9_81, ANSWERS, answer_proportions, check_of, marked_by_example
+from ..methods.helpers import accepted_answer, describe, workflow
+from .helpers import (
+    ACCEPTS_9_81,
+    ANSWERS,
+    answer_proportions,
+    check_of,
+    decisions_of,
+    marked_by_example,
+)
 
 
 def decide_again(
@@ -457,3 +464,32 @@ def test_conditional_checks_keep_their_original_scope() -> None:
         assert answer_proportions(marking) == [1, 1, 1, 0.5]
         marking = decide_again(marking, ["10"], "not_allowed")
         assert answer_proportions(marking) == [1, 1, 1, 0]
+
+
+@pytest.mark.parametrize("action", ["full_marks", "partial_marks", "not_allowed"])
+def test_a_check_with_empty_settings_is_marked_as_one_without(action: Decision) -> None:
+    unset = {"question": "Q1", "uses": "gradeflow/accepted-answers@1", "with": None}
+    assert marked_by_example(unset, ["10"], action) == marked_by_example(
+        {**unset, "with": {}}, ["10"], action
+    )
+
+
+def test_an_answer_list_without_answers_joins_one_alike() -> None:
+    within = {"uses": "gradeflow/accepted-answers@1", "with": {"tolerance": 0.1}}
+    alternatives = [within, {**within, "with": {"tolerance": 0.1, "answers": ["9.81"]}}]
+    marking = {
+        "question": "Q1",
+        "uses": "gradeflow/workflow@1",
+        "with": {"marks_by": "any_correct", "steps": alternatives},
+    }
+    assert decisions_of(marked_by_example(marking, ["10"], "full_marks")) == {
+        "9.81": "full_marks",
+        "10": "full_marks",
+    }
+
+
+def test_checks_left_with_no_answers_share_nothing() -> None:
+    marking = workflow("total", accepted_answer("9.81"), accepted_answer("9.8"), question="Q1")
+    first, second = marked_by_example(marking, ["9.81", "9.8"], "cancel")["with"]["steps"]
+    first["with"]["answers"].append("10")
+    assert second["with"]["answers"] == []

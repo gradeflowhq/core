@@ -6,7 +6,6 @@ import pytest
 
 from gradeflow_core import (
     BUILTINS,
-    Check,
     GradeFlowError,
     MarkScheme,
     Methods,
@@ -48,8 +47,8 @@ def test_each_question_is_marked_by_its_marking_and_others_get_no_result() -> No
         Q3="c",
     )
     assert {
-        question: (result.proportion, result.feedback, result.method_label)
-        for question, result in results.items()
+        question_id: (result.proportion, result.feedback, result.method_label)
+        for question_id, result in results.items()
     } == {
         "Q1": (1, "Correct.", "Accepted Answers"),
         "Q2": (0, "Expected 4.", "Accepted Answers"),
@@ -201,17 +200,17 @@ class BatchRecordingMethod(MarkingMethod[Settings]):
         return self.summary
 
     def run(
-        self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+        self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> list[QuestionOutcomes]:
-        assert question is not None
-        self.batches.append([context.written_answers[question] for context in contexts])
-        return super().run(step, contexts, question)
+        assert question_id is not None
+        self.batches.append([context.written_answers[question_id] for context in contexts])
+        return super().run(step, contexts, question_id)
 
     def _mark_student(
-        self, check: Check, context: Context, question: QuestionId | None
+        self, settings: Settings, context: Context, question_id: QuestionId | None
     ) -> dict[QuestionId, Outcome]:
-        assert question is not None
-        return {question: Outcome(1.0, f"Saw {self.version}.")}
+        assert question_id is not None
+        return {question_id: Outcome(1.0, f"Saw {self.version}.")}
 
 
 class BatchRecordingMethodVersion1(BatchRecordingMethod):

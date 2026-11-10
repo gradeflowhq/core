@@ -19,7 +19,7 @@ def test_rows_make_one_condition_that_reads_back() -> None:
     assert read_condition(condition_template(Condition(rows[:2], "any"))) == Condition(
         rows[:2], "any"
     )
-    assert condition_template(Condition((ConditionRow("", "correct"),))) == "", "always"
+    assert condition_template(Condition()) == "", "always"
 
 
 @pytest.mark.parametrize(

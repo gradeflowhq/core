@@ -32,7 +32,7 @@ def test_an_answer_a_question_cant_read_says_why_and_answers_to_other_questions_
 ):
     questions = QuestionSet({"Q1": NumberQuestion()})
     answers = questions.read(submission({"Q1": "approx 9", "Q9": "x"}))
-    assert answers == {"Q1": Unreadable("approx 9", "Couldn't read “approx 9” as a number.")}
+    assert answers == {"Q1": Unreadable("Couldn't read “approx 9” as a number.")}
 
 
 def test_questions_keep_the_order_they_are_given_in() -> None:
@@ -78,7 +78,7 @@ def test_a_new_question_is_out_of_the_highest_marks_given_for_it() -> None:
     updated = questions.updated_from(
         [*with_given_marks, Submission(student_id="s3", answers={"Q3": "x"}, marks={"Q3": 5})]
     )
-    assert [updated[question].max_marks for question in ("Q1", "Q2", "Q3")] == [4, 1, 2]
+    assert [updated[question_id].max_marks for question_id in ("Q1", "Q2", "Q3")] == [4, 1, 2]
 
 
 def test_questions_dump_with_their_types_and_load_back() -> None:
@@ -92,10 +92,13 @@ def test_questions_dump_with_their_types_and_load_back() -> None:
     assert QuestionSet.load(questions.dump()) == questions
 
 
-def test_loading_what_isnt_a_question_says_where() -> None:
+@pytest.mark.parametrize("question_id", ["Q1", "1", "Q1.a"])
+def test_loading_what_isnt_a_question_says_where(question_id: str) -> None:
     with pytest.raises(InvalidError) as exc_info:
-        QuestionSet.load({"Q1": {"type": "number", "max_marks": "x"}})
-    assert exc_info.value.problems == [Problem("Must be a number.", field=("Q1", "max_marks"))]
+        QuestionSet.load({question_id: {"type": "number", "max_marks": "x"}})
+    assert exc_info.value.problems == [
+        Problem("Must be a number.", field=(question_id, "max_marks"))
+    ]
 
 
 def test_questions_are_written_and_read_as_yaml() -> None:

@@ -6,7 +6,7 @@ from gradeflow_core import answer_from_files
 from gradeflow_core.common.hints import hint_of
 from gradeflow_core.methods.code.code_fixes import (
     MAX_INDENTATIONS_TRIED,
-    CodeFixes,
+    CodeFixSettings,
     Fix,
     FixedCode,
     FixKind,
@@ -45,6 +45,11 @@ def fix_descriptions(fixed_code: FixedCode | None) -> tuple[str, ...]:
             "for i in range(3)  # count\n    print(i)\n",
             "for i in range(3):  # count\n    print(i)\n",
             "line 1, added “:” after “for i in range(3)”",
+        ),
+        (
+            'if x == f"("\n    print(1)\n',
+            'if x == f"(":\n    print(1)\n',
+            'line 1, added “:” after “if x == f"("”',
         ),
         (
             "async def f()\n    pass\n",
@@ -261,7 +266,7 @@ def test_code_that_compiles_needs_no_indentation() -> None:
 
 @pytest.mark.parametrize("kind", get_args(FixKind))
 def test_fixes_default_to_unset_with_no_penalty(kind: str) -> None:
-    fields = CodeFixes.model_fields
+    fields = CodeFixSettings.model_fields
     assert fields[kind].default is False
     penalty = fields[f"{kind}_penalty"]
     assert penalty.default == 0
@@ -269,7 +274,7 @@ def test_fixes_default_to_unset_with_no_penalty(kind: str) -> None:
 
 
 def test_no_fix_is_on_by_default() -> None:
-    assert CodeFixes().enabled_kinds == frozenset()
+    assert CodeFixSettings().enabled_kinds == frozenset()
 
 
 def test_each_python_file_is_fixed_on_its_own() -> None:

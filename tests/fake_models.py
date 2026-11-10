@@ -15,7 +15,7 @@ from pydantic import SecretStr
 from gradeflow_core import ModelEndpoint
 from gradeflow_core.common import model_service
 
-ENDPOINT = ModelEndpoint(url="https://models.test/v1", token=SecretStr("key"))
+ENDPOINT = ModelEndpoint(url="https://models.test/v1", api_key=SecretStr("key"))
 FAST_MODEL_ENDPOINT = ENDPOINT.model_copy(update={"fast_model": "decider"})
 FAST_AND_CAREFUL_ENDPOINT = FAST_MODEL_ENDPOINT.model_copy(update={"careful_model": "reasoner"})
 
@@ -273,7 +273,7 @@ def fake_client(
     def client(endpoint: ModelEndpoint, **_: object) -> openai.OpenAI:
         return openai.OpenAI(
             base_url=endpoint.url,
-            api_key=endpoint.token.get_secret_value(),
+            api_key=endpoint.api_key.get_secret_value(),
             max_retries=0,
             http_client=httpx2.Client(transport=httpx2.MockTransport(respond)),
         )
@@ -284,7 +284,7 @@ def fake_client(
 def install_client(monkeypatch: pytest.MonkeyPatch, client: Callable[..., openai.OpenAI]) -> None:
     """Every request to a model service made by ``client``."""
     monkeypatch.setattr(model_service, "_client", client)
-    monkeypatch.setattr(model_service, "_chat_client", client)
+    monkeypatch.setattr(model_service, "_cached_client", client)
 
 
 @pytest.fixture

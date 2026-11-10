@@ -56,13 +56,13 @@ def meaning_model_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, list
     """Calls to the meaning model, which says the second accepted answer matches "yes"."""
     calls: list[tuple[str, list[str], str, float]] = []
 
-    def best_match(
+    def first_match_index(
         answer: str, references: list[str], context: str, cutoff: float
-    ) -> tuple[int, bool]:
+    ) -> int | None:
         calls.append((answer, list(references), context, cutoff))
-        return 1, answer == "yes"
+        return 1 if answer == "yes" else None
 
-    monkeypatch.setattr(nli, "best_match", best_match)
+    monkeypatch.setattr(nli, "first_match_index", first_match_index)
     return calls
 
 
@@ -95,7 +95,7 @@ def test_same_meaning_without_a_description_compares_the_answers_alone(
 def test_same_meaning_without_the_meaning_model_installed_is_a_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(nli, "available", lambda: False)
+    monkeypatch.setattr(nli, "is_available", lambda: False)
     check = {"uses": ACCEPTED_ANSWERS, "with": {"answers": ["a"], "match": "meaning"}}
     assert problems_of(check) == [("", ("match",), MISSING_MODEL_MESSAGE)]
     assert (
@@ -186,9 +186,9 @@ def test_an_accepted_answer_the_question_cant_read_is_a_problem(
 def test_its_settings_fit_the_question() -> None:
     questions = QuestionSet({QUESTION_ID: TextQuestion(), "Q2": NumberQuestion()})
 
-    def settings_properties(question: str) -> dict[str, Any]:
+    def settings_properties(question_id: str) -> dict[str, Any]:
         properties: dict[str, Any] = BUILTINS.find(ACCEPTED_ANSWERS).settings_schema(
-            Position(questions, question)
+            Position(questions, question_id)
         )["properties"]
         return properties
 

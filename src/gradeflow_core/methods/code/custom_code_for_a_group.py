@@ -2,7 +2,7 @@ from collections.abc import Iterator, Mapping
 
 from pydantic import Field
 
-from ...common.hints import PYTHON_CODE_HINT, hint
+from ...common.hints import hint
 from ...common.problems import Problem
 from ...common.text import code_block, code_join
 from ...questions.types import QuestionId, Unreadable
@@ -10,15 +10,15 @@ from ..example import examples_beside
 from ..method import MarkingMethod
 from ..outcome import Outcome
 from ..position import Position
-from ..settings import Settings, literal, specialized
-from ..step import Check, Context, Step
+from ..settings import Settings, literal_type, specialized
+from ..step import Context, Step
 from . import runner
 from .custom_code import (
     MEMORY_LIMIT_FIELD,
     RESULT_VARIABLES_HELP,
     TIME_LIMIT_FIELD,
     code_error_outcome,
-    code_failure,
+    code_failure_outcome,
     code_problems,
     outcome_from_variables,
 )
@@ -31,9 +31,9 @@ STARTER_CODE = (
 )
 
 
-def group_code_description(answers: str) -> str:
+def group_code_description(answers_description: str) -> str:
     return (
-        f"Reads {answers} and any parameters, and sets results[question] to a dict of "
+        f"Reads {answers_description} and any parameters, and sets results[question] to a dict of "
         f"{RESULT_VARIABLES_HELP}."
     )
 
@@ -43,14 +43,14 @@ class CustomCodeForAGroupSettings(Settings):
         min_length=1,
         title="Questions",
         description="The questions this code marks.",
-        json_schema_extra=hint(kind="question", item_label="question"),
+        json_schema_extra=hint(item_label="question"),
     )
     code: str = Field(
         default=STARTER_CODE,
         min_length=1,
         title="Code",
         description=group_code_description("answers, by question,"),
-        json_schema_extra=hint(**PYTHON_CODE_HINT),
+        json_schema_extra=hint(kind="code", language="python"),
     )
     parameters: dict[ParameterName, Parameter] = PARAMETERS_FIELD
     time_limit: int = TIME_LIMIT_FIELD
@@ -78,39 +78,44 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
 
     def settings_model_at(self, position: Position) -> type[Settings]:
         question_ids = tuple(position.questions)
-        annotation = list[literal(question_ids)] if question_ids else list[str]  # type: ignore[misc]
+        annotation = list[literal_type(question_ids)] if question_ids else list[str]  # type: ignore[misc]
         typed_questions = ", ".join(
             f"{question_id}: {question.python_type()}"
             for question_id, question in position.questions.items()
         )
-        answers = f"answers ({typed_questions})" if typed_questions else "answers, by question,"
+        answers_description = (
+            f"answers ({typed_questions})" if typed_questions else "answers, by question,"
+        )
         return specialized(
             self.settings,
             questions={"annotation": annotation},
-            code={"description": group_code_description(answers)},
+            code={"description": group_code_description(answers_description)},
         )
 
     def describe(self, step: Step) -> str:
         settings = self._settings_of(step)
-        question_list = code_join(settings.questions, conjunction="and")
-        return f"Python code decides the marks for {question_list}:\n\n{code_block(settings.code)}"
+        questions_phrase = code_join(settings.questions, conjunction="and")
+        return (
+            f"Python code decides the marks for {questions_phrase}:\n\n{code_block(settings.code)}"
+        )
 
     def _mark_student(
-        self, check: Check, context: Context, question: QuestionId | None
+        self,
+        settings: CustomCodeForAGroupSettings,
+        context: Context,
+        question_id: QuestionId | None,
     ) -> dict[QuestionId, Outcome]:
-        settings = self._settings_of(check)
-        answers = {
-            question_id: context.answers.get(question_id) for question_id in settings.questions
-        }
         variables = {
             "answers": {
-                question_id: None if isinstance(answer, Unreadable) else answer
-                for question_id, answer in answers.items()
+                question_id: None
+                if isinstance(answer := context.answers.get(question_id), Unreadable)
+                else answer
+                for question_id in settings.questions
             },
             **parameter_values(settings.parameters),
         }
         try:
-            returned = runner.run(
+            returned_variables = runner.run(
                 settings.code,
                 variables,
                 ("results",),
@@ -119,18 +124,18 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
             )
         except runner.CodeError as error:
             return dict.fromkeys(settings.questions, code_error_outcome(error))
-        results = returned.get("results")
+        results = returned_variables.get("results")
         if not isinstance(results, Mapping):
             return dict.fromkeys(
                 settings.questions,
-                code_failure("Your code must set results to a dict by question."),
+                code_failure_outcome("Your code must set results to a dict by question."),
             )
         return {
             question_id: _question_outcome(results.get(question_id), question_id)
             for question_id in settings.questions
         }
 
-    def questions_marked(self, step: Step, question: QuestionId | None) -> set[QuestionId]:
+    def questions_marked(self, step: Step, question_id: QuestionId | None) -> set[QuestionId]:
         return set(self._settings_of(step).questions)
 
     def problems(self, step: Step, position: Position) -> Iterator[Problem]:
@@ -148,9 +153,9 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
 
 def _question_outcome(result: object, question_id: QuestionId) -> Outcome:
     if result is None:
-        return code_failure(f"Your code didn't set results for {question_id}.")
+        return code_failure_outcome(f"Your code didn't set results for {question_id}.")
     if not isinstance(result, Mapping):
-        return code_failure(
+        return code_failure_outcome(
             f"Your code must set results[{question_id!r}] to a dict of correct or proportion, "
             "and feedback."
         )
