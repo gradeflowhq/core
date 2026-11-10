@@ -1,11 +1,11 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 import pytest
 
 from gradeflow_core import Check, MarkScheme, QuestionSet, Submission, mark
-from gradeflow_core.methods.check import Context
 from gradeflow_core.methods.outcome import Outcome
+from gradeflow_core.methods.step import Context
 from gradeflow_core.questions.text import TextQuestion
 
 
@@ -17,20 +17,20 @@ def test_mark_marks_each_distinct_answer_once_and_isolates_results(
         [
             {"question": "Q1", "uses": "gradeflow/full-marks@1"},
             {
-                "uses": "gradeflow/combination@1",
+                "uses": "gradeflow/workflow@1",
                 "with": {
-                    "checks": [
+                    "steps": [
                         {
                             "question": "Q2",
                             "id": "prerequisite",
-                            "read_only": True,
+                            "weight": 0,
                             "uses": "gradeflow/accepted-answers@1",
                             "with": {"answers": ["yes"]},
                         },
                         {
                             "question": "Q3",
                             "uses": "gradeflow/full-marks@1",
-                            "if": "{{ checks.prerequisite.correct }}",
+                            "if": "{{ steps.prerequisite.output.correct }}",
                         },
                     ]
                 },
@@ -41,11 +41,11 @@ def test_mark_marks_each_distinct_answer_once_and_isolates_results(
     original = Check.mark
 
     def recording_mark(
-        self: Check, context: Context, *args: Any, **kwargs: Any
-    ) -> dict[str, Outcome]:
+        self: Check, contexts: Sequence[Context], *args: Any, **kwargs: Any
+    ) -> list[dict[str, Outcome]]:
         if any(self is marking for marking in scheme.markings):
             marked_questions.append(self.question)
-        return original(self, context, *args, **kwargs)
+        return original(self, contexts, *args, **kwargs)
 
     monkeypatch.setattr(Check, "mark", recording_mark)
     students_read: list[str] = []
@@ -84,20 +84,20 @@ def test_mark_marks_each_distinct_answer_once_and_isolates_results(
     assert marked_questions.count(None) == 3
 
 
-@pytest.mark.parametrize("read_only", [True, False])
-def test_single_question_marking_rejects_cross_question_dependencies(read_only: bool) -> None:
+@pytest.mark.parametrize("weight", [0, 1])
+def test_single_question_marking_rejects_cross_question_dependencies(weight: float) -> None:
     questions = QuestionSet({question: TextQuestion() for question in ("Q1", "Q2")})
     scheme = MarkScheme.load(
         [
             {
                 "question": "Q1",
-                "uses": "gradeflow/combination@1",
+                "uses": "gradeflow/workflow@1",
                 "with": {
-                    "checks": [
+                    "steps": [
                         {
                             "question": "Q2",
                             "uses": "gradeflow/full-marks@1",
-                            "read_only": read_only,
+                            "weight": weight,
                         },
                         {"uses": "gradeflow/full-marks@1"},
                     ]
@@ -113,24 +113,24 @@ def test_nested_question_group_checks_inherit_questions_and_respect_conditions_a
     scheme = MarkScheme.load(
         [
             {
-                "uses": "gradeflow/combination@1",
+                "uses": "gradeflow/workflow@1",
                 "with": {
-                    "checks": [
+                    "steps": [
                         {
                             "question": "Q1",
-                            "uses": "gradeflow/combination@1",
+                            "uses": "gradeflow/workflow@1",
                             "with": {
-                                "checks": [
+                                "steps": [
                                     {
                                         "question": "Q2",
                                         "id": "prerequisite",
-                                        "read_only": True,
+                                        "weight": 0,
                                         "uses": "gradeflow/accepted-answers@1",
                                         "with": {"answers": ["yes"]},
                                     },
                                     {
                                         "uses": "gradeflow/full-marks@1",
-                                        "if": "{{ checks.prerequisite.correct }}",
+                                        "if": "{{ steps.prerequisite.output.correct }}",
                                     },
                                 ]
                             },
@@ -157,7 +157,7 @@ def test_nested_question_group_checks_inherit_questions_and_respect_conditions_a
     assert results[-1].results["Q1"].feedback == "No answer."
 
 
-def test_custom_code_marking_has_no_student_identity_and_reuses_declared_inputs(
+def test_custom_code_marking_has_no_student_identity_and_reuses_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from gradeflow_core.methods.code import runner as code_runner

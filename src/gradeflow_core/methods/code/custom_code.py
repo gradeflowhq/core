@@ -7,13 +7,13 @@ from ...common.hints import ADVANCED_HINT, PYTHON_CODE_HINT, hint
 from ...common.problems import Problem
 from ...common.text import as_sentence, as_text, code_block, quoted
 from ...questions.base import Question
-from ...questions.types import ALL_TYPES, Answer
-from ..check import Check
+from ...questions.types import ALL_TYPES, Answer, QuestionId
 from ..example import examples_beside
 from ..method import AnswerMethod
 from ..outcome import Outcome
 from ..position import Position
 from ..settings import Settings, specialized
+from ..step import Step
 from . import runner
 from .parameters import PARAMETERS_FIELD, Parameter, ParameterName, parameter_values
 
@@ -24,7 +24,7 @@ RESULT_VARIABLES = ("correct", "proportion", "feedback")
 STARTER_CODE = 'correct = False\nfeedback = ""\n'
 
 
-def time_limit_field(description: str) -> Any:
+def time_limit_field(description: str) -> int:
     """A time limit setting, within the runner's bounds."""
     return Field(
         default=runner.TIME_LIMIT_S,
@@ -36,7 +36,7 @@ def time_limit_field(description: str) -> Any:
     )
 
 
-def memory_limit_field(description: str) -> Any:
+def memory_limit_field(description: str) -> int:
     """A memory limit setting, within the runner's bounds."""
     return Field(
         default=runner.MEMORY_LIMIT_MB,
@@ -69,7 +69,7 @@ class CustomCodeSettings(Settings):
     memory_limit: int = MEMORY_LIMIT_FIELD
 
 
-def outcome_from_variables(variables: Mapping[str, Any], question: str = "") -> Outcome:
+def outcome_from_variables(variables: Mapping[str, Any], question: QuestionId = "") -> Outcome:
     """The marks code set: ``proportion`` from 0 to 1, or else ``correct``, with its
     ``feedback``."""
     feedback = str(variables.get("feedback", ""))
@@ -131,11 +131,11 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
         answer = f"answer ({question.python_type()})" if question else "answer"
         return specialized(self.settings, code={"description": code_description(answer)})
 
-    def describe(self, check: Check) -> str:
-        return f"Python code decides the marks:\n\n{code_block(self._settings_of(check).code)}"
+    def describe(self, step: Step) -> str:
+        return f"Python code decides the marks:\n\n{code_block(self._settings_of(step).code)}"
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
-        return code_problems(self._settings_of(check).code)
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
+        return code_problems(self._settings_of(step).code)
 
     def _mark_answer(
         self, settings: CustomCodeSettings, answer: Answer, question: Question

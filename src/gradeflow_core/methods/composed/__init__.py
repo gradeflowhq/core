@@ -1,1 +1,1 @@
-"""Composed methods: YAML that combines other methods, with inputs that others fill in."""
+"""Composed methods: YAML that combines other methods, with settings that others fill in."""

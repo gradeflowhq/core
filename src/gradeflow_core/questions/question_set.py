@@ -15,11 +15,6 @@ type Answers = Mapping[QuestionId, Answer | Unreadable]
 """A student's answers as the questions read them."""
 
 
-def read_answer(answers: Answers, question: QuestionId, number: int | None) -> Answer | Unreadable:
-    """A student's answer to ``question``, or the value of it a check reads; None when blank."""
-    return value_of(answers.get(question), number)
-
-
 def value_of[A: Answer | Unreadable](answer: A, number: int | None) -> A | Value:
     """``answer``, or its value ``number``, from 1, when it has values; None when it has fewer."""
     if number is not None and isinstance(answer, list):

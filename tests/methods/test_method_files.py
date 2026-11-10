@@ -7,6 +7,7 @@ from gradeflow_core import (
     BUILTINS,
     MethodFileError,
     Methods,
+    Step,
 )
 from gradeflow_core.common.hints import hint_of
 
@@ -15,21 +16,21 @@ from .helpers import describe, mark, mark_all, proportions
 METHOD_FILE_HEADER = "label: Term\nversion: 1\nsummary: A term.\nquestion_types: [text]\n"
 TERMS_METHOD_FILE = (
     METHOD_FILE_HEADER
-    + """inputs:
+    + """settings:
   terms:
     title: Terms
   limit_to_three_words:
     default: false
-checks:
-  - for_each: "{{ inputs.terms }}"
+steps:
+  - for_each: "{{ settings.terms }}"
     name: "Term {{ index }}"
     uses: gradeflow/key-point@1
     with:
       point: "{{ item }}"
-  - if: "{{ inputs.limit_to_three_words }}"
+  - if: "{{ settings.limit_to_three_words }}"
     uses: gradeflow/length@1
     with: {max_length: 3, unit: words}
-description: "Say {{ inputs.terms | quoted | and_list }}."
+description: "Say {{ settings.terms | quoted | and_list }}."
 feedback: >-
   {% if correct %}Good.{% else %}{{ parts | selectattr('correct') | list | length }} found.
   {%- endif %}
@@ -72,7 +73,7 @@ def test_a_method_file_repeats_checks_for_each_item_and_keeps_checks_whose_condi
 def test_a_method_files_feedback_shows_the_answer_as_written() -> None:
     echo_file = (
         METHOD_FILE_HEADER
-        + """checks:
+        + """steps:
   - uses: gradeflow/key-point@1
     with: {point: paris}
 feedback: "You wrote {{ answer }}."
@@ -87,15 +88,15 @@ feedback: "You wrote {{ answer }}."
 def test_a_method_file_without_a_summary_has_an_empty_one() -> None:
     method_file = (
         METHOD_FILE_HEADER.replace("summary: A term.\n", "")
-        + "checks: [{uses: gradeflow/full-marks@1}]\n"
+        + "steps: [{uses: gradeflow/full-marks@1}]\n"
     )
     assert with_sample_files(bare=method_file).find("sample/bare@1").summary == ""
 
 
 def test_a_repeated_check_is_named_by_its_index() -> None:
     method_file = METHOD_FILE_HEADER + (
-        "inputs:\n  terms: {}\n"
-        'checks:\n  - for_each: "{{ inputs.terms }}"\n'
+        "settings:\n  terms: {}\n"
+        'steps:\n  - for_each: "{{ settings.terms }}"\n'
         '    name: "Term {{ index }}"\n'
         '    uses: gradeflow/key-point@1\n    with: {point: "{{ item }}"}\n'
     )
@@ -106,7 +107,7 @@ def test_a_repeated_check_is_named_by_its_index() -> None:
     assert result.feedback == "Term 2: Missing “b”."
 
 
-def test_inputs_are_typed_by_the_settings_they_fill() -> None:
+def test_settings_are_typed_by_the_fields_they_fill() -> None:
     method = BUILTINS.with_files([("sample/terms", TERMS_METHOD_FILE)])[-1]
     assert method.ref == "sample/terms@1"
     fields = method.settings.model_fields
@@ -119,32 +120,32 @@ def test_inputs_are_typed_by_the_settings_they_fill() -> None:
         method.check_model.model_validate({"uses": "sample/terms@1", "with": {"terms": [1]}})
 
 
-def test_an_input_applies_when_the_setting_it_fills_applies() -> None:
+def test_a_setting_applies_when_the_field_it_fills_applies() -> None:
     fixed_strictness_file = METHOD_FILE_HEADER + (
-        "inputs:\n  strictness: {default: strict}\n"
-        "checks:\n  - uses: gradeflow/key-point@1\n"
-        '    with: {point: a, match: spelling, strictness: "{{ inputs.strictness }}"}\n'
+        "settings:\n  strictness: {default: strict}\n"
+        "steps:\n  - uses: gradeflow/key-point@1\n"
+        '    with: {point: a, match: spelling, strictness: "{{ settings.strictness }}"}\n'
     )
-    renamed_inputs_file = METHOD_FILE_HEADER + (
-        "inputs:\n  how_to_match: {default: exact}\n  only_whole_words: {default: false}\n"
-        "checks:\n  - uses: gradeflow/key-point@1\n"
-        '    with: {point: a, match: "{{ inputs.how_to_match }}",'
-        ' whole_words: "{{ inputs.only_whole_words }}"}\n'
+    renamed_settings_file = METHOD_FILE_HEADER + (
+        "settings:\n  how_to_match: {default: exact}\n  only_whole_words: {default: false}\n"
+        "steps:\n  - uses: gradeflow/key-point@1\n"
+        '    with: {point: a, match: "{{ settings.how_to_match }}",'
+        ' whole_words: "{{ settings.only_whole_words }}"}\n'
     )
-    [fixed_strictness, renamed_inputs] = with_sample_files(
-        spelt=fixed_strictness_file, named=renamed_inputs_file
+    [fixed_strictness, renamed_settings] = with_sample_files(
+        **{"fixed-strictness": fixed_strictness_file, "renamed-settings": renamed_settings_file}
     )[-2:]
     assert hint_of(fixed_strictness.settings.model_fields["strictness"]).applies_when is None
-    assert hint_of(renamed_inputs.settings.model_fields["only_whole_words"]).applies_when == {
+    assert hint_of(renamed_settings.settings.model_fields["only_whole_words"]).applies_when == {
         "how_to_match": ["exact"]
     }
 
 
-def test_an_input_titles_the_fields_of_its_items() -> None:
+def test_a_setting_titles_the_fields_of_its_items() -> None:
     weighted_items_file = METHOD_FILE_HEADER + (
-        "inputs:\n  terms:\n    items:\n"
+        "settings:\n  terms:\n    items:\n"
         "      marks: {title: Marks, description: Its marks., examples: [2, 1]}\n"
-        'checks:\n  - for_each: "{{ inputs.terms }}"\n    weight: "{{ item.marks }}"\n'
+        'steps:\n  - for_each: "{{ settings.terms }}"\n    weight: "{{ item.marks }}"\n'
         '    uses: gradeflow/key-point@1\n    with: {point: "{{ item.text }}"}\n'
     )
     [method] = with_sample_files(weights=weighted_items_file)[-1:]
@@ -154,23 +155,23 @@ def test_an_input_titles_the_fields_of_its_items() -> None:
     assert text_field.title == "Point", "as the setting it fills"
 
 
-def test_an_input_without_a_default_must_be_filled_in() -> None:
+def test_a_setting_without_a_default_must_be_filled_in() -> None:
     method_file = METHOD_FILE_HEADER.replace("[text]", "[number]") + (
-        "inputs:\n  minimum: {title: Minimum}\n"
-        "checks:\n  - uses: gradeflow/number-range@1\n"
-        '    with: {min_value: "{{ inputs.minimum }}"}\n'
+        "settings:\n  minimum: {title: Minimum}\n"
+        "steps:\n  - uses: gradeflow/number-range@1\n"
+        '    with: {min_value: "{{ settings.minimum }}"}\n'
     )
     method = BUILTINS.with_files([("sample/minimum", method_file)])[-1]
     assert method.settings.model_fields["minimum"].is_required()
 
 
-def test_an_input_may_be_used_inside_a_settings_template() -> None:
+def test_a_setting_may_be_used_inside_a_field_template() -> None:
     method_file = METHOD_FILE_HEADER + (
-        "inputs:\n  term: {title: Term}\n  topic: {title: Topic}\n"
-        "checks:\n  - uses: gradeflow/accepted-answers@1\n"
-        '    with: {answers: ["the {{ inputs.term }}"]}\n'
+        "settings:\n  term: {title: Term}\n  topic: {title: Topic}\n"
+        "steps:\n  - uses: gradeflow/accepted-answers@1\n"
+        '    with: {answers: ["the {{ settings.term }}"]}\n'
         "  - uses: gradeflow/key-point@1\n"
-        '    with: {point: "Mentions {{ inputs.topic }}"}\n'
+        '    with: {point: "Mentions {{ settings.topic }}"}\n'
     )
     methods = BUILTINS.with_files([("sample/term", method_file)])
     marking = {"uses": "sample/term@1", "with": {"term": "cell", "topic": "cells"}}
@@ -181,119 +182,119 @@ def test_an_input_may_be_used_inside_a_settings_template() -> None:
 @pytest.mark.parametrize(
     ("method_file", "message"),
     [
-        ("checks: [\n", "Line 6: expected the node content, but found '<stream end>'."),
+        ("steps: [\n", "Line 6: expected the node content, but found '<stream end>'."),
         (
-            "inputs:\n  terms: {}\n"
-            "checks:\n  - uses: gradeflow/key-point@1\n"
-            "    with:\n      point: {{ inputs.terms }}\n",
-            'Line 10: Quote {{ … }}, as in "{{ inputs.name }}".',
+            "settings:\n  terms: {}\n"
+            "steps:\n  - uses: gradeflow/key-point@1\n"
+            "    with:\n      point: {{ settings.terms }}\n",
+            'Line 10: Quote {{ … }}, as in "{{ settings.name }}".',
         ),
-        ("colour: red\nchecks: []\n", "Line 5: colour: Unknown setting."),
+        ("colour: red\nsteps: []\n", "Line 5: colour: Unknown setting."),
         (
-            "combine: most\nchecks:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n",
-            "Line 5: Choose 'all', 'any', 'none', 'total' or 'proportional'.",
+            "marks_by: most\nsteps:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n",
+            "Line 5: Choose 'all_correct', 'any_correct', 'none_correct', 'total' or "
+            "'proportional'.",
         ),
-        ("checks:\n  - uses: gradeflow/nope@1\n", "Line 6: There's no method gradeflow/nope@1."),
+        ("steps:\n  - uses: gradeflow/nope@1\n", "Line 6: There's no method gradeflow/nope@1."),
         (
-            "checks:\n  - uses: gradeflow/key-point@1\n    colour: red\n    with: {point: a}\n",
-            "Line 7: A check has no colour:.",
+            "steps:\n  - uses: gradeflow/key-point@1\n    colour: red\n    with: {point: a}\n",
+            "Line 7: A step has no colour:.",
         ),
         (
-            "checks:\n  - uses: gradeflow/key-point@1\n    with: {point: a, colour: red}\n",
+            "steps:\n  - uses: gradeflow/key-point@1\n    with: {point: a, colour: red}\n",
             "Line 7: Key Point has no setting colour.",
         ),
         (
-            "checks:\n  - uses: gradeflow/key-point@1\n    with: bad\n",
-            "Line 7: A check's settings aren't a mapping.",
+            "steps:\n  - uses: gradeflow/key-point@1\n    with: bad\n",
+            "Line 7: A step's settings aren't a mapping.",
         ),
         (
-            "checks:\n  - uses: gradeflow/length@1\n    with: {max_length: -1}\n",
+            "steps:\n  - uses: gradeflow/length@1\n    with: {max_length: -1}\n",
             "Line 7: Must be 0 or more.",
         ),
         (
-            "inputs:\n  settings: {}\n"
-            'checks:\n  - uses: gradeflow/key-point@1\n    with: "{{ inputs.settings }}"\n',
-            "Line 9: Fill in a method's settings one by one, not with inputs.settings.",
+            "settings:\n  settings: {}\n"
+            'steps:\n  - uses: gradeflow/key-point@1\n    with: "{{ settings.settings }}"\n',
+            "Line 9: Fill in a method's settings one by one, not with settings.settings.",
         ),
         (
-            "inputs:\n  terms: {}\n  unused: {}\n"
-            'checks:\n  - uses: gradeflow/key-point@1\n    with: {point: "{{ inputs.terms }}"}\n',
-            "Line 7: Input unused isn't used.",
+            "settings:\n  terms: {}\n  unused: {}\n"
+            'steps:\n  - uses: gradeflow/key-point@1\n    with: {point: "{{ settings.terms }}"}\n',
+            "Line 7: Setting unused isn't used.",
         ),
         (
-            "inputs:\n  terms: {}\n  unused: {title: Marking criteria}\n"
-            'checks:\n  - uses: gradeflow/key-point@1\n    with: {point: "{{ inputs.terms }}"}\n',
+            "settings:\n  terms: {}\n  unused: {title: Marking criteria}\n"
+            'steps:\n  - uses: gradeflow/key-point@1\n    with: {point: "{{ settings.terms }}"}\n',
             "Line 7: Marking criteria isn't used.",
         ),
         (
-            'checks:\n  - uses: gradeflow/key-point@1\n    with: {point: "{{ inputs.terms }}"}\n',
-            "Line 7: There's no inputs.terms.",
+            'steps:\n  - uses: gradeflow/key-point@1\n    with: {point: "{{ settings.terms }}"}\n',
+            "Line 7: There's no settings.terms.",
         ),
         (
-            "inputs:\n  first: {}\n  second: {}\n"
-            "checks:\n  - uses: gradeflow/key-point@1\n"
-            '    with: {point: "{{ inputs.first - inputs.second }}"}\n',
+            "settings:\n  first: {}\n  second: {}\n"
+            "steps:\n  - uses: gradeflow/key-point@1\n"
+            '    with: {point: "{{ settings.first - settings.second }}"}\n',
             "Line 10: A template can't do arithmetic; use a filter, such as "
             "{{ proportion | percent }}.",
         ),
         (
-            "inputs:\n  first: {}\n"
-            "checks:\n  - uses: gradeflow/key-point@1\n"
-            '    with: {point: "{{ inputs.first + }}"}\n',
+            "settings:\n  first: {}\n"
+            "steps:\n  - uses: gradeflow/key-point@1\n"
+            '    with: {point: "{{ settings.first + }}"}\n',
             "Line 9: Can't read this reference.",
         ),
         (
-            "inputs:\n  first: {}\n"
-            "checks:\n  - uses: gradeflow/key-point@1\n"
-            '    with: {point: "{{ inputs.first | upper }}"}\n',
-            "Line 9: A setting takes an input as it is, such as {{ inputs.name }}.",
+            "settings:\n  first: {}\n"
+            "steps:\n  - uses: gradeflow/key-point@1\n"
+            '    with: {point: "{{ settings.first | upper }}"}\n',
+            "Line 9: Use one {{ settings.name }} and nothing else.",
         ),
         (
-            "checks:\n  - for_each: [a, b]\n"
+            "steps:\n  - for_each: [a, b]\n"
             '    uses: gradeflow/key-point@1\n    with: {point: "{{ item }}"}\n',
-            "Line 6: for_each needs one {{ inputs.… }}.",
+            "Line 6: for_each needs one {{ settings.… }}.",
         ),
         (
-            'inputs:\n  terms: {}\nchecks:\n  - for_each: "{{ inputs.terms }}"\n'
+            'settings:\n  terms: {}\nsteps:\n  - for_each: "{{ settings.terms }}"\n'
             "    uses: gradeflow/key-point@1\n    with: {point: a}\n",
-            "Line 8: A repeated check uses {{ item }}.",
+            "Line 8: A repeated step uses {{ item }}.",
         ),
         (
-            "inputs:\n  terms: {items: {marks: {title: Marks}}}\n"
-            'checks:\n  - for_each: "{{ inputs.terms }}"\n'
+            "settings:\n  terms: {items: {marks: {title: Marks}}}\n"
+            'steps:\n  - for_each: "{{ settings.terms }}"\n'
             '    uses: gradeflow/key-point@1\n    with: {point: "{{ item.text }}"}\n',
             "Line 8: Each item has no marks.",
         ),
         (
-            'inputs:\n  terms: {}\nchecks:\n  - for_each: "{{ inputs.terms }}"\n'
+            'settings:\n  terms: {}\nsteps:\n  - for_each: "{{ settings.terms }}"\n'
             '    if: "{{ loop.first }}"\n'
             '    uses: gradeflow/key-point@1\n    with: {point: "{{ item }}"}\n',
             "Line 9: There's no loop.",
         ),
         (
-            "checks:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n"
+            "steps:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n"
             '    feedback: "{% set x = 1 %}"\n',
             "Line 8: A template can't use {% set %}.",
         ),
         (
-            "checks:\n  - uses: gradeflow/key-point@1\n"
-            '    if: "{{ checks.x.correct }}"\n    with: {point: a}\n',
-            "Line 7: No check before this one is called x.",
+            "steps:\n  - uses: gradeflow/key-point@1\n"
+            '    if: "{{ steps.x.output.correct }}"\n    with: {point: a}\n',
+            "Line 7: No step before this one is called x.",
         ),
         (
-            'checks:\n  - uses: gradeflow/key-point@1\n    if: "{{ true }}"\n'
-            "    with: {point: a}\n",
-            "Line 7: Make a condition read an earlier check or an input, such as "
-            "{{ checks.test.correct }}.",
+            'steps:\n  - uses: gradeflow/key-point@1\n    if: "{{ true }}"\n    with: {point: a}\n',
+            "Line 7: Make a condition read an earlier step or a setting, such as "
+            "{{ steps.test.output.correct }}.",
         ),
         (
-            'description: "{{ inputs.terms }}"\n'
-            "checks:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n",
-            "Line 5: inputs has no terms.",
+            'description: "{{ settings.terms }}"\n'
+            "steps:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n",
+            "Line 5: settings has no terms.",
         ),
         *(
             (
-                'inputs:\n  terms: {}\nchecks:\n  - for_each: "{{ inputs.terms }}"\n'
+                'settings:\n  terms: {}\nsteps:\n  - for_each: "{{ settings.terms }}"\n'
                 f'    name: "Term {{{{ {expression} }}}}"\n'
                 '    uses: gradeflow/key-point@1\n    with: {point: "{{ item }}"}\n',
                 f"Line 9: {message}",
@@ -309,20 +310,20 @@ def test_an_input_may_be_used_inside_a_settings_template() -> None:
             ]
         ),
         (
-            "inputs:\n  term: {}\n"
-            "checks:\n  - uses: gradeflow/accepted-answers@1\n"
-            '    with: {answers: ["the {{ inputs.term }}", " "]}\n',
+            "settings:\n  term: {}\n"
+            "steps:\n  - uses: gradeflow/accepted-answers@1\n"
+            '    with: {answers: ["the {{ settings.term }}", " "]}\n',
             "Line 9: Can't be blank.",
         ),
         (
-            "checks:\n  - uses: gradeflow/key-point@1\n"
-            '    with: {point: "Has {{ checks.x.feedback }}"}\n',
-            "Line 7: There's no checks.",
+            "steps:\n  - uses: gradeflow/key-point@1\n"
+            '    with: {point: "Has {{ steps.x.output.feedback }}"}\n',
+            "Line 7: There's no steps.",
         ),
         (
-            "inputs:\n  whole: {default: true}\n"
-            "checks:\n  - uses: gradeflow/key-point@1\n"
-            '    with: {point: a, match: spelling, whole_words: "{{ inputs.whole }}"}\n',
+            "settings:\n  whole: {default: true}\n"
+            "steps:\n  - uses: gradeflow/key-point@1\n"
+            '    with: {point: a, match: spelling, whole_words: "{{ settings.whole }}"}\n',
             "Line 9: Whole words only applies when Match is “Exactly”.",
         ),
     ],
@@ -330,23 +331,23 @@ def test_an_input_may_be_used_inside_a_settings_template() -> None:
 def test_a_method_file_that_cant_work_is_refused_at_its_line(
     method_file: str, message: str
 ) -> None:
-    with pytest.raises(MethodFileError) as caught:
+    with pytest.raises(MethodFileError) as exc_info:
         BUILTINS.with_files([("sample/term", METHOD_FILE_HEADER + method_file)])
-    assert str(caught.value).partition(": ")[2] == message
+    assert str(exc_info.value).partition(": ")[2] == message
 
 
 def test_composed_methods_may_use_each_other_but_not_in_a_cycle() -> None:
     wrapper_file = (
         "label: Wrapper\nversion: 1\nsummary: Wraps.\nquestion_types: [text]\n"
-        "checks:\n  - uses: sample/terms@1\n    with: {terms: [a]}\n"
+        "steps:\n  - uses: sample/terms@1\n    with: {terms: [a]}\n"
     )
     methods = with_sample_files(wrapper=wrapper_file, terms=TERMS_METHOD_FILE)
     assert [method.ref for method in methods][-2:] == ["sample/wrapper@1", "sample/terms@1"]
     method_a = (
-        "label: A\nversion: 1\nsummary: A.\nquestion_types: [text]\nchecks:\n  - uses: sample/b@1\n"
+        "label: A\nversion: 1\nsummary: A.\nquestion_types: [text]\nsteps:\n  - uses: sample/b@1\n"
     )
     method_b = (
-        "label: B\nversion: 1\nsummary: B.\nquestion_types: [text]\nchecks:\n  - uses: sample/a@1\n"
+        "label: B\nversion: 1\nsummary: B.\nquestion_types: [text]\nsteps:\n  - uses: sample/a@1\n"
     )
     with pytest.raises(
         MethodFileError,
@@ -354,7 +355,7 @@ def test_composed_methods_may_use_each_other_but_not_in_a_cycle() -> None:
     ):
         with_sample_files(a=method_a, b=method_b)
     with pytest.raises(MethodFileError, match="^" + re.escape("sample/a: Line 2: expected")):
-        with_sample_files(a="checks: [\n")
+        with_sample_files(a="steps: [\n")
 
 
 def test_a_composed_method_describes_itself_and_marks_like_a_built_in_one() -> None:
@@ -363,13 +364,33 @@ def test_a_composed_method_describes_itself_and_marks_like_a_built_in_one() -> N
     assert mark(key_points, "a").method_label == "Key Points"
 
 
-def test_an_input_applies_for_a_list_of_values_not_one() -> None:
+def test_a_setting_applies_for_a_list_of_values_not_one() -> None:
     method_file = METHOD_FILE_HEADER + (
-        "inputs:\n  match: {default: exact}\n"
+        "settings:\n  match: {default: exact}\n"
         "  whole_words: {default: false, applies_when: {match: exact}}\n"
-        "checks:\n  - uses: gradeflow/key-point@1\n"
-        '    with: {point: a, match: "{{ inputs.match }}",'
-        ' whole_words: "{{ inputs.whole_words }}"}\n'
+        "steps:\n  - uses: gradeflow/key-point@1\n"
+        '    with: {point: a, match: "{{ settings.match }}",'
+        ' whole_words: "{{ settings.whole_words }}"}\n'
     )
     with pytest.raises(MethodFileError, match="list"):
         with_sample_files(single=method_file)
+
+
+def test_a_step_whose_settings_its_method_file_refuses_needs_no_model() -> None:
+    methods = with_sample_files(
+        between="""label: Between
+version: 1
+summary: Between two numbers.
+question_types: [number]
+settings:
+  low: {}
+  high: {}
+steps:
+  - uses: gradeflow/number-range@1
+    with:
+      min_value: "{{ settings.low }}"
+      max_value: "{{ settings.high }}"
+"""
+    )
+    step = Step.load({"uses": "sample/between@1", "with": {"low": 2, "high": 1}}, methods=methods)
+    assert not step.needs_model_endpoint()

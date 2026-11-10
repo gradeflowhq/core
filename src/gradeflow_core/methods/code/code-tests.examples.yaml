@@ -7,7 +7,7 @@ examples:
     questions:
       Q1: {type: code, max_marks: 2}
     with:
-      combine: proportional
+      marks_by: proportional
       tests:
         - {expression: "add(2, 3)", expected: "5"}
         - {expression: "add(-1, 1)", expected: "0"}

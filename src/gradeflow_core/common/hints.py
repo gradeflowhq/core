@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, JsonValue
@@ -14,9 +14,12 @@ class Hint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    kind: Literal["check", "code", "markdown", "question", "feedback", "condition"] | None = None
+    kind: (
+        Literal["step", "output_step", "code", "markdown", "question", "feedback", "condition"]
+        | None
+    ) = None
     """What kind of value the field holds. "markdown" is Markdown with LaTeX formulas between $
-    signs. A list of checks says "check" on its items."""
+    signs. A list of steps says "step" on its items."""
     language: Literal["python"] | None = None
     advanced: bool = False
     """An option most people leave at its default."""
@@ -39,9 +42,15 @@ class Hint(BaseModel):
         return {HINT_KEY: self.model_dump(exclude_defaults=True)}
 
 
-def hint(**values: Any) -> JsonDict:
-    """A field's ``json_schema_extra`` with a hint of ``values``."""
-    return Hint(**values).schema_extra()
+def _as_schema_extra[**P](make_hint: Callable[P, Hint]) -> Callable[P, JsonDict]:
+    def schema_extra(*args: P.args, **kwargs: P.kwargs) -> JsonDict:
+        return make_hint(*args, **kwargs).schema_extra()
+
+    return schema_extra
+
+
+hint = _as_schema_extra(Hint)
+"""A field's ``json_schema_extra`` with a hint of these values."""
 
 
 def hint_of(field: FieldInfo) -> Hint:

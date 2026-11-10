@@ -72,9 +72,9 @@ def test_columns_follow_the_options() -> None:
 
 @pytest.mark.parametrize("name", ["", "   ", "\t"])
 def test_the_student_id_column_needs_a_name(name: str) -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         ResultsCsv.load({"student_id_column": name})
-    assert caught.value.problems == [Problem("Required.", field=("student_id_column",))]
+    assert exc_info.value.problems == [Problem("Required.", field=("student_id_column",))]
 
 
 @pytest.mark.parametrize(
@@ -85,6 +85,6 @@ def test_the_student_id_column_needs_a_name(name: str) -> None:
     ],
 )
 def test_a_column_name_used_twice_is_refused(questions: QuestionSet, column: str) -> None:
-    with pytest.raises(GradeFlowError) as caught:
+    with pytest.raises(GradeFlowError) as exc_info:
         ResultsCsv().write(questions, [])
-    assert str(caught.value) == f"The “{column}” column would be written twice."
+    assert str(exc_info.value) == f"The “{column}” column would be written twice."

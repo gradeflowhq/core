@@ -8,16 +8,16 @@ guide: |-
 
   **How it marks:** The check inside is marked and its result reversed: full marks if it isn't correct, none if it is.
 
-  **Good to know:** On its own it gives marks to any answer that avoids the mistake. Put it in a Combination with **All must be correct**, beside the check for the correct answer.
+  **Good to know:** On its own it gives marks to any answer that avoids the mistake. Put it in a Workflow with **All must be correct**, beside the check for the correct answer.
 
   **Related:** To forbid words or points, Key Points with **None may be correct** is simpler.
-inputs:
+settings:
   check:
     title: Check
     description: The check for what the answer must not do.
-combine: none
-checks:
-  - "{{ inputs.check }}"
+marks_by: none_correct
+steps:
+  - "{{ settings.check }}"
 description: "**Not allowed:** {{ parts | first }}"
 examples:
   - title: Write total(numbers), which returns the sum of a list, without a loop.

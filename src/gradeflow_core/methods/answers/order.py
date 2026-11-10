@@ -11,13 +11,13 @@ from ...common.text import code_span, reads_better_listed
 from ...questions.base import Question
 from ...questions.types import Answer, Value
 from ...questions.values import ValuesQuestion
-from ..check import Check
 from ..example import examples_beside
 from ..matching import duplicate_problems, unreadable_problems
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
 from ..settings import NonBlankText, Settings
+from ..step import Step
 
 MARKS_FOR_LABELS = {
     "exact": "Only the correct order",
@@ -61,8 +61,8 @@ class Order(AnswerMethod[OrderSettings]):
     settings = OrderSettings
     examples = examples_beside(__file__)
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
         partial_marks_note = (
             ""
             if settings.marks_for == "exact"
@@ -96,11 +96,11 @@ class Order(AnswerMethod[OrderSettings]):
                 )
         return Outcome(1.0, CORRECT) if proportion >= 1 else Outcome(proportion, feedback)
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         question = position.question_model
         if not isinstance(question, ValuesQuestion):
             return
-        order = self._settings_of(check).order
+        order = self._settings_of(step).order
         if question.value_count != len(order):
             yield Problem(
                 f"List {question.value_count} items, one for each value.", field=("order",)

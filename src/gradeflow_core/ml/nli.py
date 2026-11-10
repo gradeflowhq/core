@@ -8,10 +8,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..common.text import unescaped_markdown
 from . import MISSING_MODEL_MESSAGE, cache_directory
+
+if TYPE_CHECKING:
+    from tokenizers import Tokenizer
 
 REPOSITORY = "cross-encoder/nli-deberta-v3-xsmall"
 REVISION = "a150876415327c80daeff35ca6f68f5ed8cf5c24"
@@ -103,7 +106,7 @@ def _framed(text: str, question: str) -> str:
 @dataclass(frozen=True)
 class _Model:
     session: Any
-    tokenizer: Any
+    tokenizer: Tokenizer
     input_names: frozenset[str]
     entailment: int
     contradiction: int

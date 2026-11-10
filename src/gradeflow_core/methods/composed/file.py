@@ -1,27 +1,26 @@
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from ...common.hints import hint
 from ...common.paths import Location
 from ...questions import TYPE_LABELS
 from ...questions.types import QuestionType
 from ..example import Example
-from ..logic.combination import Combination
+from ..logic.workflow import Workflow
 from ..method import Level
 
-COMBINATION = Combination().ref
-"""What a method file's checks and ``combine`` make up."""
-COMBINATION_KEYS = ("checks", "combine")
-"""What of a method file is the settings of its Combination."""
-TEMPLATE_KEYS = frozenset({"if", "feedback"})
-"""Keys of a check in a method file that hold templates, rendered when it marks."""
+WORKFLOW_REF = Workflow().ref
+WORKFLOW_KEYS = ("steps", "marks_by", "output", "output_step")
+"""The keys of a method file that are its workflow's settings."""
+TEMPLATE_KEYS = frozenset({"if", "feedback", "input", "output_step"})
+"""Keys of a step, or of its settings, in a method file that hold templates, read when it runs."""
 
 
 class ItemField(BaseModel):
-    """A field of each item of a list a repeated check goes through, as the input names it."""
+    """How a declared setting titles a field of the items a repeated step goes through."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -30,13 +29,13 @@ class ItemField(BaseModel):
     examples: list[JsonValue] | None = None
 
 
-class Input(BaseModel):
+class DeclaredSetting(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = None
     description: str | None = None
     default: JsonValue = None
-    """Without an explicit default, the caller must supply the input. A list needs an item
+    """Without an explicit default, the caller must fill it in. A list needs an item
     unless its default is empty."""
     advanced: bool | None = None
     """Whether most people leave it at its default; by default, as for the setting it fills."""
@@ -44,10 +43,10 @@ class Input(BaseModel):
     """Fewer choices than the setting it fills allows."""
     labels: dict[str, str] | None = None
     applies_when: dict[str, list[JsonValue]] | None = None
-    """The input applies only when other inputs have these values, as a setting's hint says."""
+    """It applies only when other settings have these values."""
     examples: list[JsonValue] | None = None
     items: dict[str, ItemField] | None = None
-    """For a list a repeated check goes through: the fields ``item.…`` names, titled for it
+    """For a list a repeated step goes through: the fields ``item.…`` names, titled for it
     rather than as the settings they fill."""
 
 
@@ -81,43 +80,48 @@ class MethodFile(BaseModel):
         default=[], title="Question types", json_schema_extra=hint(labels=TYPE_LABELS)
     )
     marks_question_group: bool = False
-    inputs: dict[str, Input] = {}
-    combine: JsonValue = "all"
-    checks: list[JsonValue] | str
+    settings: dict[str, DeclaredSetting] = {}
+    steps: list[JsonValue] | str
+    output: Literal["marks", "step_output"] = "marks"
+    """Marks, or the output of ``output_step``."""
+    marks_by: JsonValue = "all_correct"
+    output_step: str | None = None
     description: str | None = Field(
         default=None,
         title="Description template",
-        description="Replaces the description its checks write.",
+        description="Replaces the description its steps write.",
         json_schema_extra=hint(kind="markdown", advanced=True),
     )
     feedback: str | None = Field(
         default=None,
         title="Feedback template",
-        description="Replaces the feedback its checks give.",
+        description="Replaces the feedback its steps give.",
         json_schema_extra=hint(kind="markdown", advanced=True),
     )
     examples: list[Example] = []
 
-    def combination(self) -> dict[str, Any]:
-        """The Combination the method is, with the inputs not yet filled in."""
-        return as_combination(self.model_dump(include=set(COMBINATION_KEYS)))
+    @model_validator(mode="after")
+    def _validate_output_step(self) -> Self:
+        if self.output == "step_output" and self.output_step is None:
+            raise ValueError("Name the step whose output it gives.")
+        return self
+
+    def workflow(self) -> dict[str, Any]:
+        """The workflow the method is, with its settings not yet filled in."""
+        return as_workflow(self.model_dump(include=set(WORKFLOW_KEYS)))
 
 
-def as_combination(file: Mapping[str, Any]) -> dict[str, Any]:
-    """A method file's checks as the Combination of them."""
-    return {
-        "uses": COMBINATION,
-        "with": {key: deepcopy(file[key]) for key in COMBINATION_KEYS if key in file},
-    }
+def as_workflow(file: Mapping[str, Any]) -> dict[str, Any]:
+    """A method file's steps as a workflow step."""
+    settings = {key: deepcopy(file[key]) for key in WORKFLOW_KEYS if file.get(key) is not None}
+    return {"uses": WORKFLOW_REF, "with": settings}
 
 
-def as_file_checks(check: Mapping[str, Any]) -> dict[str, Any]:
-    """A check as a method file's checks: a Combination's own, or else the check alone."""
-    if check.get("uses") == COMBINATION and check.keys() <= {"uses", "with"}:
-        return {
-            key: value for key, value in check.get("with", {}).items() if key in COMBINATION_KEYS
-        }
-    return {"checks": [check]}
+def as_file_steps(step: Mapping[str, Any]) -> dict[str, Any]:
+    """A step as a method file's steps: a workflow's own, or else the step alone."""
+    if step.get("uses") == WORKFLOW_REF and step.keys() <= {"uses", "with"}:
+        return {key: value for key, value in step.get("with", {}).items() if key in WORKFLOW_KEYS}
+    return {"steps": [step]}
 
 
 class MethodFileFieldError(ValueError):

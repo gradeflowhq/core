@@ -48,7 +48,7 @@ def test_the_gradeflow_namespace_is_reserved() -> None:
     ],
 )
 def test_loaded_methods_are_named_as_saved_methods_are(name: str, message: str) -> None:
-    method_file = "version: 1\nlabel: Term\nsummary: s\nquestion_types: [text]\nchecks: []\n"
+    method_file = "version: 1\nlabel: Term\nsummary: s\nquestion_types: [text]\nsteps: []\n"
     with pytest.raises(MethodFileError, match=message):
         BUILTINS.with_files([(name, method_file)])
 

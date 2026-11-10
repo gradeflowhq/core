@@ -11,15 +11,15 @@ guide: |-
   **Good to know:** Mark the same questions under Then and Otherwise, so every student is marked one way or the other.
 
   **Related:** To accept several consistent sets of answers, use Answer Sets.
-inputs:
+settings:
   condition:
     title: If
     description: Checks that choose the branch. They give no marks.
-  condition_combine:
+  condition_met_by:
     title: Then applies when
-    default: all
-    choices: [all, any]
-    labels: {all: All are correct, any: Any one is correct}
+    default: all_correct
+    choices: [all_correct, any_correct]
+    labels: {all_correct: All are correct, any_correct: Any one is correct}
   then:
     title: Then
     description: Checks that mark the questions when the If checks are correct.
@@ -27,31 +27,31 @@ inputs:
     title: Otherwise
     description: Checks that mark the questions otherwise.
     default: []
-checks:
+steps:
   - id: condition
-    read_only: true
-    uses: gradeflow/combination@1
+    weight: 0
+    uses: gradeflow/workflow@1
     with:
-      combine: "{{ inputs.condition_combine }}"
-      checks: "{{ inputs.condition }}"
-  - if: "{{ checks.condition.correct }}"
-    uses: gradeflow/combination@1
+      marks_by: "{{ settings.condition_met_by }}"
+      steps: "{{ settings.condition }}"
+  - if: "{{ steps.condition.output.correct }}"
+    uses: gradeflow/workflow@1
     with:
-      checks: "{{ inputs.then }}"
-  - if: "{{ not checks.condition.correct }}"
-    uses: gradeflow/combination@1
+      steps: "{{ settings.then }}"
+  - if: "{{ not steps.condition.output.correct }}"
+    uses: gradeflow/workflow@1
     with:
-      checks: "{{ inputs.otherwise }}"
+      steps: "{{ settings.otherwise }}"
 description: |-
-  If {% if inputs.condition_combine == "all" %}all are correct{% else %}any one is correct{% endif %}:
-  {{ inputs.condition | description_list }}
+  If {% if settings.condition_met_by == "all_correct" %}all are correct{% else %}any one is correct{% endif %}:
+  {{ settings.condition | description_list }}
 
   Then:
-  {{ inputs.then | description_list }}
-  {% if inputs.otherwise %}
+  {{ settings.then | description_list }}
+  {% if settings.otherwise %}
 
   Otherwise:
-  {{ inputs.otherwise | description_list }}
+  {{ settings.otherwise | description_list }}
   {% endif %}
 examples:
   - title: Answer part A or part B.

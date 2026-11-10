@@ -27,9 +27,9 @@ def test_csv_adapter_reads_only_the_chosen_columns() -> None:
 
 def test_csv_adapter_missing_student_id_names_the_row() -> None:
     csv_text = "student_id,answer\ns1,ok\n,empty\n"
-    with pytest.raises(GradeFlowError) as caught:
+    with pytest.raises(GradeFlowError) as exc_info:
         AnswersCsv(student_id_column="student_id", answer_columns=["answer"]).read(csv_text)
-    assert str(caught.value) == "Row 3 has no student ID in the “student_id” column."
+    assert str(exc_info.value) == "Row 3 has no student ID in the “student_id” column."
 
 
 @pytest.mark.parametrize(
@@ -43,9 +43,9 @@ def test_csv_adapter_names_missing_columns(header: str, message: str) -> None:
     options = AnswersCsv(
         student_id_column="student_id", answer_columns=["q1", "q2"], marks_columns={"q1": "marks"}
     )
-    with pytest.raises(GradeFlowError) as caught:
+    with pytest.raises(GradeFlowError) as exc_info:
         options.read(header + "s1,a\n")
-    assert str(caught.value) == message
+    assert str(exc_info.value) == message
 
 
 def test_csv_adapter_reads_an_empty_file_as_no_students() -> None:
@@ -55,9 +55,9 @@ def test_csv_adapter_reads_an_empty_file_as_no_students() -> None:
 
 def test_csv_adapter_rejects_duplicate_student_ids_naming_their_rows() -> None:
     csv_text = "id,q1\na,1\nb,2\na,3\nc,4\nb,5\na,6\n"
-    with pytest.raises(GradeFlowError) as caught:
+    with pytest.raises(GradeFlowError) as exc_info:
         AnswersCsv(student_id_column="id", answer_columns=["q1"]).read(csv_text)
-    assert str(caught.value) == (
+    assert str(exc_info.value) == (
         "Some students are in more than one row: rows 2, 4 and 7; rows 3 and 6."
     )
 
@@ -124,18 +124,20 @@ def test_csv_adapter_reads_a_file_starting_with_a_byte_order_mark() -> None:
 
 
 def test_csv_adapter_refuses_a_column_written_twice() -> None:
-    with pytest.raises(GradeFlowError) as caught:
+    with pytest.raises(GradeFlowError) as exc_info:
         AnswersCsv(student_id_column="id", answer_columns=["q1"]).read("id,q1,q2,q1\ns1,a,b,c\n")
-    assert str(caught.value) == "The “q1” column is written twice."
+    assert str(exc_info.value) == "The “q1” column is written twice."
 
 
 @pytest.mark.parametrize(
     "text", ['id,q1\ns1,"' + "x" * 200_000 + '"\n', "x" * 200_000 + "\n"], ids=["answer", "header"]
 )
 def test_csv_adapter_refuses_a_cell_too_long(text: str) -> None:
-    with pytest.raises(GradeFlowError) as caught:
+    with pytest.raises(GradeFlowError) as exc_info:
         AnswersCsv(student_id_column="id", answer_columns=["q1"]).read(text)
-    assert str(caught.value) == "A cell is too long to read. A quote mark left open can cause this."
+    assert (
+        str(exc_info.value) == "A cell is too long to read. A quote mark left open can cause this."
+    )
 
 
 def test_csv_adapter_reads_a_lone_carriage_return_as_a_line_break() -> None:

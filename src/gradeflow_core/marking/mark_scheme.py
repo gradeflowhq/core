@@ -9,9 +9,9 @@ from ..common.exceptions import InvalidError
 from ..common.paths import join
 from ..common.problems import Problem, invalid_errors
 from ..methods.catalogue import BUILTINS
-from ..methods.check import METHODS_CONTEXT_KEY, Marking
 from ..methods.collection import Methods
 from ..methods.problems import located_problems
+from ..methods.step import METHODS_CONTEXT_KEY, Marking
 from ..methods.templates import TemplateError
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId

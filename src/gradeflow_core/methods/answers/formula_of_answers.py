@@ -6,13 +6,13 @@ from pydantic import Field
 from ...common.problems import Problem
 from ...common.text import code_span, format_number, plain_join, plural
 from ...questions.types import Answer, QuestionId, Unreadable
-from ..check import Check, Context
 from ..example import examples_beside
 from ..matching import TOLERANCE_FIELD, expected_text, within
-from ..method import Method
+from ..method import MarkingMethod
 from ..outcome import CORRECT, Outcome, unanswered_outcome
 from ..position import Position
 from ..settings import NonBlankText, Settings, literal, specialized
+from ..step import Check, Context, Step
 from . import expressions
 from .expressions import Expression
 
@@ -27,7 +27,7 @@ class FormulaOfAnswersSettings(Settings):
     tolerance: float = TOLERANCE_FIELD
 
 
-class FormulaOfAnswers(Method[FormulaOfAnswersSettings]):
+class FormulaOfAnswers(MarkingMethod[FormulaOfAnswersSettings]):
     name = "gradeflow/formula-of-answers"
     version = 1
     label = "Formula of Answers"
@@ -49,7 +49,7 @@ class FormulaOfAnswers(Method[FormulaOfAnswersSettings]):
     settings = FormulaOfAnswersSettings
     examples = examples_beside(__file__)
 
-    def can_mark_at(self, position: Position) -> bool:
+    def can_run_at(self, position: Position) -> bool:
         return position.question is None and len(_number_questions(position)) > 1
 
     def settings_model_at(self, position: Position) -> type[Settings]:
@@ -58,8 +58,8 @@ class FormulaOfAnswers(Method[FormulaOfAnswersSettings]):
             return self.settings
         return specialized(self.settings, question_to_mark={"annotation": literal(keys)})
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
         formula = code_span(settings.formula)
         comparison = (
             f"is within {code_span(settings.tolerance)} of {formula}"
@@ -68,28 +68,24 @@ class FormulaOfAnswers(Method[FormulaOfAnswersSettings]):
         )
         return f"**{settings.question_to_mark}** {comparison}, from the student's own answers."
 
-    def mark(
-        self,
-        check: Check,
-        context: Context,
-        question: QuestionId | None,
-        value: int | None,
+    def _mark_student(
+        self, check: Check, context: Context, question: QuestionId | None
     ) -> dict[QuestionId, Outcome]:
         settings = self._settings_of(check)
         return {settings.question_to_mark: _mark_with_formula(settings, context)}
 
-    def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return {self._settings_of(check).question_to_mark}
+    def questions_marked(self, step: Step, question: QuestionId | None) -> set[QuestionId]:
+        return {self._settings_of(step).question_to_mark}
 
-    def questions_read(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        settings = self._settings_of(check)
+    def questions_read(self, step: Step, question: QuestionId | None) -> set[QuestionId]:
+        settings = self._settings_of(step)
         try:
             return {settings.question_to_mark, *_parse_formula(settings.formula).variables}
         except ValueError:
             return {settings.question_to_mark}
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(check)
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
+        settings = self._settings_of(step)
         if message := _number_question_problem(settings.question_to_mark, position):
             yield Problem(message, field=("question_to_mark",))
         try:

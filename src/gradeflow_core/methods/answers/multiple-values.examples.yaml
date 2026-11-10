@@ -7,11 +7,13 @@ examples:
     questions:
       Q1: {type: values, max_marks: 2, value_types: [text, number]}
     with:
-      combine: proportional
+      marks_by: proportional
       checks:
-        - uses: gradeflow/accepted-answers@1
+        - input: "{{ values[0] }}"
+          uses: gradeflow/accepted-answers@1
           with: {answers: [Everest]}
-        - uses: gradeflow/number-range@1
+        - input: "{{ values[1] }}"
+          uses: gradeflow/number-range@1
           with: {min_value: 8800, max_value: 8900}
     rows:
       - answers:
@@ -41,12 +43,14 @@ examples:
     questions:
       Q1: {type: values, max_marks: 2, value_types: [number, number]}
     with:
-      combine: proportional
+      marks_by: proportional
       any_order: true
       checks:
-        - uses: gradeflow/accepted-answers@1
+        - input: "{{ values[0] }}"
+          uses: gradeflow/accepted-answers@1
           with: {answers: ['2']}
-        - uses: gradeflow/accepted-answers@1
+        - input: "{{ values[1] }}"
+          uses: gradeflow/accepted-answers@1
           with: {answers: ['-3']}
     rows:
       - answers:

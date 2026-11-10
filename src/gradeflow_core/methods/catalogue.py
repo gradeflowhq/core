@@ -14,12 +14,13 @@ from .code.code_tests import CodeTests
 from .code.code_uses import CodeUses
 from .code.custom_code import CustomCode
 from .code.custom_code_for_a_group import CustomCodeForAGroup
-from .collection import Methods, load_files
-from .logic.combination import Combination
+from .collection import Methods, load_files, raise_first
 from .logic.full_marks import FullMarks
+from .logic.workflow import Workflow
 from .method import Method
 from .names import BUILTIN_NAMESPACE
 from .text.answer_criteria import AnswerCriteria
+from .text.extract import Extract
 from .text.key_point import KeyPoint
 from .text.length import Length
 from .text.pattern import Pattern
@@ -33,8 +34,9 @@ PYTHON_METHODS: tuple[Method[Any], ...] = (
     Order(),
     Length(),
     FullMarks(),
-    Combination(),
+    Workflow(),
     Pattern(),
+    Extract(),
     KeyPoint(),
     AnswerCriteria(),
     CodeUses(),
@@ -54,9 +56,10 @@ CATALOGUE_ORDER = (
     "gradeflow/order",
     "gradeflow/length",
     "gradeflow/full-marks",
-    "gradeflow/combination",
+    "gradeflow/workflow",
     "gradeflow/not-allowed",
     "gradeflow/pattern",
+    "gradeflow/extract",
     "gradeflow/code-tests",
     "gradeflow/code-uses",
     "gradeflow/custom-code",
@@ -77,9 +80,12 @@ METHOD_FILES = tuple(
 
 def _builtins() -> Methods:
     files = [(f"{BUILTIN_NAMESPACE}/{path.stem}", path.read_text()) for path in METHOD_FILES]
-    methods = load_files(files, Methods(PYTHON_METHODS), strict=True).methods
+    loaded = load_files(files, Methods(PYTHON_METHODS))
+    raise_first(loaded.failed)
     return Methods(
-        sorted(methods, key=lambda method: (CATALOGUE_ORDER.index(method.name), method.version))
+        sorted(
+            loaded.methods, key=lambda method: (CATALOGUE_ORDER.index(method.name), method.version)
+        )
     )
 
 

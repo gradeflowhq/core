@@ -6,12 +6,12 @@ from ...common.hints import PYTHON_CODE_HINT, hint
 from ...common.problems import Problem
 from ...common.text import code_block, code_join
 from ...questions.types import QuestionId, Unreadable
-from ..check import Check, Context
 from ..example import examples_beside
-from ..method import Method
+from ..method import MarkingMethod
 from ..outcome import Outcome
 from ..position import Position
 from ..settings import Settings, literal, specialized
+from ..step import Check, Context, Step
 from . import runner
 from .custom_code import (
     MEMORY_LIMIT_FIELD,
@@ -57,7 +57,7 @@ class CustomCodeForAGroupSettings(Settings):
     memory_limit: int = MEMORY_LIMIT_FIELD
 
 
-class CustomCodeForAGroup(Method[CustomCodeForAGroupSettings]):
+class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
     name = "gradeflow/custom-code-for-a-group"
     version = 1
     label = "Custom Code for a Group"
@@ -90,17 +90,13 @@ class CustomCodeForAGroup(Method[CustomCodeForAGroupSettings]):
             code={"description": group_code_description(answers)},
         )
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
         question_list = code_join(settings.questions, conjunction="and")
         return f"Python code decides the marks for {question_list}:\n\n{code_block(settings.code)}"
 
-    def mark(
-        self,
-        check: Check,
-        context: Context,
-        question: QuestionId | None,
-        value: int | None,
+    def _mark_student(
+        self, check: Check, context: Context, question: QuestionId | None
     ) -> dict[QuestionId, Outcome]:
         settings = self._settings_of(check)
         answers = {
@@ -134,11 +130,11 @@ class CustomCodeForAGroup(Method[CustomCodeForAGroupSettings]):
             for question_id in settings.questions
         }
 
-    def questions_marked(self, check: Check, question: QuestionId | None) -> set[QuestionId]:
-        return set(self._settings_of(check).questions)
+    def questions_marked(self, step: Step, question: QuestionId | None) -> set[QuestionId]:
+        return set(self._settings_of(step).questions)
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(check)
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
+        settings = self._settings_of(step)
         yield from code_problems(settings.code)
         questions = settings.questions
         for index, question_id in enumerate(questions):

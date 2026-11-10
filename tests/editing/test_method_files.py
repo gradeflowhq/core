@@ -11,7 +11,7 @@ def method_file(check: dict[str, object]) -> str:
             "version": 1,
             "summary": "A saved method.",
             "question_types": ["text"],
-            "checks": [check],
+            "steps": [check],
         }
     )
 
@@ -45,12 +45,12 @@ def test_a_file_that_no_longer_loads_says_each_problem() -> None:
             "version": 1,
             "summary": "A saved method.",
             "question_types": ["text"],
-            "checks": [
+            "steps": [
                 {"uses": "gradeflow/key-points@1", "with": {"old": 1, "points": ["a"], "older": 2}},
                 {"uses": "gradeflow/best-answer@1"},
                 {
                     "uses": "gradeflow/accepted-answers@1",
-                    "with": {"answers": "{{ inputs.missing }}"},
+                    "with": {"answers": "{{ settings.missing }}"},
                 },
             ],
         }
@@ -60,7 +60,7 @@ def test_a_file_that_no_longer_loads_says_each_problem() -> None:
         "Line 9: Key Points has no setting old.",
         "Line 12: Key Points has no setting older.",
         "Line 13: There's no method gradeflow/best-answer@1.",
-        "Line 16: There's no inputs.missing.",
+        "Line 16: There's no settings.missing.",
     ]
 
 

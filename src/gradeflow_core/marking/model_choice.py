@@ -98,7 +98,7 @@ def try_model(endpoint: model_service.ModelEndpoint, role: Role, name: str) -> M
             ANSWER_CRITERIA,
             questions=questions,
             question=next(iter(questions)),
-            inputs={**example.with_, "decide_with": role},
+            settings={**example.with_, "decide_with": role},
             rows=example.rows,
             model_endpoint=trial_endpoint,
         )

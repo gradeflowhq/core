@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
-from ..questions.types import Answer, Unreadable
+from ..questions.base import Question
+from ..questions.types import Answer, QuestionId, Unreadable
 
 FULL_MARKS_PROPORTION = 1 - 1e-9
 """A proportion this close to 1 is full marks, so rounding in sums doesn't cost a correct answer."""
@@ -13,8 +14,8 @@ ROUNDING_TOLERANCE = 1e-6
 type Effect = Literal[
     "earned", "partial", "no_marks", "penalty", "uncounted", "met", "not_met", "unmarked"
 ]
-"""What a check did to the marks. A read-only check says whether its condition is met instead, and
-"unmarked" leaves the answer to a person."""
+"""What a check did to the marks. A check of no weight says whether its condition is met instead,
+and "unmarked" leaves the answer to a person."""
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ class Outcome:
     parts: tuple[Outcome, ...] = ()
     """The outcomes of the check's own checks, in order."""
     skipped: bool = False
-    """Its condition was false, so it did not execute or participate in aggregation."""
+    """Its condition was false."""
     models: tuple[str, ...] = ()
     """The language models that decided it."""
     title: str = ""
@@ -111,13 +112,55 @@ def clamped(proportion: float) -> float:
     return 0.0 if proportion < NO_MARKS_PROPORTION else min(proportion, 1.0)
 
 
-class EarlierResult(TypedDict):
-    """A check's result as later conditions and templates read it, as ``checks.<id>``."""
+class CheckOutput(TypedDict):
+    """A check's output as later conditions and templates read it, as ``steps.<id>.output``."""
 
     correct: bool
     proportion: float
     feedback: str
     marked: bool
     """False when it couldn't mark an answer, so what it decides can't be marked either."""
-    skipped: bool
-    """True when its condition skipped it, distinct from a check awarding zero."""
+
+
+type QuestionOutcomes = dict[QuestionId, Outcome]
+type TransformResult = Answer | Unreadable
+
+
+@dataclass(frozen=True)
+class Skipped:
+    """What a workflow gives for the output of a step that didn't run."""
+
+
+type MethodResult = QuestionOutcomes | TransformResult | Skipped
+
+
+@dataclass(frozen=True)
+class StepResult:
+    """An earlier step as later conditions and templates read it, as ``steps.<id>``."""
+
+    value: CheckOutput | TransformResult
+    skipped: bool = False
+    """Its condition was false."""
+    question: Question | None = None
+    """The question that reads a transform's value."""
+
+    @property
+    def output(self) -> CheckOutput | Answer:
+        return None if isinstance(self.value, Unreadable) else self.value
+
+    @property
+    def condition_short_circuit(self) -> Outcome | None:
+        """The outcome of a condition reading it, when it has nothing to test."""
+        match self.value:
+            case Unreadable(reason=reason):
+                return Outcome(0.0, reason, marked=False)
+            case None:
+                return Outcome(0.0, skipped=True)
+            case {"marked": False, "feedback": str(feedback)}:
+                return Outcome(0.0, feedback, marked=False)
+        return None
+
+    @property
+    def transform_result(self) -> TransformResult | Skipped:
+        """What a later step reads of it: a check has no answer to read."""
+        return Skipped() if self.skipped or isinstance(self.value, dict) else self.value

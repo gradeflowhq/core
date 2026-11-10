@@ -30,7 +30,7 @@ def test_feedback_and_descriptions_are_tidy(method: Method[Any]) -> None:
     for example in method.examples:
         assert not UNTIDY_TEXT.search(example.description), example.description
         for row in example.rows:
-            assert row.expected
+            assert row.expected or not method.gives_marks({})
             for expected in row.expected.values():
                 assert not UNTIDY_TEXT.search(expected.feedback), expected.feedback
 

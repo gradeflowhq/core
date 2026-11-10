@@ -52,7 +52,7 @@ def test_setup_command_explains_a_missing_optional_dependency(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(embeddings, "setup", Mock(side_effect=ImportError(MISSING_MODEL_MESSAGE)))
-    with pytest.raises(SystemExit) as caught:
+    with pytest.raises(SystemExit) as exc_info:
         cli.main(["setup"])
-    assert caught.value.code == 1
+    assert exc_info.value.code == 1
     assert MISSING_MODEL_MESSAGE in capsys.readouterr().err

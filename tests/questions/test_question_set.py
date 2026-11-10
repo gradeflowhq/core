@@ -93,9 +93,9 @@ def test_questions_dump_with_their_types_and_load_back() -> None:
 
 
 def test_loading_what_isnt_a_question_says_where() -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         QuestionSet.load({"Q1": {"type": "number", "max_marks": "x"}})
-    assert caught.value.problems == [Problem("Must be a number.", field=("Q1", "max_marks"))]
+    assert exc_info.value.problems == [Problem("Must be a number.", field=("Q1", "max_marks"))]
 
 
 def test_questions_are_written_and_read_as_yaml() -> None:

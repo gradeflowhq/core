@@ -1,12 +1,12 @@
-"""A check's condition as rows, each testing an earlier check, of which all or any must hold."""
+"""A step's condition as rows, each testing an earlier check, of which all or any must hold."""
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import ClassVar, Literal
 
-from jinja2 import TemplateSyntaxError, nodes
+from jinja2 import nodes
 
-from ..methods.templates import ENVIRONMENT, reference
+from ..methods.templates import expression_node
 
 type Match = Literal["all", "any"]
 type ConditionTest = Literal["correct", "incorrect", "half_correct"]
@@ -44,14 +44,9 @@ class Condition:
 
 def read_condition(text: str) -> Condition | None:
     """The rows of a condition made of them, each naming its check by ID; None for any other."""
-    expression = reference(text)
-    try:
-        tree = ENVIRONMENT.parse(f"{{{{ {expression} }}}}") if expression else None
-    except TemplateSyntaxError:
+    node = expression_node(text)
+    if node is None:
         return None
-    if tree is None or len(tree.body) != 1 or not isinstance(output := tree.body[0], nodes.Output):
-        return None
-    node = output.nodes[0]
     match: Match = "any" if isinstance(node, nodes.Or) else "all"
     rows = [
         _condition_row(operand)
@@ -72,10 +67,10 @@ def condition_template(condition: Condition) -> str:
 def _row_template(row: ConditionRow) -> str:
     match row.test:
         case "incorrect":
-            return f"not checks.{row.check}.correct"
+            return f"not steps.{row.check}.output.correct"
         case "half_correct":
-            return f"checks.{row.check}.proportion >= 0.5"
-    return f"checks.{row.check}.correct"
+            return f"steps.{row.check}.output.proportion >= 0.5"
+    return f"steps.{row.check}.output.correct"
 
 
 def _operands(node: nodes.Node, operator: type[nodes.BinExpr]) -> list[nodes.Node]:
@@ -98,10 +93,13 @@ def _condition_row(node: nodes.Node) -> ConditionRow | None:
 
 def _check_id_read(node: nodes.Node, attribute: str) -> str | None:
     """The ID of the check whose result ``node`` reads ``attribute`` of, as in
-    ``checks.<id>.correct``."""
+    ``steps.<id>.output.correct``."""
     match node:
         case nodes.Getattr(
-            node=nodes.Getattr(node=nodes.Name(name="checks"), attr=check_id), attr=read
+            node=nodes.Getattr(
+                node=nodes.Getattr(node=nodes.Name(name="steps"), attr=check_id), attr="output"
+            ),
+            attr=read,
         ):
             return check_id if read == attribute else None
     return None

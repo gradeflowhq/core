@@ -6,7 +6,7 @@ from gradeflow_core import BUILTINS, Check, QuestionSet
 from gradeflow_core.editing import EditingError, MarkingDraft, MethodDraft
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
-from tests.methods.helpers import mark_all, proportions
+from tests.methods.helpers import mark_all, proportions, with_value_inputs
 
 from ..methods.helpers import WRAPPED_NUMBER_RANGE, located
 
@@ -20,10 +20,10 @@ def test_any_order_values_give_their_checks_no_earlier_checks() -> None:
         "uses": "gradeflow/multiple-values@1",
         "with": {
             "any_order": True,
-            "checks": [
+            "checks": with_value_inputs(
                 {"id": "first", "uses": "gradeflow/full-marks@1"},
-                {"uses": "gradeflow/full-marks@1", "if": "{{ checks.first.correct }}"},
-            ],
+                {"uses": "gradeflow/full-marks@1", "if": "{{ steps.first.output.correct }}"},
+            ),
         },
     }
     draft = MarkingDraft(marking, questions, "Q1")
@@ -36,8 +36,8 @@ def test_a_composed_methods_check_that_cant_mark_the_question_is_its_users_probl
     draft = MarkingDraft(
         {"question": "Q1", "uses": "sample/wrapped@1"}, QUESTIONS, "Q1", methods=methods
     )
-    assert located(draft.problems) == [("", (), "Number Range can't mark a text question.")]
-    assert draft.checks_settings("") == []
+    assert located(draft.problems) == [("", (), "Number Range can't be used on a text question.")]
+    assert draft.settings_holding_steps("") == []
 
 
 def test_a_drafts_problems_are_where_the_check_is_in_a_branch() -> None:
@@ -52,7 +52,7 @@ def test_a_drafts_problems_are_where_the_check_is_in_a_branch() -> None:
         },
     }
     draft = MarkingDraft(marking, questions, None)
-    assert draft.problems[0].check == "with.then.0"
+    assert draft.problems[0].step_path == "with.then.0"
 
 
 def test_a_drafts_earlier_checks_match_generated_execution_order() -> None:
@@ -82,21 +82,21 @@ def test_a_branchs_checks_read_those_before_them_while_the_condition_is_unfinish
                 {
                     "question": "Q2",
                     "uses": "gradeflow/full-marks@1",
-                    "if": "{{ checks.a.correct }}",
+                    "if": "{{ steps.a.output.correct }}",
                 },
             ],
         },
     }
     draft = MarkingDraft(marking, questions, None)
     assert draft.earlier_checks("with.then.1") == ["with.then.0"]
-    assert [problem.check for problem in draft.problems] == ["with.condition.0"]
+    assert [problem.step_path for problem in draft.problems] == ["with.condition.0"]
 
 
 MARKING = {
     "question": "Q1",
-    "uses": "gradeflow/combination@1",
+    "uses": "gradeflow/workflow@1",
     "with": {
-        "checks": [
+        "steps": [
             {"uses": "gradeflow/key-points@1", "with": {"points": ["term"]}},
             {
                 "name": "No look-alike",
@@ -108,7 +108,7 @@ MARKING = {
 }
 
 
-def test_a_marking_saved_as_a_method_marks_like_it_with_its_fields_as_inputs() -> None:
+def test_a_marking_saved_as_a_method_marks_like_it_with_its_fields_as_settings() -> None:
     name = "sample/term-not-look-alike"
     draft = MethodDraft.from_marking(
         Check.load(MARKING),
@@ -118,8 +118,8 @@ def test_a_marking_saved_as_a_method_marks_like_it_with_its_fields_as_inputs() -
         label="Term, not look-alike",
         summary="The term, not its look-alike.",
     )
-    draft.bind_new_input("with.checks.0.with.points")
-    draft.bind_new_input("with.checks.1.with.check.with.point")
+    draft.bind_new_setting("with.steps.0.with.points")
+    draft.bind_new_setting("with.steps.1.with.check.with.point")
     methods = BUILTINS.with_files([(name, draft.to_yaml())])
     saved = {"uses": draft.finalized().ref}
     filled = {"uses": saved["uses"], "with": {"points": ["photon"], "point": "foton"}}
@@ -131,5 +131,5 @@ def test_exposing_a_setting_refuses_unknown_paths() -> None:
     draft = MethodDraft.from_marking(
         Check.load(MARKING), QUESTIONS, name="x", version=1, label="X", summary="X."
     )
-    with pytest.raises(EditingError, match="isn't a setting an input can fill"):
-        draft.bind_new_input("with.nope")
+    with pytest.raises(EditingError, match="isn't a field a setting can fill"):
+        draft.bind_new_setting("with.nope")

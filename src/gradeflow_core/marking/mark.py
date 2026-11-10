@@ -1,18 +1,18 @@
 import logging
 from collections.abc import Callable, Iterable, Iterator
 from itertools import batched
-from typing import Any, overload
+from typing import overload
 
 from ..common.exceptions import GradeFlowError, InvalidError
 from ..common.model_service import ModelEndpoint
-from ..methods.check import Check, Context, checks_in
-from ..methods.method import Method, Progress
+from ..methods.method import Progress
 from ..methods.outcome import Outcome, clamped
+from ..methods.step import Check, Context
 from ..methods.templates import TemplateError
 from ..questions.base import Question
-from ..questions.question_set import QuestionSet, read_answer
+from ..questions.question_set import QuestionSet
 from ..questions.submissions import AnswerSheet, Submission
-from ..questions.types import QuestionId, Unreadable
+from ..questions.types import QuestionId
 from .breakdown import breakdown_of
 from .mark_scheme import MarkScheme
 from .results import MarkedSheet, MarkedSubmission, QuestionResult
@@ -61,9 +61,8 @@ def mark(
     given, if any; one not in ``questions`` gets none.
 
     A marking sees only the answers it reads, so sheets with the same answers to those are
-    marked once. Methods that work out something for many answers at once, such as asking a
-    language model at ``model_endpoint``, do so for ``chunk_size`` sheets at a time, and say how
-    far they got to ``on_progress``."""
+    marked once. A marking that asks a language model at ``model_endpoint`` takes ``chunk_size``
+    sheets at a time, and says how far it got to ``on_progress``."""
     max_marks = sum(question.max_marks for question in questions.values())
     # Each marking with the questions it reads and its results by the answers to them.
     cached_markings: list[
@@ -76,54 +75,33 @@ def mark(
         else:
             cached_markings.append((marking, tuple(sorted(marking.questions_read())), {}))
             markings_without_problems.append(marking)
-    precomputing_checks = _precomputing_checks(markings_without_problems)
-    precomputed: dict[str, dict[QuestionId, dict[Any, Any]]] = {}
-    precomputed_answers: set[tuple[str, QuestionId, str]] = set()
-    # Without methods that precompute, sheets are read one at a time, as each is marked.
-    for chunk in batched(sheets, chunk_size if precomputing_checks else 1, strict=False):
+    needs_batches = any(marking.needs_model_endpoint() for marking in markings_without_problems)
+    # Without language models, sheets are read one at a time, as each is marked.
+    for chunk in batched(sheets, chunk_size if needs_batches else 1, strict=False):
         read_sheets = [questions.read(sheet) for sheet in chunk]
-        for (method, question), checks in precomputing_checks.items():
-            texts = {
-                sheet.answers[question].strip(): None
-                for sheet, answers in zip(chunk, read_sheets, strict=True)
-                if (answer := read_answer(answers, question, None)) is not None
-                and not isinstance(answer, Unreadable)
-                and (method.ref, question, sheet.answers[question].strip())
-                not in precomputed_answers
-            }
-            if not texts:
-                continue
-            precomputed_answers.update((method.ref, question, text) for text in texts)
-            precomputed_values = method.precompute(
-                checks,
-                list(texts),
-                questions[question],
-                model_endpoint,
-                on_progress or (lambda _: None),
-            )
-            precomputed.setdefault(method.ref, {}).setdefault(question, {}).update(
-                precomputed_values
-            )
-        for sheet, answers in zip(chunk, read_sheets, strict=True):
-            results: dict[QuestionId, QuestionResult] = {}
-            for marking, marking_questions_read, cache in cached_markings:
+        for marking, marking_questions_read, cache in cached_markings:
+            contexts_by_cache_key: dict[tuple[str | None, ...], Context] = {}
+            for sheet, answers in zip(chunk, read_sheets, strict=True):
                 cache_key = tuple(sheet.answers.get(key) for key in marking_questions_read)
-                if cache_key not in cache:
-                    read_answers = {
-                        key: answers[key] for key in marking_questions_read if key in answers
-                    }
-                    written_answers = {
-                        key: sheet.answers[key]
-                        for key in marking_questions_read
-                        if key in sheet.answers
-                    }
-                    context = Context(
-                        read_answers,
+                if cache_key not in cache and cache_key not in contexts_by_cache_key:
+                    contexts_by_cache_key[cache_key] = Context(
+                        {key: answers[key] for key in marking_questions_read if key in answers},
                         questions,
-                        written_answers=written_answers,
-                        precomputed=precomputed,
+                        written_answers={
+                            key: sheet.answers[key]
+                            for key in marking_questions_read
+                            if key in sheet.answers
+                        },
+                        model_endpoint=model_endpoint,
+                        report_progress=on_progress or (lambda _: None),
                     )
-                    cache[cache_key] = _marking_results(marking, context)
+            if contexts_by_cache_key:
+                results_by_student = _marking_results(marking, list(contexts_by_cache_key.values()))
+                cache.update(zip(contexts_by_cache_key, results_by_student, strict=True))
+        for sheet in chunk:
+            results: dict[QuestionId, QuestionResult] = {}
+            for _, marking_questions_read, cache in cached_markings:
+                cache_key = tuple(sheet.answers.get(key) for key in marking_questions_read)
                 results = {
                     key: result.model_copy() for key, result in cache[cache_key].items()
                 } | results
@@ -138,19 +116,6 @@ def mark(
             )
 
 
-def _precomputing_checks(
-    markings: list[Check],
-) -> dict[tuple[Method[Any], QuestionId], list[Check]]:
-    """The checks of methods that precompute in ``markings``, by method and the question they
-    read."""
-    precomputing_checks: dict[tuple[Method[Any], QuestionId], list[Check]] = {}
-    for marking in markings:
-        for check, question in checks_in(marking, marking.question):
-            if question is not None and type(check.method).precompute is not Method.precompute:
-                precomputing_checks.setdefault((check.method, question), []).append(check)
-    return precomputing_checks
-
-
 def _problem_results(marking: Check, questions: QuestionSet) -> _Results | None:
     """The unmarked results of a marking with problems, which say what they are; None if it has
     none."""
@@ -161,7 +126,7 @@ def _problem_results(marking: Check, questions: QuestionSet) -> _Results | None:
         keys = marking.questions_marked()
     except InvalidError, TemplateError:
         keys = set()
-    # An empty Combination marks no question, so its marking's question gets the problem.
+    # An empty workflow marks no question, so its marking's question gets the problem.
     keys = keys or ({marking.question} if marking.question else set())
     feedback = " ".join(map(str, problems))
     return {
@@ -170,30 +135,26 @@ def _problem_results(marking: Check, questions: QuestionSet) -> _Results | None:
     }
 
 
-def _marking_results(marking: Check, context: Context) -> _Results:
-    label = marking.method.label
-    keys = marking.questions_marked() & context.questions.keys()
+def _marking_results(marking: Check, contexts: list[Context]) -> list[_Results]:
+    """The results of each student in ``contexts``. A failure leaves only that student's answers
+    unmarked."""
+    label, questions = marking.method.label, contexts[0].questions
+    keys = marking.questions_marked() & questions.keys()
     try:
-        outcomes = marking.mark(context)
-    except GradeFlowError as error:  # such as code that failed on this answer
-        return {
-            key: _unmarked_result(context.questions[key], _unmarked_feedback(str(error)), label)
-            for key in keys
-        }
-    except Exception:  # a bug, which shouldn't stop the other answers being marked
-        _log.exception("Marking with %s failed", marking.uses)
-        return {
-            key: _unmarked_result(context.questions[key], _unmarked_feedback(), label)
-            for key in keys
-        }
-    return {
-        key: _result(outcomes.get(key) or Outcome(0.0), context.questions[key], label)
-        for key in keys
-    }
-
-
-def _unmarked_feedback(reason: str = "") -> str:
-    return f"Couldn't mark this answer: {reason}" if reason else "Couldn't mark this answer."
+        outcomes_by_student = marking.mark(contexts)
+    except Exception as error:
+        if len(contexts) > 1:
+            return [_marking_results(marking, [context])[0] for context in contexts]
+        if isinstance(error, GradeFlowError):
+            feedback = f"Couldn't mark this answer: {error}"
+        else:
+            _log.exception("Marking with %s failed", marking.uses)
+            feedback = "Couldn't mark this answer."
+        return [{key: _unmarked_result(questions[key], feedback, label) for key in keys}]
+    return [
+        {key: _result(outcomes.get(key) or Outcome(0.0), questions[key], label) for key in keys}
+        for outcomes in outcomes_by_student
+    ]
 
 
 def _result(outcome: Outcome, question: Question, label: str) -> QuestionResult:

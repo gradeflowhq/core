@@ -56,6 +56,7 @@ def test_scripting_needs_only_these_names() -> None:
         "QuestionSet",
         "ReportLine",
         "ResultsCsv",
+        "Step",
         "Submission",
         "TextQuestion",
         "ValuesQuestion",

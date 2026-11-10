@@ -72,9 +72,9 @@ def test_each_type_offers_a_question_to_start_from(question_type: QuestionType) 
 def test_a_question_of_a_type_is_set_up_as_its_schema_describes() -> None:
     choice = new_question("choice", {"options": ["A", "B", "C"]})
     assert choice.model_dump()["options"] == ("a", "b", "c")
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         new_question("choice", {"options": []})
-    assert caught.value.problems == [
+    assert exc_info.value.problems == [
         Problem("Add at least one.", field=("options",), is_incomplete=True)
     ]
 

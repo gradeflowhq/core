@@ -81,7 +81,7 @@ def as_plain_data(node: Any) -> Any:
                 line = node.lc.key(key)[0] + 1 if hasattr(node, "lc") else None
                 where = f"Line {line}: " if line else ""
                 raise InvalidError(
-                    [Problem(f'{where}Quote {{{{ … }}}}, as in "{{{{ inputs.name }}}}".')]
+                    [Problem(f'{where}Quote {{{{ … }}}}, as in "{{{{ settings.name }}}}".')]
                 )
         return {str(key): as_plain_data(value) for key, value in node.items()}
     if isinstance(node, list):

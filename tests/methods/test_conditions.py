@@ -17,31 +17,40 @@ from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 
 from . import helpers
-from .helpers import WRAPPED_NUMBER_RANGE
+from .helpers import WRAPPED_NUMBER_RANGE, with_value_inputs
 
 NEVER_CORRECT = {
     "id": "never_correct",
-    "read_only": True,
+    "weight": 0,
     "uses": "gradeflow/not-allowed@1",
     "with": {"check": {"uses": "gradeflow/full-marks@1"}},
 }
 """A check that is never correct, for conditions to read."""
 ALWAYS_FALSE, ALWAYS_TRUE = (
-    "{{ checks.never_correct.correct }}",
-    "{{ not checks.never_correct.correct }}",
+    "{{ steps.never_correct.output.correct }}",
+    "{{ not steps.never_correct.output.correct }}",
 )
 
 
 TWO_VALUES = ValuesQuestion(value_types=["text", "text"])
 METHODS_OF_CHECKS = pytest.mark.parametrize(
     ("method", "answer", "question"),
-    [("gradeflow/combination@1", "x", None), ("gradeflow/multiple-values@1", "x, y", TWO_VALUES)],
+    [("gradeflow/workflow@1", "x", None), ("gradeflow/multiple-values@1", "x, y", TWO_VALUES)],
 )
 """Methods holding checks, with an answer for each to mark."""
 
 
 def after_never_correct(check: dict[str, Any]) -> dict[str, Any]:
-    return {"uses": "gradeflow/combination@1", "with": {"checks": [NEVER_CORRECT, check]}}
+    return {"uses": "gradeflow/workflow@1", "with": {"steps": [NEVER_CORRECT, check]}}
+
+
+def check_holding(method: str, checks: list[dict[str, Any]], **settings: Any) -> dict[str, Any]:
+    checks_setting = (
+        {"steps": checks}
+        if method == "gradeflow/workflow@1"
+        else {"checks": with_value_inputs(*checks)}
+    )
+    return {"uses": method, "with": {**settings, **checks_setting}}
 
 
 @pytest.mark.parametrize(
@@ -64,21 +73,21 @@ def test_a_false_condition_precedes_method_execution(
     run.assert_not_called()
 
 
-@pytest.mark.parametrize("combine", ["all", "any", "none", "total", "proportional"])
+@pytest.mark.parametrize(
+    "marks_by", ["all_correct", "any_correct", "none_correct", "total", "proportional"]
+)
 @METHODS_OF_CHECKS
 def test_skipped_checks_count_for_nothing_even_when_all_are_skipped(
-    combine: str, method: str, answer: str, question: Question | None
+    marks_by: str, method: str, answer: str, question: Question | None
 ) -> None:
-    check = {
-        "uses": method,
-        "with": {
-            "combine": combine,
-            "checks": [
-                {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
-                {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
-            ],
-        },
-    }
+    check = check_holding(
+        method,
+        [
+            {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
+            {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
+        ],
+        marks_by=marks_by,
+    )
     result = helpers.mark(after_never_correct(check), answer, question)
     assert (result.proportion, result.is_marked) == (0, True)
 
@@ -88,16 +97,16 @@ def test_skipped_values_count_for_nothing(any_order: bool) -> None:
     check: dict[str, Any] = {
         "uses": "gradeflow/multiple-values@1",
         "with": {
-            "combine": "proportional",
+            "marks_by": "proportional",
             "any_order": any_order,
-            "checks": [
+            "checks": with_value_inputs(
                 {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
                 {"uses": "gradeflow/full-marks@1", "if": ALWAYS_TRUE},
-            ],
+            ),
         },
     }
     assert helpers.mark(after_never_correct(check), "x, y", TWO_VALUES).proportion == 1
-    check["with"]["combine"] = "total"
+    check["with"]["marks_by"] = "total"
     check["with"]["checks"][1]["weight"] = 0.5
     assert helpers.mark(after_never_correct(check), "x, y", TWO_VALUES).proportion == 0.5
 
@@ -106,15 +115,13 @@ def test_skipped_values_count_for_nothing(any_order: bool) -> None:
 def test_named_skips_are_available_to_later_conditions(
     method: str, answer: str, question: Question | None
 ) -> None:
-    check = {
-        "uses": method,
-        "with": {
-            "checks": [
-                {"id": "first", "uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
-                {"uses": "gradeflow/full-marks@1", "if": "{{ checks.first.skipped }}"},
-            ]
-        },
-    }
+    check = check_holding(
+        method,
+        [
+            {"id": "first", "uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
+            {"uses": "gradeflow/full-marks@1", "if": "{{ steps.first.skipped }}"},
+        ],
+    )
     assert helpers.mark(after_never_correct(check), answer, question).proportion == 1
 
 
@@ -125,10 +132,10 @@ def test_any_order_values_cant_read_earlier_checks() -> None:
         "uses": "gradeflow/multiple-values@1",
         "with": {
             "any_order": True,
-            "checks": [
+            "checks": with_value_inputs(
                 {"id": "first", "uses": "gradeflow/full-marks@1"},
-                {"uses": "gradeflow/full-marks@1", "if": "{{ checks.first.correct }}"},
-            ],
+                {"uses": "gradeflow/full-marks@1", "if": "{{ steps.first.output.correct }}"},
+            ),
         },
     }
     scheme = MarkScheme.load([marking])
@@ -140,7 +147,7 @@ def test_wrapped_incompatible_check_rejected() -> None:
     questions = QuestionSet({"Q1": TextQuestion()})
     marking = {"question": "Q1", "uses": "sample/wrapped@1"}
     problems = MarkScheme.load([marking], methods=methods).problems(questions)
-    message = "Number Range can't mark a text question."
+    message = "Number Range can't be used on a text question."
     assert helpers.located(problems) == [("markings.0", (), message)]
 
 
@@ -158,12 +165,16 @@ def test_problems_in_a_conditionals_branch_name_their_path() -> None:
         {"question": "Q2", "uses": "gradeflow/number-range@1", "with": {"min_value": 1}}
     ]
     [problem] = MarkScheme.load([marking]).problems(questions)
-    assert problem.check == "markings.0.with.then.0"
+    assert problem.step_path == "markings.0.with.then.0"
 
 
 @pytest.mark.parametrize(
     "condition",
-    ["{{ checks.later.correct }}", "{{ checks['later'].correct }}", "not an expression"],
+    [
+        "{{ steps.later.output.correct }}",
+        "{{ steps['later'].output.correct }}",
+        "not an expression",
+    ],
 )
 def test_a_top_level_condition_it_cant_read_is_a_problem_and_leaves_answers_unmarked(
     condition: str,
@@ -186,19 +197,19 @@ def test_a_condition_on_an_unmarked_check_leaves_the_answer_unmarked() -> None:
     scheme = MarkScheme.load(
         [
             {
-                "uses": "gradeflow/combination@1",
+                "uses": "gradeflow/workflow@1",
                 "with": {
-                    "checks": [
+                    "steps": [
                         {
                             "id": "q1",
                             "question": "Q1",
-                            "read_only": True,
+                            "weight": 0,
                             "uses": "gradeflow/full-marks@1",
                         },
                         {
                             "question": "Q2",
                             "uses": "gradeflow/full-marks@1",
-                            "if": "{{ checks['q1'].correct }}",
+                            "if": "{{ steps['q1'].output.correct }}",
                         },
                     ]
                 },
@@ -215,7 +226,7 @@ def test_a_condition_on_an_unmarked_check_leaves_the_answer_unmarked() -> None:
     assert "read" in result.feedback
 
 
-def test_inputs_cannot_bind_settings_with_incompatible_types() -> None:
+def test_settings_cannot_bind_fields_with_incompatible_types() -> None:
     with pytest.raises(MethodFileError, match="different types"):
         BUILTINS.with_files(
             [
@@ -223,22 +234,22 @@ def test_inputs_cannot_bind_settings_with_incompatible_types() -> None:
                     "sample/conflicting",
                     """label: Conflicting
 version: 1
-summary: One input fills settings with incompatible types.
+summary: One setting fills fields with incompatible types.
 question_types: [text]
-inputs:
+settings:
   threshold: {}
-checks:
+steps:
   - uses: gradeflow/key-point@1
-    with: {point: "{{ inputs.threshold }}"}
+    with: {point: "{{ settings.threshold }}"}
   - uses: gradeflow/number-range@1
-    with: {min_value: "{{ inputs.threshold }}"}
+    with: {min_value: "{{ settings.threshold }}"}
 """,
                 )
             ]
         )
 
 
-def test_repeated_and_nested_method_file_checks_read_their_own_inputs_and_value() -> None:
+def test_repeated_and_nested_method_file_checks_read_their_own_settings_and_value() -> None:
     methods = BUILTINS.with_files(
         [
             (
@@ -247,7 +258,7 @@ def test_repeated_and_nested_method_file_checks_read_their_own_inputs_and_value(
 version: 1
 summary: A numeric range.
 question_types: [number, text]
-checks:
+steps:
   - uses: gradeflow/number-range@1
     with: {min_value: 1}
 """,
@@ -258,7 +269,7 @@ checks:
 version: 1
 summary: Wrap a range again.
 question_types: [number, text]
-checks:
+steps:
   - uses: sample/range@1
 """,
             ),
@@ -266,12 +277,12 @@ checks:
                 "sample/loop",
                 """label: Loop
 version: 1
-summary: Input and loop scope.
+summary: Setting and loop scope.
 question_types: [text]
-inputs:
+settings:
   words: {}
-checks:
-  - for_each: "{{ inputs.words }}"
+steps:
+  - for_each: "{{ settings.words }}"
     uses: gradeflow/key-point@1
     if: "{{ index == 1 and item == 'x' }}"
     with: {point: "{{ item }}"}
@@ -286,10 +297,10 @@ checks:
                 "question": "Q1",
                 "uses": "gradeflow/multiple-values@1",
                 "with": {
-                    "checks": [
+                    "checks": with_value_inputs(
                         {"uses": "sample/loop@1", "with": {"words": ["x", "y"]}},
                         {"uses": "sample/nested@1"},
-                    ]
+                    )
                 },
             }
         ],

@@ -51,11 +51,11 @@ def test_service_failures_use_domain_errors(
         if operation == "ask"
         else partial(model_service.list_models, ENDPOINT)
     )
-    with pytest.raises(GradeFlowError) as caught:
+    with pytest.raises(GradeFlowError) as exc_info:
         call()
     if operation == "list_models" and status == 404:
         message = "No models were found at this address. Check it: it often ends in /v1."
-    assert str(caught.value) == message
+    assert str(exc_info.value) == message
 
 
 def test_listing_models_waits_briefly_and_closes_its_client(

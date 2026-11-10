@@ -1,0 +1,28 @@
+examples:
+  - title: A ball falls for 2 s with g = 10. How far does it fall? End with your answer.
+    description: Finds the last number.
+    questions:
+      Q1: {type: text}
+    with:
+      occurrence: last
+    rows:
+      - answers:
+          Q1: s = 1/2 g t^2 = 5 x 4 = 20 m
+        expected: {Q1: {marks: 1.0, feedback: "Read as: 20"}}
+      - answers:
+          Q1: It falls a long way.
+  - title: Give your conclusion on its own line, after "Conclusion:".
+    description: Finds the text matching `Conclusion:\s*(.+)`.
+    questions:
+      Q1: {type: text}
+    with:
+      type: text
+      pattern: Conclusion:\s*(.+)
+    rows:
+      - answers:
+          Q1: |-
+            Heat flows from hot to cold.
+            Conclusion: The room cools down
+        expected: {Q1: {marks: 1.0, feedback: "Read as: the room cools down"}}
+      - answers:
+          Q1: The room cools down.

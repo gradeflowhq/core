@@ -22,6 +22,7 @@ dependencies = [
     "pydantic~=2.14",
     "pyeryx~=0.12.1",
     "rapidfuzz~=3.14",
+    "regex~=2026.9",
     "ruamel.yaml~=0.19",
 ]
 
@@ -60,17 +61,21 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "PT", "C90", "FURB"
 allowed-confusables = ["×"]  # 6.02 × 10^23
 
 [tool.ruff.lint.per-file-ignores]
-"src/gradeflow_core/methods/check.py" = ["SLF001"]  # a validated check's _methods
+"src/gradeflow_core/methods/step.py" = ["SLF001"]  # a validated check's _methods
 "tests/**" = ["SLF001"]  # tests access internals
 
 [tool.mypy]
 strict = true
 files = ["src", "tests"]
 warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["regex"]
+ignore_missing_imports = true
 enable_error_code = ["deprecated", "truthy-bool", "truthy-iterable", "ignore-without-code"]
 
 [[tool.mypy.overrides]]
-module = ["fastembed.*", "onnxruntime.*", "scipy.*"]  # the ml extra, which may not be installed
+module = ["fastembed.*", "onnxruntime.*", "scipy.*", "regex"]  # untyped, or the ml extra
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

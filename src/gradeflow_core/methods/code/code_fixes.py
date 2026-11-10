@@ -96,7 +96,7 @@ class _Edit(NamedTuple):
 type _LineFix = tuple[_Edit, Fix]
 
 
-def _penalty_field(kind: FixKind) -> Any:
+def _penalty_field(kind: FixKind) -> float:
     return Field(
         default=0,
         ge=0,

@@ -18,9 +18,9 @@ class TestRun:
     def test_only_named_values_must_be_json_values_or_sets(self) -> None:
         code = "o = object()\ndata = list(range(300_000))\nitems = {10, 20}"
         assert run(code, {}, ("items",)) == {"items": {10, 20}}
-        with pytest.raises(CodeError) as caught:
+        with pytest.raises(CodeError) as exc_info:
             run(code, {}, ("items", "o"))
-        assert caught.value.reason == "TypeError: o isn't a JSON value or a set"
+        assert exc_info.value.reason == "TypeError: o isn't a JSON value or a set"
 
     def test_variables_must_be_json_values(self) -> None:
         with pytest.raises(TypeError, match="JSON-serializable"):
@@ -34,20 +34,20 @@ class TestRun:
         ],
     )
     def test_invalid_returned_variables_fail_only_their_run(self, code: str) -> None:
-        with pytest.raises(CodeError) as caught:
+        with pytest.raises(CodeError) as exc_info:
             run(code, {}, ("x",))
-        assert caught.value.reason == "Code returned invalid variables."
+        assert exc_info.value.reason == "Code returned invalid variables."
         assert run("x = 1", {}, ("x",)) == {"x": 1}
 
     def test_a_failure_says_its_exception_without_the_traceback(self) -> None:
-        with pytest.raises(CodeError) as caught:
+        with pytest.raises(CodeError) as exc_info:
             run("1 / 0", {"x": 1}, ())
-        assert caught.value.reason == "ZeroDivisionError: division by zero"
+        assert exc_info.value.reason == "ZeroDivisionError: division by zero"
 
     def test_a_timeout_says_how_long_the_code_had(self) -> None:
-        with pytest.raises(CodeError) as caught:
+        with pytest.raises(CodeError) as exc_info:
             run("while True: pass", {}, (), time_limit_s=1)
-        assert caught.value.reason == "it took longer than 1 second"
+        assert exc_info.value.reason == "it took longer than 1 second"
 
     def test_a_timeout_does_not_prevent_the_next_execution(self) -> None:
         with pytest.raises(CodeError):
@@ -65,9 +65,9 @@ class TestRun:
 
     def test_code_aborting_its_sandbox_fails_only_its_run(self) -> None:
         # Eryx 0.12 aborts the process running it when deep C recursion overflows its stack.
-        with pytest.raises(CodeError) as caught:
+        with pytest.raises(CodeError) as exc_info:
             run("nested = []\nfor _ in range(5000): nested = [nested]", {}, ())
-        assert caught.value.reason == "it crashed the sandbox"
+        assert exc_info.value.reason == "it crashed the sandbox"
         assert run("correct = True", {}, ("correct",)) == {"correct": True}
 
     def test_a_worker_that_doesnt_answer_in_time_is_replaced(
@@ -86,9 +86,9 @@ class TestRun:
         }
 
     def test_memory_is_capped(self) -> None:
-        with pytest.raises(CodeError) as caught:
+        with pytest.raises(CodeError) as exc_info:
             run("data = b'x' * 1024**3", {}, ())
-        assert caught.value.reason.startswith("MemoryError")
+        assert exc_info.value.reason.startswith("MemoryError")
 
     def test_memory_limit_is_set_per_run(self) -> None:
         code = "data = b'x' * (96 * 1024**2)\nallocated = len(data)\ndel data"

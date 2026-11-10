@@ -17,7 +17,6 @@ from ...common.text import (
 from ...ml import nli
 from ...questions.base import Question
 from ...questions.types import Answer
-from ..check import Check
 from ..example import examples_beside
 from ..matching import (
     MATCH_FIELD,
@@ -38,6 +37,7 @@ from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
 from ..settings import NonBlankText, Settings, specialized
+from ..step import Step
 
 # The lower, over both directions, of entailment minus contradiction; calibrated on real students'
 # answers to science, civics and computing questions.
@@ -84,8 +84,8 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
         }.get(position.question_type or "", ("tolerance",))
         return specialized(AcceptedAnswersSettings, without=hidden_fields)
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
         if not settings.answers:
             return "No accepted answers."
         comparison_note = (
@@ -137,8 +137,8 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
             return expected
         return Outcome(1.0, f"Accepted as {quoted(accepted_texts[index])}.")
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(check)
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
+        settings = self._settings_of(step)
         yield from match_problems(settings.match)
         question = position.question_model
         if question is not None:

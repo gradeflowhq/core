@@ -13,11 +13,12 @@ from ..methods.helpers import (
     CODE_QUESTION,
     accepted_answer,
     code_tests,
-    combination,
     key_point,
     mark,
     mark_all,
     mark_group,
+    with_value_inputs,
+    workflow,
 )
 
 DECODE = "def decode(pairs):\n    return ''.join(c * n for c, n in zip(pairs[::2], pairs[1::2]))"
@@ -44,7 +45,7 @@ def test_code_tests_break_down_into_their_tests_with_what_each_gave() -> None:
     tests = code_tests(
         code_test('decode(["a", 2])', "'aa'"),
         code_test("decode([])", "'x'"),
-        combine="proportional",
+        marks_by="proportional",
     )
     result = mark(tests, DECODE, CODE_QUESTION)
     assert result.breakdown is not None
@@ -60,7 +61,7 @@ def test_code_tests_break_down_into_their_tests_with_what_each_gave() -> None:
 
 
 def test_code_that_python_cant_read_is_said_once_not_per_test() -> None:
-    tests = code_tests(code_test("f(1)", "1"), code_test("f(2)", "2"), combine="proportional")
+    tests = code_tests(code_test("f(1)", "1"), code_test("f(2)", "2"), marks_by="proportional")
     result = mark(tests, "def f(x)\n    return x", CODE_QUESTION)
     assert result.feedback == "Couldn't run the code: SyntaxError: expected ':' (line 1)."
     assert result.breakdown is not None
@@ -96,8 +97,8 @@ def test_a_marking_of_one_check_has_no_breakdown() -> None:
 
 
 def test_each_check_says_what_it_did_to_the_marks() -> None:
-    marking = combination(
-        "all",
+    marking = workflow(
+        "all_correct",
         {"uses": "gradeflow/key-point@1", "with": {"point": "mitochondria", "match": "spelling"}},
         {"uses": "gradeflow/length@1", "with": {"max_length": 5, "unit": "words"}},
         {"uses": "gradeflow/not-allowed@1", "with": {"check": key_point("nucleus")}},
@@ -111,7 +112,7 @@ def test_each_check_says_what_it_did_to_the_marks() -> None:
 
 
 def test_a_penalty_that_finds_what_it_checks_loses_marks() -> None:
-    marking = combination(
+    marking = workflow(
         "total",
         key_point("16", name="Total"),
         key_point("$", name="Wrong unit", weight=-1),
@@ -132,8 +133,8 @@ def test_a_penalty_that_finds_what_it_checks_loses_marks() -> None:
 
 
 def test_only_the_best_of_any_one_counts_unless_none_gives_marks() -> None:
-    marking = combination(
-        "any",
+    marking = workflow(
+        "any_correct",
         accepted_answer("20", name="Expected"),
         accepted_answer("10", name="Perimeter", weight=0.5),
     )
@@ -184,8 +185,8 @@ def test_multiple_values_name_each_value() -> None:
     marking = {
         "uses": "gradeflow/multiple-values@1",
         "with": {
-            "combine": "proportional",
-            "checks": [accepted_answer("2"), accepted_answer("-3")],
+            "marks_by": "proportional",
+            "checks": with_value_inputs(accepted_answer("2"), accepted_answer("-3")),
         },
     }
     result = mark(marking, "2, 5", ValuesQuestion(value_types=["number", "number"]))
@@ -207,7 +208,7 @@ def test_a_method_file_without_a_description_is_titled_by_what_it_does() -> None
         "label": "Positive",
         "summary": "Tests first_positive.",
         "question_types": ["code"],
-        "checks": [code_tests(code_test("f()", "1"), code_test("f() + 1", "2"))],
+        "steps": [code_tests(code_test("f()", "1"), code_test("f() + 1", "2"))],
     }
     methods = BUILTINS.with_files([("me/positive", dump_yaml(method_file))])
     [result] = mark_all(
@@ -239,7 +240,7 @@ def breakdown_tree(result: QuestionResult) -> BreakdownTree:
 
 
 REBUILD_INDENTATION = {"indentation": True}
-COUNT_MARKING = combination(
+COUNT_MARKING = workflow(
     "total",
     {
         "weight": 2,
@@ -247,7 +248,7 @@ COUNT_MARKING = combination(
             code_test("count([1, 2])", "2"),
             code_test("count([])", "0"),
             code_test("count([5])", "1"),
-            combine="proportional",
+            marks_by="proportional",
             fixes={**REBUILD_INDENTATION, "colons": True, "colons_penalty": 0.25},
         ),
     },
@@ -316,7 +317,7 @@ def number_range(question: str, min_value: float, max_value: float) -> dict[str,
 
 
 def answer_set(name: str, *checks: dict[str, Any], weight: float = 1) -> dict[str, Any]:
-    return combination("all", *checks, name=name, weight=weight)
+    return workflow("all_correct", *checks, name=name, weight=weight)
 
 
 ANSWER_SETS_WITH_CARRIED_ERROR = {
@@ -381,7 +382,7 @@ PART_A_OR_B = {
             {"question": "Q1", "uses": "gradeflow/multiple-choice@1", "with": {"correct": ["a"]}}
         ],
         "then": [
-            combination(
+            workflow(
                 "total",
                 {
                     "uses": "gradeflow/key-points@1",

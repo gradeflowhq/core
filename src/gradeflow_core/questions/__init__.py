@@ -27,7 +27,9 @@ QUESTION_TYPES: Mapping[QuestionType, type[Question]] = MappingProxyType(
     {cls.model_fields["type"].default: cls for cls in get_args(get_args(AnyQuestion)[0])}
 )
 """Each type of question, in catalogue order: the first is the default for new questions."""
-TYPE_LABELS = {question_type: cls.label for question_type, cls in QUESTION_TYPES.items()}
+TYPE_LABELS: dict[str, str] = {
+    question_type: cls.label for question_type, cls in QUESTION_TYPES.items()
+}
 
 
 def new_question(question_type: QuestionType, data: Mapping[str, Any] | None = None) -> Question:

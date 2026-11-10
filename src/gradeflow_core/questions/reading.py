@@ -7,7 +7,6 @@ import unicodedata
 from collections.abc import Callable, Iterable
 from decimal import Decimal
 from fractions import Fraction
-from typing import Any
 
 from natsort import natsorted, ns
 from pydantic import BaseModel, ConfigDict, Field
@@ -75,7 +74,7 @@ class ListReading(TextReading):
     )
 
 
-def reading_field(factory: Callable[[], Reading]) -> Any:
+def reading_field[R: Reading](factory: Callable[[], R]) -> R:
     """A question's ``reading`` field, made by ``factory`` unless set."""
     return Field(
         default_factory=factory,

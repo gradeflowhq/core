@@ -17,21 +17,20 @@ _INCOMPLETE_ERROR_TYPES = frozenset({"missing", "too_short"})
 
 @dataclass(frozen=True)
 class Problem:
-    """Something wrong, in words for people: with the check at ``check``, if in a marking, in its
-    field at ``field``, if any."""
+    """Something wrong, in words for people, and the step and field at fault, if any."""
 
     message: str
-    check: str = ""
-    """Where the check is, such as ``with.checks.0``; ``""`` is the marking itself."""
+    step_path: str = ""
+    """Where the step is, such as ``with.steps.0``; ``""`` is the marking itself."""
     field: Location = ()
-    """Where in the check, its settings and keys as one, such as ``("answers", 0)``."""
+    """Where in the step, its settings and keys as one, such as ``("answers", 0)``."""
     is_incomplete: bool = False
     """Not filled in yet, rather than wrong."""
 
     @property
     def where(self) -> str:
-        """The check and field at fault, such as ``markings.0.with.answers.1``."""
-        return join(self.check, *self.field)
+        """The step and field at fault, such as ``markings.0.with.answers.1``."""
+        return join(self.step_path, *self.field)
 
     def __str__(self) -> str:
         """The message after the field at fault, such as ``answers: Add at least one.``"""
@@ -53,26 +52,24 @@ def invalid_errors(data: object) -> Generator[None]:
 
 
 def validation_problems(
-    error: ValidationError, data: object, is_check: Callable[[Location], bool] | None = None
+    error: ValidationError, data: object, is_step_at: Callable[[Location], bool] | None = None
 ) -> list[Problem]:
-    """The problems pydantic found validating ``data``, each at the check holding it, if any:
-    where ``is_check`` says one is, or else a mapping whose ``uses`` names a method, or is at
-    fault."""
+    """The problems pydantic found validating ``data``, each at the step holding it, if any."""
 
     def problem_of(details: ErrorDetails) -> Problem:
         location = _untagged(tuple(details["loc"]), data)
 
-        def is_check_at(at: Location) -> bool:
+        def has_uses_at(at: Location) -> bool:
             node = get(data, join(*at))
             return isinstance(node, Mapping) and (
                 isinstance(node.get("uses"), str) or location[len(at) :] == ("uses",)
             )
 
         is_incomplete = details["type"] in _INCOMPLETE_ERROR_TYPES
-        problem = at_innermost_check(
+        problem = at_innermost_step(
             Problem(error_message(details), is_incomplete=is_incomplete),
             location,
-            is_check or is_check_at,
+            is_step_at or has_uses_at,
         )
         if problem.field == ("with",) and details["type"] == "value_error":
             return replace(problem, field=())  # a rule over all its settings is the check's
@@ -94,17 +91,17 @@ def _untagged(location: Location, data: object) -> Location:
     return tuple(parts)
 
 
-def at_innermost_check(
-    problem: Problem, location: Location, is_check: Callable[[Location], bool]
+def at_innermost_step(
+    problem: Problem, location: Location, is_step_at: Callable[[Location], bool]
 ) -> Problem:
-    """``problem``, found at ``location`` of the data, at the innermost check holding it; a check's
+    """``problem``, found at ``location`` of the data, at the innermost step holding it; a step's
     settings are its fields, without their ``with``."""
-    checks = [length for length in range(len(location) + 1) if is_check(location[:length])]
-    if not checks:
+    step_depths = [length for length in range(len(location) + 1) if is_step_at(location[:length])]
+    if not step_depths:
         return replace(problem, field=location)
-    end, field = checks[-1], location[checks[-1] :]
+    end, field = step_depths[-1], location[step_depths[-1] :]
     return replace(
         problem,
-        check=join(*location[:end]),
+        step_path=join(*location[:end]),
         field=field[1:] if len(field) > 1 and field[0] == "with" else field,
     )

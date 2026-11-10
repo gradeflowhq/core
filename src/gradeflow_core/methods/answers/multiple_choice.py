@@ -15,13 +15,13 @@ from ...common.text import (
 from ...questions.base import Question
 from ...questions.choice import ChoiceQuestion
 from ...questions.types import Answer
-from ..check import Check
 from ..example import examples_beside
 from ..matching import duplicate_problems
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
 from ..settings import Settings, literal, specialized
+from ..step import Step
 
 Compare = Literal["exactly", "all", "none", "any", "share_each"]
 COMPARE_LABELS = {
@@ -95,8 +95,8 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         )
         return {**settings, "correct": list(normalized_options)}
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
         inline, listed, conjunction = _DESCRIPTIONS[settings.compare]
         if reads_better_listed(settings.correct):
             return f"{listed}:\n{markdown_code_list(settings.correct)}"
@@ -130,11 +130,11 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         none_of_prefix = "none of " if settings.compare == "none" else ""
         return Outcome(proportion, as_sentence(f"Expected {none_of_prefix}{expected_options}"))
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         question = position.question_model
         if not isinstance(question, ChoiceQuestion):
             return
-        correct = self._settings_of(check).correct
+        correct = self._settings_of(step).correct
         for index, option in enumerate(correct):
             if question.reading.normalized(option) not in question.options:
                 yield Problem(f"{option} isn't one of the options.", field=("correct", index))

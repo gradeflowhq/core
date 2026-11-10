@@ -81,7 +81,7 @@ YAML aliases are refused.
 ## Language models
 
 Answer Criteria asks a language model which of the lecturer's criteria an answer meets. With
-`combine: best_fit`, it asks which one fits best. The endpoint is passed to `mark()`, not written
+`marks_by: best_fit`, it asks which one fits best. The endpoint is passed to `mark()`, not written
 into the marking:
 
 ```python
@@ -164,10 +164,10 @@ with its settings, and a marking is a check on a question:
 
 ```yaml
 question: Q3
-uses: gradeflow/combination@1
+uses: gradeflow/workflow@1
 with:
-  combine: any
-  checks:
+  marks_by: any_correct
+  steps:
     - name: Correct
       uses: gradeflow/accepted-answers@1
       with: {answers: ["9.81"]}
@@ -177,13 +177,29 @@ with:
       with: {answers: ["-9.81"]}
 ```
 
-A check can also have an `id`, the `question` or `value` it reads, `read_only`, an `if` condition,
-and a `feedback` template. A marking without a `question` marks a question group, and its checks
-name the questions they read.
+Steps run in order. A check gives marks. A transform reads the answer as its question reads it, and
+gives another answer that later steps read as their `input`:
+
+```yaml
+question: Q4
+uses: gradeflow/workflow@1
+with:
+  steps:
+    - id: final
+      uses: gradeflow/extract@1
+      with: {type: number, pattern: "Answer:\\s*(.+)"}
+    - input: "{{ steps.final.output }}"
+      uses: gradeflow/accepted-answers@1
+      with: {answers: ["12"]}
+```
+
+A step can also have an `if` condition, such as `{{ steps.id.output.correct }}`, and a `feedback`
+template. A `weight` of 0 gives no marks. A marking without a `question` marks a question group, and
+its steps name the questions they mark.
 
 A `MarkScheme` is a list of markings. `problems(questions)` on a `MarkScheme` or a `Check` lists
 what would stop it marking. Each `Problem` points at the check and field at fault, such as
-`markings.0.with.checks.1`.
+`markings.0.with.steps.1`.
 
 ## Method collections
 
@@ -198,12 +214,12 @@ version: 1
 label: Term
 summary: Names the term.
 question_types: [text]
-inputs:
+settings:
   term:
     title: Term
-checks:
+steps:
   - uses: gradeflow/accepted-answers@1
-    with: {answers: ["{{ inputs.term }}"]}
+    with: {answers: ["{{ settings.term }}"]}
 """
 methods = BUILTINS.with_files([("intro-biology/term", term)])
 scheme = MarkScheme.from_yaml(
@@ -228,25 +244,27 @@ version: 1
 label: Key Points
 summary: Marks for each point the answer includes.
 question_types: [text]
-inputs:
+settings:
   points:
     title: Points
-  combine:
+  marks_by:
     title: How points count
     default: proportional
-combine: "{{ inputs.combine }}"
-checks:
-  - for_each: "{{ inputs.points }}"
+marks_by: "{{ settings.marks_by }}"
+steps:
+  - for_each: "{{ settings.points }}"
     uses: gradeflow/key-point@1
     with:
       point: "{{ item }}"
 ```
 
-An input takes the type of the setting it fills, and is required without a `default`. `for_each`
-repeats a check with `item` and `index`. With `combine: proportional`, weights share out the marks.
-With `combine: total`, each weight is a number of marks, capped at full marks. With `combine: any`, a
-weight is the share of the marks a check can give; `all` and `none` don't use weights. Templates are
-sandboxed Jinja, and `{{ … }}` on its own keeps its value's type.
+A declared setting takes the type of the field it fills, and is required without a `default`.
+`for_each` repeats a check with `item` and `index`. With `marks_by: proportional`, weights share out
+the marks. With `marks_by: total`, each weight is a number of marks, capped at full marks. With
+`marks_by: any_correct`, a weight is the share of the marks a check can give; `all_correct` and
+`none_correct` take only weights of 0 and 1. A file with `output: step_output` and
+`output_step: "{{ steps.id.output }}"` is a transform. Templates are sandboxed Jinja, and `{{ … }}`
+on its own keeps its value's type.
 
 ## Examples
 
@@ -297,20 +315,20 @@ from gradeflow_core import QuestionSet
 from gradeflow_core.editing import Condition, ConditionRow, MarkingDraft
 
 questions = QuestionSet.load({"Q1": {"type": "text"}})
-draft = MarkingDraft.new("gradeflow/combination@1", questions, "Q1")
-draft.update("", {"combine": "any"})
-draft.add("with.checks.0", "gradeflow/accepted-answers@1")
-draft.update("with.checks.0", {"answers": ["Paris"]})
-draft.add("with.checks.1", "gradeflow/key-points@1")
-incorrect = Condition((ConditionRow("with.checks.0", "incorrect"),))
-draft.update("with.checks.1", {"points": ["capital"], "weight": 0.5, "if": incorrect})
+draft = MarkingDraft.new("gradeflow/workflow@1", questions, "Q1")
+draft.update("", {"marks_by": "any_correct"})
+draft.add("with.steps.0", "gradeflow/accepted-answers@1")
+draft.update("with.steps.0", {"answers": ["Paris"]})
+draft.add("with.steps.1", "gradeflow/key-points@1")
+incorrect = Condition((ConditionRow("with.steps.0", "incorrect"),))
+draft.update("with.steps.1", {"points": ["capital"], "weight": 0.5, "if": incorrect})
 assert draft.problems == []
-print(draft.notes("with.checks.1"))
+print(draft.notes("with.steps.1"))
 print(draft.finalized().dump())
 ```
 
-`MethodDraft` writes a composed method from example questions. `bind_new_input` turns a setting
-into an input, and `bind` and `unbind` connect or disconnect them:
+`MethodDraft` writes a composed method from example questions. `bind_new_setting` turns a field of
+a step into a declared setting, and `bind` and `unbind` connect or disconnect them:
 
 ```python
 from gradeflow_core import QuestionSet
@@ -323,9 +341,9 @@ draft = MethodDraft.new(
     label="Within range",
     summary="A number in a range.",
 )
-draft.checks.add("with.checks.0", "gradeflow/number-range@1")
-draft.checks.update("with.checks.0", {"min_value": 10, "max_value": 20})
-draft.bind_new_input("with.checks.0.with.min_value")
+draft.steps_draft.add("with.steps.0", "gradeflow/number-range@1")
+draft.steps_draft.update("with.steps.0", {"min_value": 10, "max_value": 20})
+draft.bind_new_setting("with.steps.0.with.min_value")
 assert draft.problems == []
 print(draft.to_yaml())
 ```
@@ -343,7 +361,7 @@ version: 1
 label: Old
 summary: Written for an earlier version.
 question_types: [text]
-checks:
+steps:
   - uses: gradeflow/key-points@1
     with: {points: [light], unknown_setting: true}
 """
@@ -377,7 +395,7 @@ results = mark_rows(
     "gradeflow/number-range@1",
     questions=questions,
     question="Q1",
-    inputs={"min_value": 10, "max_value": 20},
+    settings={"min_value": 10, "max_value": 20},
     rows=rows,
 )
 recorded = [result.as_example() for result in results]
@@ -413,8 +431,9 @@ Built-in methods are in `src/gradeflow_core/methods/`, in `answers/`, `text/`, `
 
 - **Composed method:** a YAML file named after the method, and its name in `CATALOGUE_ORDER` in
   `methods/catalogue.py`.
-- **Coded method:** a subclass of `AnswerMethod` or `Method`, an instance in `PYTHON_METHODS`, its name in
-  `CATALOGUE_ORDER`, and its examples in `<method-name>.examples.yaml` beside it.
+- **Coded method:** a subclass of `AnswerMethod`, `MarkingMethod` or `TransformMethod`, an instance
+  in `PYTHON_METHODS`, its name in `CATALOGUE_ORDER`, and its examples in
+  `<method-name>.examples.yaml` beside it.
 - **Question type:** a subclass of `Question` implementing `read` and `python_type`, added to
   `AnyQuestion` in `questions/__init__.py` and to `QuestionType` in `questions/types.py`.
 

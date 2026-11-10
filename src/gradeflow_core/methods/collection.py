@@ -17,7 +17,7 @@ from ..common.documents import as_plain_data, load_yaml_with_lines, with_line
 from ..common.error_formatting import error_message
 from ..common.exceptions import GradeFlowError, InvalidError, MethodFileError
 from ..common.paths import join
-from .composed.file import COMBINATION, MethodFile, MethodFileFieldError, methods_used_by_file
+from .composed.file import WORKFLOW_REF, MethodFile, MethodFileFieldError, methods_used_by_file
 from .composed.method import ComposedMethod
 from .method import Method
 from .names import method_name, method_ref
@@ -61,7 +61,9 @@ class Methods(tuple[Method[Any], ...]):
         Each name is a namespace and a name, as `method_name` makes them. Files may use these
         methods and each other.
         """
-        return load_method_files(files, self, strict=True).methods
+        loaded = load_method_files(files, self)
+        raise_first(loaded.failed)
+        return loaded.methods
 
     def dependencies(self, ref: str) -> set[str]:
         """Every ref the method ``ref`` depends on, rejecting missing references and composition
@@ -76,13 +78,13 @@ class Methods(tuple[Method[Any], ...]):
             if method is None:
                 raise MethodFileError(f"There's no method {current}.")
             references = (
-                methods_used_by_file(method.file) | {COMBINATION}
+                methods_used_by_file(method.file) | {WORKFLOW_REF}
                 if isinstance(method, ComposedMethod)
                 else set()
             )
             graph[current] = references
             pending.extend(references - graph.keys())
-        _raise_first(_dependency_order(graph)[1])
+        raise_first(_dependency_order(graph)[1])
         return set(graph) - {ref}
 
 
@@ -104,28 +106,21 @@ class LoadedFiles:
     at fault: itself or one it uses."""
 
 
-def load_method_files(
-    files: Sequence[tuple[str, str]], methods: Methods, *, strict: bool = False
-) -> LoadedFiles:
+def load_method_files(files: Sequence[tuple[str, str]], methods: Methods) -> LoadedFiles:
     """The methods of the ``(name, YAML)`` files that load, after ``methods``, and why each other
     file doesn't. Each name is a namespace and a name, as `method_name` makes them. A file that
-    doesn't load stops only the files that use it. With ``strict``, the first raises
-    ``MethodFileError``."""
+    doesn't load stops only the files that use it."""
     named, failed = [], {}
     for name, text in files:
         if problem := _name_problem(name):
             failed[name] = FailedFile(name, [problem])
         else:
             named.append((name, text))
-    if strict:
-        _raise_first(failed)
-    loaded = load_files(named, methods, strict=strict)
+    loaded = load_files(named, methods)
     return LoadedFiles(loaded.methods, failed | loaded.failed)
 
 
-def load_files(
-    files: Sequence[tuple[str, str]], methods: Methods, *, strict: bool = False
-) -> LoadedFiles:
+def load_files(files: Sequence[tuple[str, str]], methods: Methods) -> LoadedFiles:
     """`load_method_files`, whatever the names are, as for the built-in methods' own files."""
     methods_by_ref = dict(methods.by_ref)
     parsed: dict[str, tuple[str, Any, MethodFile]] = {}
@@ -160,8 +155,6 @@ def load_files(
                 methods_by_ref[ref] = _composed_method(*parsed[ref], methods_by_ref)
             except MethodFileError as error:
                 failed[ref] = FailedFile(ref, error.messages)
-    if strict:
-        _raise_first(failed)
     loaded = (methods_by_ref[ref] for ref in parsed if ref not in failed)
     return LoadedFiles(Methods([*methods, *loaded]), failed)
 
@@ -177,7 +170,7 @@ def _name_problem(name: str) -> str | None:
     return None
 
 
-def _raise_first(failed: Mapping[str, FailedFile]) -> None:
+def raise_first(failed: Mapping[str, FailedFile]) -> None:
     """Raises ``MethodFileError`` for the first file that fails on its own."""
     for key, failure in failed.items():
         if failure.ref == key:
@@ -186,7 +179,7 @@ def _raise_first(failed: Mapping[str, FailedFile]) -> None:
 
 def method_of(
     name: str, data: Mapping[str, Any], methods_by_ref: Mapping[str, Method[Any]]
-) -> Method[Any]:
+) -> ComposedMethod:
     """The method a method file's ``data`` defines, using the methods of ``methods_by_ref``. Raises
     ``MethodFileError`` with its problem and no line, as data has none."""
     return _composed_method(name, data, _validated(data, data), methods_by_ref)
@@ -221,7 +214,13 @@ def _validated(document: Any, data: Any) -> MethodFile:
         first_error = error.errors()[0]
         path = tuple(first_error["loc"])
         raise MethodFileError(
-            with_line(document, path, f"{join(*path)}: {error_message(first_error)}")
+            with_line(
+                document,
+                path,
+                f"{join(*path)}: {error_message(first_error)}"
+                if path
+                else error_message(first_error),
+            )
         ) from None
 
 

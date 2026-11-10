@@ -87,4 +87,4 @@ def test_a_method_says_which_questions_it_cant_mark(
 ) -> None:
     [(check, field, message)] = problems_of({"uses": method, "with": settings}, question)  # type: ignore[arg-type]
     assert (check, field) == ("", ())
-    assert "can't mark a" in message
+    assert "can't be used on a" in message

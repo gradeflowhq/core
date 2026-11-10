@@ -25,8 +25,8 @@ def number_range_draft() -> MethodDraft:
     draft = MethodDraft.new(
         NUMBER_QUESTIONS, name="range", version=1, label="Within a range", summary="In range."
     )
-    draft.checks.add("with.checks.0", "gradeflow/number-range@1")
-    draft.checks.update("with.checks.0", {"min_value": 10, "max_value": 20})
+    draft.steps_draft.add("with.steps.0", "gradeflow/number-range@1")
+    draft.steps_draft.update("with.steps.0", {"min_value": 10, "max_value": 20})
     return draft
 
 

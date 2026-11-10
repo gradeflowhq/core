@@ -15,6 +15,7 @@ from .helpers import (
     mark_scheme_of,
     problems_of,
     proportions,
+    with_value_inputs,
 )
 
 
@@ -57,11 +58,15 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
     roots = ValuesQuestion(value_types=["number", "number"])
     in_order = {
         "uses": "gradeflow/multiple-values@1",
-        "with": {"combine": "proportional", "checks": checks},
+        "with": {"marks_by": "proportional", "checks": with_value_inputs(*checks)},
     }
     any_order = {
         "uses": "gradeflow/multiple-values@1",
-        "with": {"combine": "proportional", "any_order": True, "checks": checks},
+        "with": {
+            "marks_by": "proportional",
+            "any_order": True,
+            "checks": with_value_inputs(*checks),
+        },
     }
     assert proportions(mark_all(in_order, ["2, -3", "-3, 2", "2, 5"], roots)) == [1, 0, 0.5]
     assert proportions(mark_all(any_order, ["2, -3", "-3, 2", "2, 5"], roots)) == [1, 1, 0.5]
@@ -75,10 +80,13 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
     assert problems_of(
         {
             "uses": "gradeflow/multiple-values@1",
-            "with": {"checks": [checks[0], {**checks[1], "value": 2}]},
+            "with": {"checks": checks},
         },
         roots,
-    ) == [("with.checks.1", ("value",), "Its place in the list sets the value it checks.")]
+    ) == [
+        ("with.checks.0", (), "Accepted Answers can't be used on a multiple values question."),
+        ("with.checks.1", (), "Accepted Answers can't be used on a multiple values question."),
+    ]
 
 
 @pytest.mark.parametrize("any_order", [False, True])
@@ -90,7 +98,7 @@ def test_multiple_values_needs_a_check_for_each_value(any_order: bool) -> None:
     def problems_with(checks: list[dict[str, Any]]) -> list[tuple[str, tuple[str | int, ...], str]]:
         check = {
             "uses": "gradeflow/multiple-values@1",
-            "with": {"any_order": any_order, "checks": checks},
+            "with": {"any_order": any_order, "checks": with_value_inputs(*checks)},
         }
         return problems_of(check, roots)
 
@@ -98,30 +106,30 @@ def test_multiple_values_needs_a_check_for_each_value(any_order: bool) -> None:
     assert problems_with(one_check) == [count_problem]
     assert problems_with(three_checks) == [
         count_problem,
-        ("with.checks.2", (), "Accepted Answers can't mark value 3: the question has 2 values."),
+        ("with.checks.2", ("input",), "The answer has 2 values."),
     ]
 
 
 def test_checks_in_a_check_of_one_value_read_it_unless_they_name_another() -> None:
     accepted_answers_method = {"uses": "gradeflow/accepted-answers@1"}
     heights = {
-        "uses": "gradeflow/combination@1",
+        "uses": "gradeflow/workflow@1",
         "with": {
-            "checks": [
+            "steps": [
                 {
                     "id": "k2",
-                    "value": 1,
-                    "read_only": True,
+                    "input": "{{ values[0] }}",
+                    "weight": 0,
                     **accepted_answers_method,
                     "with": {"answers": ["K2"]},
                 },
                 {
-                    "if": "{{ checks.k2.correct }}",
+                    "if": "{{ steps.k2.output.correct }}",
                     **accepted_answers_method,
                     "with": {"answers": ["8611"]},
                 },
                 {
-                    "if": "{{ not checks.k2.correct }}",
+                    "if": "{{ not steps.k2.output.correct }}",
                     **accepted_answers_method,
                     "with": {"answers": ["8849"]},
                 },
@@ -131,7 +139,7 @@ def test_checks_in_a_check_of_one_value_read_it_unless_they_name_another() -> No
     mountain = {"uses": "gradeflow/key-points@1", "with": {"points": ["Everest"]}}
     check = {
         "uses": "gradeflow/multiple-values@1",
-        "with": {"combine": "proportional", "checks": [mountain, heights]},
+        "with": {"marks_by": "proportional", "checks": with_value_inputs(mountain, heights)},
     }
     question = ValuesQuestion(value_types=["text", "text"])
     answers = ["Everest, 8849", "K2, 8611", "K2, Everest"]
@@ -187,9 +195,9 @@ def test_answer_sets_count_the_set_giving_the_most_marks() -> None:
             "sets": [
                 {
                     "name": "Expected",
-                    "uses": "gradeflow/combination@1",
+                    "uses": "gradeflow/workflow@1",
                     "with": {
-                        "checks": [
+                        "steps": [
                             accepted_answer("6", question="Q1"),
                             accepted_answer("24", question="Q2"),
                         ]
@@ -198,9 +206,9 @@ def test_answer_sets_count_the_set_giving_the_most_marks() -> None:
                 {
                     "name": "Read as 9",
                     "weight": 0.5,
-                    "uses": "gradeflow/combination@1",
+                    "uses": "gradeflow/workflow@1",
                     "with": {
-                        "checks": [
+                        "steps": [
                             accepted_answer("9", question="Q1"),
                             accepted_answer("36", question="Q2"),
                         ]
@@ -226,7 +234,7 @@ def test_a_condition_met_by_any_one_check_is_correct_when_one_does() -> None:
     marking = {
         "uses": "gradeflow/conditional@1",
         "with": {
-            "condition_combine": "any",
+            "condition_met_by": "any_correct",
             "condition": [accepted_answer("a", question="Q1"), accepted_answer("z", question="Q3")],
             "then": [accepted_answer("x", question="Q2")],
         },
@@ -242,9 +250,9 @@ def test_a_condition_met_by_any_one_check_is_correct_when_one_does() -> None:
 
 
 def test_list_settings_need_an_item_unless_they_may_be_empty() -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         mark_scheme_of({"uses": "gradeflow/conditional@1", "with": {"condition": []}})
-    assert [(problem.field, problem.message) for problem in caught.value.problems] == [
+    assert [(problem.field, problem.message) for problem in exc_info.value.problems] == [
         (("condition",), "Add at least one."),
         (("then",), "Required."),
     ]

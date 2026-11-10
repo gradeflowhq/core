@@ -22,9 +22,9 @@ PYDANTIC_WORDING = (
 
 
 def problems_of(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]]:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         Check.load(check)
-    problems = located(caught.value.problems)
+    problems = located(exc_info.value.problems)
     assert not any(fragment in message for *_, message in problems for fragment in PYDANTIC_WORDING)
     return problems
 
@@ -42,7 +42,7 @@ def problems_of(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...],
                 (
                     "",
                     ("pattern",),
-                    "Not a valid pattern: missing ), unterminated subpattern at position 0.",
+                    "Not a valid pattern: missing ) at position 1.",
                 )
             ],
         ),
@@ -96,18 +96,18 @@ def problems_of(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...],
         ),
         (
             {
-                "uses": "gradeflow/combination@1",
-                "with": {"checks": [{"weight": math.nan, "uses": "gradeflow/full-marks@1"}]},
+                "uses": "gradeflow/workflow@1",
+                "with": {"steps": [{"weight": math.nan, "uses": "gradeflow/full-marks@1"}]},
             },
-            [("with.checks.0", ("weight",), "Must be a number.")],
+            [("with.steps.0", ("weight",), "Must be a number.")],
         ),
         (
-            {"uses": "gradeflow/combination@1", "with": {"checks": [{}]}},
-            [("with.checks.0", ("uses",), "Choose a method.")],
+            {"uses": "gradeflow/workflow@1", "with": {"steps": [{}]}},
+            [("with.steps.0", ("uses",), "Choose a method.")],
         ),
         (
-            {"uses": "gradeflow/combination@1", "with": {"checks": ["bad"]}},
-            [("", ("checks", 0), "A check needs uses: and a method's name.")],
+            {"uses": "gradeflow/workflow@1", "with": {"steps": ["bad"]}},
+            [("", ("steps", 0), "A step needs uses: and a method's name.")],
         ),
         (
             {
@@ -164,8 +164,8 @@ def test_checks_refuse_what_would_mark_wrongly_in_plain_words(
         {"uses": "gradeflow/length@1", "with": {"min_length": 0, "max_length": 0}},
         {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["1"], "tolerance": 0}},
         {
-            "uses": "gradeflow/combination@1",
-            "with": {"checks": [{"weight": -1, "uses": "gradeflow/full-marks@1"}]},
+            "uses": "gradeflow/workflow@1",
+            "with": {"steps": [{"weight": -1, "uses": "gradeflow/full-marks@1"}]},
         },
     ],
 )
@@ -174,9 +174,9 @@ def test_checks_accept_settings_at_their_limits(check: dict[str, Any]) -> None:
 
 
 def test_messages_keep_the_reason_a_question_gives() -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         ChoiceQuestion.load({"options": ["a", "A"], "reading": {"ignore_case": True}})
-    [problem] = caught.value.problems
+    [problem] = exc_info.value.problems
     assert problem.message == "Options must be different: “a” appears twice."
     case_sensitive = ChoiceQuestion(options=("A", "a"), reading=ListReading(ignore_case=False))
     assert case_sensitive.options == ("A", "a")

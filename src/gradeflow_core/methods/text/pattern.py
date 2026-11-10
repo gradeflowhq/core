@@ -1,16 +1,14 @@
-import re
-
 from pydantic import Field, field_validator
 
 from ...common.text import code_span
 from ...questions.base import Question
-from ...questions.text import TextQuestion
 from ...questions.types import Answer
-from ..check import Check
 from ..example import examples_beside
 from ..method import AnswerMethod
 from ..outcome import Outcome
 from ..settings import Settings
+from ..step import Step
+from .regexes import PATTERN_TIMEOUT_MESSAGE, compile_pattern, pattern_matches
 
 
 class PatternSettings(Settings):
@@ -23,10 +21,7 @@ class PatternSettings(Settings):
     @field_validator("pattern")
     @classmethod
     def _check_compiles(cls, pattern: str) -> str:
-        try:
-            re.compile(pattern)
-        except re.error as error:
-            raise ValueError(f"Not a valid pattern: {error}.") from None
+        compile_pattern(pattern)
         return pattern
 
 
@@ -44,7 +39,7 @@ class Pattern(AnswerMethod[PatternSettings]):
         "pattern with `^` and end it with `$` to match the whole answer. On a question that keeps "
         "case, start it with `(?i)` to ignore case.\n\n"
         "**Good to know:** A pattern checks the form, not the value, so `6/8` matches "
-        "`^\\d+/\\d+$`. Pair it with a check of the value in a Combination.\n\n"
+        "`^\\d+/\\d+$`. Pair it with a check of the value in a Workflow.\n\n"
         "**Related:** When a list of answers or words will do, use Accepted Answers or Key "
         "Points: they're easier to read later."
     )
@@ -53,16 +48,16 @@ class Pattern(AnswerMethod[PatternSettings]):
     settings = PatternSettings
     examples = examples_beside(__file__)
 
-    def describe(self, check: Check) -> str:
-        return f"Matches the pattern {code_span(self._settings_of(check).pattern)}."
+    def describe(self, step: Step) -> str:
+        return f"Matches the pattern {code_span(self._settings_of(step).pattern)}."
 
     def _mark_answer(
         self, settings: PatternSettings, answer: Answer, question: Question
     ) -> Outcome:
-        # Answers to a question that ignores case are lowercased, so the pattern ignores it too.
-        ignores_case = isinstance(question, TextQuestion) and question.reading.ignore_case
-        flags = re.IGNORECASE if ignores_case else re.NOFLAG
-        is_match = re.search(settings.pattern, str(answer), flags) is not None
+        try:
+            is_match = pattern_matches(settings.pattern, str(answer), question)
+        except TimeoutError:
+            return Outcome(0.0, PATTERN_TIMEOUT_MESSAGE, marked=False)
         return Outcome(
             float(is_match), "Correct format." if is_match else "Not in the expected format."
         )

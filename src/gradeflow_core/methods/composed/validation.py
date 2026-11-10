@@ -6,11 +6,11 @@ from typing import Annotated, Any, Literal, Union, get_args, get_origin
 from pydantic import BaseModel
 
 from ...common.paths import Location
-from ..check import Check
 from ..settings import Settings
+from ..step import Step
 from ..templates import (
-    EARLIER_RESULT,
     FEEDBACK_SCOPE,
+    STEP_RESULT_SHAPE,
     ListOf,
     Shape,
     TemplateError,
@@ -37,7 +37,7 @@ def _template_shape(annotation: Any) -> Shape:
         return "bool"
     if annotation in (int, float):
         return "number"
-    if isinstance(annotation, type) and issubclass(annotation, Check):
+    if isinstance(annotation, type) and issubclass(annotation, Step):
         return {"uses": "text", "name": "text", "question": "text", "weight": "number"}
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         return {
@@ -47,10 +47,12 @@ def _template_shape(annotation: Any) -> Shape:
 
 
 def validate_templates(file: MethodFile, settings: type[Settings]) -> None:
-    inputs = {key: _template_shape(info.annotation) for key, info in settings.model_fields.items()}
+    declared_shapes = {
+        key: _template_shape(info.annotation) for key, info in settings.model_fields.items()
+    }
     templates: list[tuple[str, str | None, Mapping[str, Shape]]] = [
-        ("description", file.description, {"inputs": inputs, "parts": ListOf("text")}),
-        ("feedback", file.feedback, {"inputs": inputs, **FEEDBACK_SCOPE}),
+        ("description", file.description, {"settings": declared_shapes, "parts": ListOf("text")}),
+        ("feedback", file.feedback, {"settings": declared_shapes, **FEEDBACK_SCOPE}),
     ]
     for name, source, scope in templates:
         if source is not None:
@@ -58,8 +60,8 @@ def validate_templates(file: MethodFile, settings: type[Settings]) -> None:
                 validate(source, scope)
             except TemplateError as error:
                 raise MethodFileFieldError(str(error), (name,)) from None
-    if isinstance(file.checks, list):
-        _validate_entries(file.checks, ("checks",), {"inputs": inputs}, {})
+    if isinstance(file.steps, list):
+        _validate_entries(file.steps, ("steps",), {"settings": declared_shapes}, {})
 
 
 def _validate_entries(
@@ -68,12 +70,12 @@ def _validate_entries(
     scope: Mapping[str, Shape],
     earlier_results: Mapping[str, Shape],
 ) -> None:
-    """The templates of a list of checks, each of which may read the results of those before."""
+    """The templates of a list of steps, each of which may read the results of those before."""
     earlier_results = dict(earlier_results)
     for index, entry in enumerate(entries):
         _validate_value(entry, (*path, index), scope, earlier_results)
         if isinstance(entry, Mapping) and isinstance(entry.get("id"), str):
-            earlier_results[entry["id"]] = EARLIER_RESULT
+            earlier_results[entry["id"]] = STEP_RESULT_SHAPE
 
 
 def _validate_entry(
@@ -85,17 +87,17 @@ def _validate_entry(
     entry_scope = dict(scope)
     if "for_each" in entry:
         source = reference(entry["for_each"]) or ""
-        inputs = scope["inputs"]
-        input_shape = (
-            inputs.get(source.removeprefix("inputs."), "any")
-            if isinstance(inputs, Mapping)
+        declared_shapes = scope["settings"]
+        declared_shape = (
+            declared_shapes.get(source.removeprefix("settings."), "any")
+            if isinstance(declared_shapes, Mapping)
             else "any"
         )
         entry_scope |= {
-            "item": input_shape.item if isinstance(input_shape, ListOf) else "any",
+            "item": declared_shape.item if isinstance(declared_shape, ListOf) else "any",
             "index": "number",
         }
-    for location, error in template_errors(entry, {**entry_scope, "checks": earlier_results}):
+    for location, error in template_errors(entry, {**entry_scope, "steps": earlier_results}):
         raise MethodFileFieldError(str(error), (*path, *location))
     for key, value in entry.items():
         if key not in TEMPLATE_KEYS:
@@ -105,7 +107,7 @@ def _validate_entry(
 def _validate_value(
     value: Any, path: Location, scope: Mapping[str, Shape], earlier_results: Mapping[str, Shape]
 ) -> None:
-    """The templates in ``value``: a check, or settings, which are filled in before marking."""
+    """The templates in ``value``: a step, or settings, which are filled in before running."""
     if isinstance(value, str) and is_template(value):
         try:
             validate(value, scope)

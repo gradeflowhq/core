@@ -14,15 +14,14 @@ from ...common.hints import hint
 from ...common.model_service import Effort, ModelEndpoint
 from ...common.text import as_sentence, escaped_markdown, format_number, markdown_list, plural
 from ...questions.base import Question
-from ...questions.question_set import read_answer
 from ...questions.types import QuestionId
-from ..check import Check, Context
 from ..example import examples_beside
-from ..logic.combination import proportion_and_parts
+from ..logic.workflow import proportion_and_parts
 from ..matching import model_context
 from ..method import Method, Progress
-from ..outcome import FULL_MARKS_PROPORTION, Outcome
+from ..outcome import FULL_MARKS_PROPORTION, Outcome, QuestionOutcomes
 from ..settings import NonBlankText, Settings
+from ..step import Context, Step
 
 Role = Literal["fast", "careful"]
 DecideWith = Literal["fast", "careful", "fast_then_careful"]
@@ -79,7 +78,7 @@ class AnswerCriteriaSettings(Settings):
         title="Criteria",
         description="What to look for in an answer, and the marks it gives.",
     )
-    combine: Literal["total", "best_fit"] = Field(
+    marks_by: Literal["total", "best_fit"] = Field(
         default="total",
         title="How criteria count",
         json_schema_extra=hint(
@@ -125,7 +124,7 @@ class AnswerCriteriaSettings(Settings):
 
     @model_validator(mode="after")
     def _check_best_fit_criteria_count(self) -> Self:
-        if self.combine == "best_fit" and len(self.criteria) > MAX_BEST_FIT_CRITERIA:
+        if self.marks_by == "best_fit" and len(self.criteria) > MAX_BEST_FIT_CRITERIA:
             raise ValueError(f"Best fit takes at most {MAX_BEST_FIT_CRITERIA} criteria.")
         return self
 
@@ -138,12 +137,12 @@ class Verdict:
     reason: str = ""
 
 
-type Verdicts = dict[tuple[AnswerCriteriaSettings, str, str], Verdict]
-"""Keyed by settings, answer and criterion."""
+type Verdicts = dict[tuple[str, str], Verdict]
+"""Keyed by answer and criterion."""
 NO_AI_SERVICE_VERDICT = Verdict(None, (), "no AI service is set up")
 
 
-class AnswerCriteria(Method[AnswerCriteriaSettings]):
+class AnswerCriteria(Method[AnswerCriteriaSettings, QuestionOutcomes]):
     name = "gradeflow/answer-criteria"
     version = 1
     label = "Answer Criteria"
@@ -168,81 +167,78 @@ class AnswerCriteria(Method[AnswerCriteriaSettings]):
     examples = examples_beside(__file__)
     needs_model_endpoint = True
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
         lines = [
             f"{escaped_markdown(criterion.text)} ({format_number(criterion.marks)} "
             f"{plural('mark', abs(criterion.marks))})"
             for criterion in settings.criteria
         ]
-        if settings.combine == "best_fit":
+        if settings.marks_by == "best_fit":
             return f"AI picks the criterion that best fits the answer:\n{markdown_list(lines)}"
         if len(lines) == 1:
             return f"AI checks the answer for {lines[0]}."
         return f"AI checks the answer for each of these:\n{markdown_list(lines)}"
 
-    def mark(
-        self, check: Check, context: Context, question: QuestionId | None, value: int | None
-    ) -> dict[QuestionId, Outcome]:
+    def run(
+        self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+    ) -> list[QuestionOutcomes]:
         assert question is not None  # a check that marks an answer has a question
-        settings = self._settings_of(check)
-        answer_text = context.written_answers.get(
-            question, str(read_answer(context.answers, question, value))
-        ).strip()
-        verdicts: Verdicts = context.precomputed.get(self.ref, {}).get(question, {})
-        proportion, parts = proportion_and_parts(
-            "total",
-            [
-                (
-                    criterion.marks,
-                    _criterion_outcome(
-                        criterion.text,
-                        verdicts.get(
-                            (settings, answer_text, criterion.text), NO_AI_SERVICE_VERDICT
-                        ),
-                    ),
-                )
-                for criterion in settings.criteria
-            ],
-            context.questions[question].max_marks,
-        )
-        if settings.combine == "best_fit":
-            parts = tuple(
-                replace(part, effect="uncounted") if part.marked and not part.correct else part
-                for part in parts
-            )
-            feedback = _best_fit_feedback(parts)
-        else:
-            feedback = _total_feedback(settings.criteria, parts, proportion)
-        return {
-            question: Outcome(
-                proportion,
-                feedback,
-                marked=all(part.marked for part in parts),
-                parts=parts,
-                children=parts if len(parts) > 1 else (),
-            )
-        }
-
-    def precompute(
-        self,
-        checks: Sequence[Check],
-        answers: Sequence[str],
-        question: Question,
-        endpoint: ModelEndpoint | None,
-        report: Callable[[Progress], None],
-    ) -> Verdicts:
-        if endpoint is None:
-            return {}
+        settings = self._settings_of(step)
+        answers = [_answer_text(context, question) for context in contexts]
         verdicts: Verdicts = {}
-        for settings in dict.fromkeys(map(self._settings_of, checks)):
+        if (endpoint := contexts[0].model_endpoint) is not None:
             requests_class = (
-                _BestFitRequests if settings.combine == "best_fit" else _CriteriaRequests
+                _BestFitRequests if settings.marks_by == "best_fit" else _CriteriaRequests
             )
-            requests = requests_class(endpoint, settings, question, report)
-            for (answer, criterion_text), verdict in requests.decide(sorted(answers)).items():
-                verdicts[settings, answer, criterion_text] = verdict
-        return verdicts
+            verdicts = requests_class(
+                endpoint, settings, contexts[0].questions[question], contexts[0].report_progress
+            ).decide(sorted(set(answers)))
+        return [
+            {
+                question: _answer_outcome(
+                    settings, answer, verdicts, context.questions[question].max_marks
+                )
+            }
+            for answer, context in zip(answers, contexts, strict=True)
+        ]
+
+
+def _answer_text(context: Context, question: QuestionId) -> str:
+    return str(context.answers[question]).strip()
+
+
+def _answer_outcome(
+    settings: AnswerCriteriaSettings, answer: str, verdicts: Verdicts, max_marks: float
+) -> Outcome:
+    proportion, parts = proportion_and_parts(
+        "total",
+        [
+            (
+                criterion.marks,
+                _criterion_outcome(
+                    criterion.text, verdicts.get((answer, criterion.text), NO_AI_SERVICE_VERDICT)
+                ),
+            )
+            for criterion in settings.criteria
+        ],
+        max_marks,
+    )
+    if settings.marks_by == "best_fit":
+        parts = tuple(
+            replace(part, effect="uncounted") if part.marked and not part.correct else part
+            for part in parts
+        )
+        feedback = _best_fit_feedback(parts)
+    else:
+        feedback = _total_feedback(settings.criteria, parts, proportion)
+    return Outcome(
+        proportion,
+        feedback,
+        marked=all(part.marked for part in parts),
+        parts=parts,
+        children=parts if len(parts) > 1 else (),
+    )
 
 
 def _criterion_outcome(criterion_text: str, verdict: Verdict) -> Outcome:
@@ -336,10 +332,7 @@ class _CriteriaRequests:
             return _undecided_verdicts(
                 itertools.product(answers, self.criterion_texts), (), "no fast model is chosen"
             )
-        confidence_needed = (
-            settings.confidence_needed if settings.decide_with == "fast_then_careful" else 0.0
-        )
-        verdicts = self._decide_fast(model, answers, confidence_needed)
+        verdicts = self._decide_fast(model, answers)
         if settings.decide_with == "fast":
             return verdicts
         unsure_criteria: dict[str, list[int]] = {}
@@ -353,17 +346,13 @@ class _CriteriaRequests:
         }
         return sure_verdicts | self._decide_carefully(unsure_criteria, (model,))
 
-    def _decide_fast(
-        self, model: str, answers: list[str], confidence_needed: float
-    ) -> dict[tuple[str, str], Verdict]:
+    def _decide_fast(self, model: str, answers: list[str]) -> dict[tuple[str, str], Verdict]:
         """The fast model's verdict on each answer and criterion, left undecided where the model is
-        less sure than ``confidence_needed`` or gave none."""
+        less sure than the confidence needed or gave none."""
 
         def decide_batch(batch: Sequence[str]) -> dict[tuple[str, str], Verdict]:
             try:
-                verdicts = self._ask(
-                    model, lambda: self._fast_verdicts(model, batch, confidence_needed)
-                )
+                verdicts = self._ask(model, lambda: self._fast_verdicts(model, batch))
             except model_service.ServiceError as error:
                 return _undecided_verdicts(
                     itertools.product(batch, self.criterion_texts),
@@ -385,7 +374,7 @@ class _CriteriaRequests:
         return self._ask_in_batches(decide_batch, answers, "Deciding criteria")
 
     def _fast_verdicts(
-        self, model: str, batch: Sequence[str], confidence_needed: float
+        self, model: str, batch: Sequence[str]
     ) -> dict[tuple[str, str], Verdict] | None:
         """The fast model's verdicts on ``batch``, or None if its reply can't be read."""
         reply = model_service.ask(
@@ -400,6 +389,7 @@ class _CriteriaRequests:
         probabilities = model_service.yes_probabilities(reply)
         if len(probabilities) != len(batch) * len(self.criterion_texts):
             return None
+        confidence_needed = self._confidence_needed
         confident_no_below = 1 - confidence_needed
         return {
             key: Verdict(
@@ -418,6 +408,11 @@ class _CriteriaRequests:
             f"{self.prompt_context}\n\n{_tagged_answers(batch)}\n\n"
             f'Reply with {len(batch)} line(s), such as "A1: {example_reply}".'
         )
+
+    @property
+    def _confidence_needed(self) -> float:
+        settings = self.settings
+        return settings.confidence_needed if settings.decide_with == "fast_then_careful" else 0.0
 
     @property
     def _reasoning_effort(self) -> Effort | None:
@@ -536,7 +531,7 @@ class _BestFitRequests(_CriteriaRequests):
         return [str(number) for number in range(len(self.criterion_texts) + 1)]
 
     def _fast_verdicts(
-        self, model: str, batch: Sequence[str], confidence_needed: float
+        self, model: str, batch: Sequence[str]
     ) -> dict[tuple[str, str], Verdict] | None:
         reply = model_service.ask(
             self.endpoint,
@@ -552,7 +547,7 @@ class _BestFitRequests(_CriteriaRequests):
             return None
         return {
             (answer, criterion_text): Verdict(
-                None if probability < confidence_needed else str(number) == option, (model,)
+                None if probability < self._confidence_needed else str(number) == option, (model,)
             )
             for answer, (option, probability) in zip(batch, chosen_options, strict=True)
             for number, criterion_text in enumerate(self.criterion_texts, 1)

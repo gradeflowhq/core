@@ -6,11 +6,11 @@ from ...common.hints import hint
 from ...common.text import code_span, plural
 from ...questions.base import Question
 from ...questions.types import Answer
-from ..check import Check
 from ..example import examples_beside
 from ..method import AnswerMethod
 from ..outcome import Outcome
 from ..settings import Settings, check_limits_in_order
+from ..step import Step
 
 
 class LengthSettings(Settings):
@@ -44,14 +44,14 @@ class Length(AnswerMethod[LengthSettings]):
         "**How it marks:** The answer's words or characters are counted, and a count from **At "
         "least** to **At most** gets full marks. Leave either empty for no limit on that side.\n\n"
         "**Related:** To check what the answer says as well, combine it with Key Points in a "
-        "Combination."
+        "Workflow."
     )
     question_types = frozenset({"text"})
     settings = LengthSettings
     examples = examples_beside(__file__)
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
         min_length, max_length = settings.min_length, settings.max_length
         if min_length is not None and max_length is not None:
             return f"Has {code_span(min_length)} to {code_span(max_length)} {settings.unit}."

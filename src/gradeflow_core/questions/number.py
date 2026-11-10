@@ -19,9 +19,9 @@ class NumberQuestion(Question):
         return read_number(answer, self.reading)
 
 
-def reads_as_number(text: str) -> bool:
+def reads_as_number(text: str, reading: Reading | None = None) -> bool:
     """Whether a number question reads ``text`` as a number, not as blank or not at all."""
     try:
-        return read_number(text, Reading()) is not None
+        return read_number(text, reading or Reading()) is not None
     except ValueError:
         return False

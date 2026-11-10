@@ -16,21 +16,21 @@ def test_base_question_is_abstract() -> None:
 
 @pytest.mark.parametrize("max_marks", [-5, "nan", "inf"])
 def test_max_marks_is_a_finite_number_of_zero_or_more(max_marks: object) -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         TextQuestion.load({"max_marks": max_marks})
-    assert [problem.field for problem in caught.value.problems] == [("max_marks",)]
+    assert [problem.field for problem in exc_info.value.problems] == [("max_marks",)]
 
 
 def test_multiple_values_need_at_least_one_value() -> None:
-    with pytest.raises(ValidationError) as caught:
+    with pytest.raises(ValidationError) as exc_info:
         ValuesQuestion(value_types=[])
-    assert caught.value.errors()[0]["loc"] == ("value_types",)
+    assert exc_info.value.errors()[0]["loc"] == ("value_types",)
 
 
 def test_separator_is_not_empty() -> None:
-    with pytest.raises(ValidationError) as caught:
+    with pytest.raises(ValidationError) as exc_info:
         ListReading(separator="")
-    assert caught.value.errors()[0]["loc"] == ("separator",)
+    assert exc_info.value.errors()[0]["loc"] == ("separator",)
 
 
 @pytest.mark.parametrize(

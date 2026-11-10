@@ -119,10 +119,10 @@ def test_problems_with_its_question_and_formula() -> None:
 
 
 def test_offered_only_with_two_number_questions_to_choose() -> None:
-    assert FORMULA_OF_ANSWERS.can_mark_at(Position(QuestionSet(QUESTIONS), in_group=True))
+    assert FORMULA_OF_ANSWERS.can_run_at(Position(QuestionSet(QUESTIONS), in_group=True))
     one_number_question = QuestionSet({"Q1": NumberQuestion(), "Q2": TextQuestion()})
-    assert not FORMULA_OF_ANSWERS.can_mark_at(Position(one_number_question, in_group=True))
-    assert not FORMULA_OF_ANSWERS.can_mark_at(Position(QuestionSet(QUESTIONS), "Q1"))
+    assert not FORMULA_OF_ANSWERS.can_run_at(Position(one_number_question, in_group=True))
+    assert not FORMULA_OF_ANSWERS.can_run_at(Position(QuestionSet(QUESTIONS), "Q1"))
 
 
 def test_settings_offer_the_number_questions() -> None:

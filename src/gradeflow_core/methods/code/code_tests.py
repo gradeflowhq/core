@@ -17,11 +17,10 @@ from ...common.text import (
 from ...questions.base import Question
 from ...questions.code_files import python_files, split_answer
 from ...questions.types import Answer
-from ..check import Check
 from ..example import examples_beside
-from ..logic.combination import (
-    COMBINE_LABELS,
-    Combine,
+from ..logic.workflow import (
+    MARKS_BY_LABELS,
+    MarksBy,
     ignored_weight_problems,
     proportion_and_parts,
     weight_notes,
@@ -30,6 +29,7 @@ from ..method import AnswerMethod
 from ..outcome import CORRECT, Detail, Outcome
 from ..position import Position
 from ..settings import Settings
+from ..step import Step
 from . import runner
 from .code_fixes import CodeFixes, best_fixed_outcome, fixes_field
 from .custom_code import memory_limit_field, time_limit_field
@@ -107,8 +107,10 @@ class CodeTestsSettings(Settings):
         json_schema_extra=ADVANCED_HINT,
     )
     fixes: CodeFixes = fixes_field()
-    combine: Combine = Field(
-        default="all", title="How tests count", json_schema_extra=hint(labels=COMBINE_LABELS)
+    marks_by: MarksBy = Field(
+        default="all_correct",
+        title="How tests count",
+        json_schema_extra=hint(labels=MARKS_BY_LABELS),
     )
 
 
@@ -135,23 +137,24 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
     settings = CodeTestsSettings
     examples = examples_beside(__file__)
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
-        tests, combine = settings.tests, settings.combine
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
+        tests, marks_by = settings.tests, settings.marks_by
         if len(tests) == 1:
             [test] = tests
-            return f"{_weight_prefix(test, combine)}{_test_title(test, negated=combine == 'none')}"
+            negated = marks_by == "none_correct"
+            return f"{_weight_prefix(test, marks_by)}{_test_title(test, negated=negated)}"
         test_lines = "\n".join(
-            f"- {_weight_prefix(test, combine)}{code_span(test.expression)} gives "
+            f"- {_weight_prefix(test, marks_by)}{code_span(test.expression)} gives "
             f"{code_span(test.expected)}."
             for test in tests
         )
-        return f"Passes {_which_tests(combine, len(tests))}:\n{test_lines}"
+        return f"Passes {_which_tests(marks_by, len(tests))}:\n{test_lines}"
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(check)
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
+        settings = self._settings_of(step)
         weights = [test.weight for test in settings.tests]
-        yield from ignored_weight_problems(weights, settings.combine, "tests")
+        yield from ignored_weight_problems(weights, settings.marks_by, "tests")
 
     def _mark_answer(
         self, settings: CodeTestsSettings, answer: Answer, question: Question
@@ -172,10 +175,10 @@ def _tests_outcome(settings: CodeTestsSettings, code: str, max_marks: float) -> 
     for test in settings.tests:
         outcome = _outcome_of_test(main_source, dict(module_files), test, settings.setup)
         weighted.append((test.weight, replace(outcome, title=_test_title(test))))
-    combine = settings.combine
-    proportion, test_outcomes = proportion_and_parts(combine, weighted, max_marks)
+    marks_by = settings.marks_by
+    proportion, test_outcomes = proportion_and_parts(marks_by, weighted, max_marks)
     feedback = _feedback(settings, test_outcomes, proportion)
-    if combine == "none" and (
+    if marks_by == "none_correct" and (
         error := next(filter(None, (outcome.first_error() for outcome in test_outcomes)), None)
     ):
         proportion, feedback = 0.0, as_sentence(f"Couldn't test the code: {error}")
@@ -188,8 +191,8 @@ def _feedback(
     settings: CodeTestsSettings, test_outcomes: tuple[Outcome, ...], proportion: float
 ) -> str:
     """How many tests passed, and why the others failed. A test passes when it gives marks."""
-    combine = settings.combine
-    if combine == "none":
+    marks_by = settings.marks_by
+    if marks_by == "none_correct":
         passed_titles = [
             as_sentence(plain_markdown(outcome.title))
             for outcome in test_outcomes
@@ -212,7 +215,7 @@ def _feedback(
     if len(failed) == len(test_outcomes) and len({outcome.feedback for _, outcome in failed}) == 1:
         return failed[0][1].feedback  # such as code that couldn't run
     passed_summary = f"Passed {len(test_outcomes) - len(failed)} of {len(test_outcomes)} tests."
-    if combine == "any" and proportion > 0:
+    if marks_by == "any_correct" and proportion > 0:
         return passed_summary
     return "\n".join([passed_summary, *_failures(failed, len(test_outcomes))])
 
@@ -242,17 +245,17 @@ def _test_title(test: Test, *, negated: bool = False) -> str:
     return f"{makes} {code_span(test.expression)} give {code_span(test.expected)}."
 
 
-def _weight_prefix(test: Test, combine: Combine) -> str:
-    return "".join(f"**{capitalized(note)}:** " for note in weight_notes(test.weight, combine))
+def _weight_prefix(test: Test, marks_by: MarksBy) -> str:
+    return "".join(f"**{capitalized(note)}:** " for note in weight_notes(test.weight, marks_by))
 
 
-def _which_tests(combine: Combine, count: int) -> str:
-    match combine:
-        case "all":
+def _which_tests(marks_by: MarksBy, count: int) -> str:
+    match marks_by:
+        case "all_correct":
             return "both tests" if count == 2 else f"all {count} tests"
-        case "any":
+        case "any_correct":
             return "any one of these tests"
-        case "none":
+        case "none_correct":
             return "none of these tests"
         case "total":
             return "these tests, marks added up"

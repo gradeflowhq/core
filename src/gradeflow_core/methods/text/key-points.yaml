@@ -10,7 +10,7 @@ guide: |-
   **Good to know:** A short point also matches inside longer words, so “evaporat” finds “evaporation”, and “for” finds “format” unless **Whole words only** is on. Same meaning works best with each point written as a sentence, and only on short answers.
 
   **Related:** To compare the whole answer, use Accepted Answers. To forbid a point, choose **None may be correct**.
-inputs:
+settings:
   points:
     title: Points
     description: Words or phrases, or a sentence each for Same meaning.
@@ -18,25 +18,25 @@ inputs:
     default: exact
   strictness:
     default: normal
-  combine:
+  marks_by:
     title: How points count
     default: proportional
   whole_words:
     default: false
-combine: "{{ inputs.combine }}"
-checks:
-  - for_each: "{{ inputs.points }}"
+marks_by: "{{ settings.marks_by }}"
+steps:
+  - for_each: "{{ settings.points }}"
     uses: gradeflow/key-point@1
     with:
       point: "{{ item }}"
-      match: "{{ inputs.match }}"
-      strictness: "{{ inputs.strictness }}"
-      whole_words: "{{ inputs.whole_words }}"
+      match: "{{ settings.match }}"
+      strictness: "{{ settings.strictness }}"
+      whole_words: "{{ settings.whole_words }}"
 feedback: >-
-  {% if inputs.combine == "any" and not correct %}Missing {{ inputs.points | quoted | or_list }}.{% elif inputs.combine != "none" %}{{ feedback }}{% elif correct %}Has none of {{ inputs.points | quoted | or_list }}.{% else %}Not allowed. {{ parts | selectattr("correct") | map(attribute="feedback") | join(" ") }}{% endif %}
+  {% if settings.marks_by == "any_correct" and not correct %}Missing {{ settings.points | quoted | or_list }}.{% elif settings.marks_by != "none_correct" %}{{ feedback }}{% elif correct %}Has none of {{ settings.points | quoted | or_list }}.{% else %}Not allowed. {{ parts | selectattr("correct") | map(attribute="feedback") | join(" ") }}{% endif %}
 description: |-
-  {% if inputs.combine == "none" %}Doesn't include{% else %}Includes{% endif %}{% if inputs.points | needs_list %}{% if inputs.combine in ["all", "none"] %} all of these{% elif inputs.combine == "any" %} any of these{% else %} these{% endif %}{% if inputs.whole_words and inputs.match == "exact" %} as whole words{% endif %}{% else %}{% if inputs.whole_words and inputs.match == "exact" %} the whole word{% if inputs.points | length > 1 %}s{% endif %}{% endif %} {% if inputs.combine == "any" %}{{ inputs.points | code | or_list }}{% else %}{{ inputs.points | code | and_list }}{% endif %}{% endif %}{% if inputs.match == "spelling" %} in similar spelling{% elif inputs.match == "meaning" %} in meaning{% endif %}{% if inputs.match != "exact" and inputs.strictness != "normal" %} ({{ inputs.strictness }}){% endif %}{% if inputs.points | length > 1 %}{% if inputs.combine == "proportional" %}, a share for each{% elif inputs.combine == "total" %}, a mark each{% endif %}{% endif %}{% if inputs.points | needs_list %}:
-  - {{ inputs.points | code | join("\n- ") }}{% else %}.{% endif %}
+  {% if settings.marks_by == "none_correct" %}Doesn't include{% else %}Includes{% endif %}{% if settings.points | needs_list %}{% if settings.marks_by in ["all_correct", "none_correct"] %} all of these{% elif settings.marks_by == "any_correct" %} any of these{% else %} these{% endif %}{% if settings.whole_words and settings.match == "exact" %} as whole words{% endif %}{% else %}{% if settings.whole_words and settings.match == "exact" %} the whole word{% if settings.points | length > 1 %}s{% endif %}{% endif %} {% if settings.marks_by == "any_correct" %}{{ settings.points | code | or_list }}{% else %}{{ settings.points | code | and_list }}{% endif %}{% endif %}{% if settings.match == "spelling" %} in similar spelling{% elif settings.match == "meaning" %} in meaning{% endif %}{% if settings.match != "exact" and settings.strictness != "normal" %} ({{ settings.strictness }}){% endif %}{% if settings.points | length > 1 %}{% if settings.marks_by == "proportional" %}, a share for each{% elif settings.marks_by == "total" %}, a mark each{% endif %}{% endif %}{% if settings.points | needs_list %}:
+  - {{ settings.points | code | join("\n- ") }}{% else %}.{% endif %}
 examples:
   - title: What does a plant need for photosynthesis?
     description: |-

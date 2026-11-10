@@ -12,7 +12,7 @@ from .reading import ListReading, Reading, TextReading, read_list, reading_field
 from .text import TextQuestion
 from .types import Value, ValueType
 
-VALUE_TYPE_LABELS: dict[ValueType, str] = {"text": "Text", "number": "Number"}
+VALUE_TYPE_LABELS: dict[str, str] = {"text": "Text", "number": "Number"}
 EXAMSOFT_SEPARATOR = "~"
 """ExamSoft's separator between an answer's values."""
 

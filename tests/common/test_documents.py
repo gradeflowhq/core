@@ -33,9 +33,9 @@ def test_text_of_several_lines_reads_back_as_written(text: str) -> None:
     ],
 )
 def test_text_that_isnt_yaml_is_refused_at_its_line(text: str, message: str) -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         load_yaml(text)
-    assert str(caught.value) == message
+    assert str(exc_info.value) == message
 
 
 @pytest.mark.parametrize(
@@ -49,9 +49,9 @@ def test_text_that_isnt_yaml_is_refused_at_its_line(text: str, message: str) -> 
     ],
 )
 def test_aliases_are_refused_at_their_line(text: str, line: int) -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         load_yaml(text)
-    assert str(caught.value) == f"Line {line}: Anchors and aliases aren't supported."
+    assert str(exc_info.value) == f"Line {line}: Anchors and aliases aren't supported."
 
 
 def test_a_value_used_twice_is_written_twice_so_it_loads_back() -> None:

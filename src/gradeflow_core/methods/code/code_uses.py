@@ -10,12 +10,12 @@ from ...common.text import as_sentence, code_span
 from ...questions.base import Question
 from ...questions.code_files import python_files, split_answer
 from ...questions.types import Answer
-from ..check import Check
 from ..example import examples_beside
 from ..method import AnswerMethod
 from ..outcome import Detail, Outcome
 from ..position import Position
 from ..settings import IDENTIFIER, Settings
+from ..step import Step
 from .code_fixes import CodeFixes, best_fixed_outcome, fixes_field
 from .runner import syntax_error_text
 
@@ -69,8 +69,8 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
     settings = CodeUsesSettings
     examples = examples_beside(__file__)
 
-    def describe(self, check: Check) -> str:
-        settings = self._settings_of(check)
+    def describe(self, step: Step) -> str:
+        settings = self._settings_of(step)
         match settings.looks_for:
             case "call":
                 return f"Calls {_code_or(settings.function, 'a function')}."
@@ -94,8 +94,8 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
             lambda code: _outcome(settings, code),
         )
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(check)
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
+        settings = self._settings_of(step)
         if settings.looks_for == "call" and not settings.function:
             yield Problem("Name the function.", field=("function",), is_incomplete=True)
         if settings.looks_for == "import" and not settings.module:

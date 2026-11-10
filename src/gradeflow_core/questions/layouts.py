@@ -138,9 +138,14 @@ def _statements(code: str) -> list[_Statement]:
     return statements
 
 
-def _tokens(
-    code: str, count: int
-) -> tuple[list[list[_Token]], dict[int, tuple[int, int]], set[int], set[int]] | None:
+class _TokenRows(NamedTuple):
+    tokens_by_row: list[list[_Token]]
+    first_tokens: dict[int, tuple[int, int]]
+    rows_in_string: set[int]
+    ended_rows: set[int]
+
+
+def _tokens(code: str, count: int) -> _TokenRows | None:
     """Each row's code tokens, the bracket depth and type of its first token, the rows inside a
     string and the rows a line break ends."""
     tokens_by_row: list[list[_Token]] = [[] for _ in range(count)]
@@ -169,7 +174,7 @@ def _tokens(
             rows_in_string.update(range(row + 1, end + 1))
     except SyntaxError, tokenize.TokenError:
         return None
-    return tokens_by_row, first_tokens, rows_in_string, ended_rows
+    return _TokenRows(tokens_by_row, first_tokens, rows_in_string, ended_rows)
 
 
 def _statement(lines: list[Line], tokens: list[_Token]) -> _Statement:
@@ -314,7 +319,7 @@ def _next_states(
         if statement.opens_block:
             open_keywords.add(statement.keyword)
         if (
-            _fits(enclosing_blocks, statement)
+            _is_allowed_in_blocks(enclosing_blocks, statement)
             and ("def" not in needed[index] or "def" in open_keywords)
             and ("loop" not in needed[index] or open_keywords & LOOPS)
             and _closed_loops_change(state, statements, depth)
@@ -355,7 +360,7 @@ def _depths(
     return [*range(least_depth, innermost + 1), *range(least_depth - 1, -1, -1)]
 
 
-def _fits(enclosing_blocks: tuple[_OpenBlock, ...], statement: _Statement) -> bool:
+def _is_allowed_in_blocks(enclosing_blocks: tuple[_OpenBlock, ...], statement: _Statement) -> bool:
     """Whether ``statement`` can go in the blocks ``enclosing_blocks`` open."""
     keywords = [block.keyword for block in reversed(enclosing_blocks)]
     if statement.exit_keyword in {"return", "raise", "break"} and keywords and keywords[0] in LOOPS:

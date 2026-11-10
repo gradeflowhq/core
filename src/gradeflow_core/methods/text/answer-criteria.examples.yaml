@@ -140,7 +140,7 @@ examples:
     questions:
       Q1: {type: text, max_marks: 3, description: Why does the Moon show phases?}
     with:
-      combine: best_fit
+      marks_by: best_fit
       criteria:
         - {text: Explains that we see different amounts of the sunlit half as the Moon orbits, marks: 3}
         - {text: Says the orbit of the Moon causes the phases, marks: 2}

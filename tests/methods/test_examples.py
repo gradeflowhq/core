@@ -33,6 +33,7 @@ BASIC_METHOD_NAMES = {
     "gradeflow/multiple-values",
     "gradeflow/order",
     "gradeflow/length",
+    "gradeflow/extract",
     "gradeflow/full-marks",
 }
 GUIDE_PATTERN = re.compile(
@@ -41,7 +42,7 @@ GUIDE_PATTERN = re.compile(
     r"(\n\n\*\*Good to know:\*\* [A-Z*].+)?"
     r"(\n\n\*\*Related:\*\* [A-Z*].+)?$"
 )
-SUMMARY_OPENINGS = ("Full marks ", "Marks ", "Several checks ", "Your Python code ")
+SUMMARY_OPENINGS = ("Finds ", "Full marks ", "Marks ", "Several steps ", "Your Python code ")
 PUBLIC_METHODS = [method for method in BUILTINS if method.level != "internal"]
 BY_NAME = {method.name: method for method in BUILTINS}
 
@@ -68,7 +69,8 @@ def test_method_names_are_their_labels() -> None:
 
 def test_example_feedback_is_never_empty() -> None:
     assert all(
-        row.expected and all(expected.feedback for expected in row.expected.values())
+        (row.expected or not method.gives_marks({}))
+        and all(expected.feedback for expected in row.expected.values())
         for method in BUILTINS
         for example in method.examples
         for row in example.rows
@@ -86,12 +88,13 @@ EXAMPLE_ROW_MARKS = {
     "gradeflow/order": [[4, 3, 3, 1], [1, 0]],
     "gradeflow/length": [[1, 1, 0, 0], [1, 0]],
     "gradeflow/full-marks": [[1, 1, 1], [2, 2]],
-    "gradeflow/combination": [[1, 0, 0], [2, 1, 0]],
+    "gradeflow/workflow": [[1, 0, 0], [2, 1, 0]],
     "gradeflow/not-allowed": [[1, 0], [1, 0]],
     "gradeflow/pattern": [[1, 0, 0], [1, 1, 0]],
     "gradeflow/code-tests": [[2, 1], [1, 0]],
     "gradeflow/code-uses": [[1, 0], [1, 0]],
     "gradeflow/custom-code": [[1, 0, 0], [1, 0]],
+    "gradeflow/extract": [[1, 0], [1, 0]],
     "gradeflow/conditional": [[1, 1, 0], [1, 1, 0]],
     "gradeflow/answer-sets": [[2, 1, 1, 0], [2, 2, 1]],
     "gradeflow/formula-of-answers": [[1, 1, 0, 0], [1, 1, 0]],
@@ -110,7 +113,7 @@ def test_methods_declare_expected_results(name: str, marks: list[list[float]]) -
         assert example.title
         assert example.description
         assert all(
-            row.expected
+            (row.expected or not method.gives_marks({}))
             and all(
                 0 <= expected.marks <= example.questions[key].max_marks
                 for key, expected in row.expected.items()
@@ -139,7 +142,7 @@ def test_a_row_matches_only_when_it_declares_every_question_marked() -> None:
         method.ref,
         questions=QuestionSet(example.questions),
         question=None,
-        inputs=example.with_,
+        settings=example.with_,
         rows=[row, row_without_q2],
     )
     assert (full_row.matches_expected, partial_row.matches_expected) == (True, False)
@@ -174,7 +177,7 @@ EXAMPLE_METHOD_FILE = """label: Example
 version: 1
 summary: Executes code.
 question_types: [text]
-checks:
+steps:
   - uses: gradeflow/custom-code@1
     with:
       code: |
@@ -288,10 +291,15 @@ def test_built_in_examples_declare_what_evaluating_them_gives(
     assert [example.description for example in actual] == [
         example.description for example in method.examples
     ]
-    assert [[as_expected(row) for row in example.rows] for example in actual] == [
-        [row.model_dump()["expected"] for row in example.rows] for example in method.examples
-    ]
-    assert all(row.matches_expected for example in actual for row in example.rows)
+    declared_rows = [row for example in method.examples for row in example.rows]
+    actual_rows = [row for example in actual for row in example.rows]
+    for row, declared_row in zip(actual_rows, declared_rows, strict=True):
+        if declared_row.expected:
+            assert as_expected(row) == declared_row.model_dump()["expected"]
+            assert row.matches_expected
+        else:
+            assert not method.gives_marks({})
+            assert row.matches_expected is None
 
 
 def as_expected(row: RowResult) -> Any:
@@ -301,7 +309,7 @@ def as_expected(row: RowResult) -> Any:
 def test_examples_use_supplied_nested_methods_without_fallback() -> None:
     methods = BUILTINS.with_files([("sample/example", EXAMPLE_METHOD_FILE)])
     only_example = Methods(method for method in methods if method.name == "sample/example")
-    with pytest.raises(GradeFlowError, match=r"gradeflow/(custom-code|combination)@1"):
+    with pytest.raises(GradeFlowError, match=r"gradeflow/(custom-code|workflow)@1"):
         mark_examples("sample/example@1", methods=only_example)
 
 

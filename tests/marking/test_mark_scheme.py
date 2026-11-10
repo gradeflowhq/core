@@ -59,46 +59,46 @@ def test_checks_mark_only_where_they_can() -> None:
         {"question": "Q3", "uses": "gradeflow/multiple-choice@1", "with": {"correct": ["a"]}},
     ) == [
         ("markings.0", ("question",), "Q9 isn't one of the questions."),
-        ("markings.1", (), "Key Points can't mark a number question."),
+        ("markings.1", (), "Key Points can't be used on a number question."),
         ("markings.2", ("question",), "Choose the question it checks."),
-        ("markings.3", (), "Multiple Choice can't mark a multiple values question."),
+        ("markings.3", (), "Multiple Choice can't be used on a multiple values question."),
     ]
 
 
 def test_problems_in_a_question_group_are_located_in_its_checks() -> None:
     group = {
-        "uses": "gradeflow/combination@1",
+        "uses": "gradeflow/workflow@1",
         "with": {
-            "checks": [
+            "steps": [
                 key_point("a"),
-                key_point("a", question="Q1", value=1),
-                key_point("a", question="Q3", value=3),
-                key_point("a", question="Q3", value=1, id="x"),
-                key_point("a", question="Q3", value=1, id="x"),
+                key_point("a", question="Q1", input="{{ values[0] }}"),
+                key_point("a", question="Q3", input="{{ values[2] }}"),
+                key_point("a", question="Q3", input="{{ values[0] }}", id="x"),
+                key_point("a", question="Q3", input="{{ values[0] }}", id="x"),
             ]
         },
     }
     assert problems(group) == [
-        ("markings.0.with.checks.0", ("question",), "Choose the question it checks."),
+        ("markings.0.with.steps.0", ("question",), "Choose the question it checks."),
         (
-            "markings.0.with.checks.1",
-            ("value",),
-            "Only a question with several values has values to check.",
+            "markings.0.with.steps.1",
+            ("input",),
+            "Only a question with several values has values to read.",
         ),
-        ("markings.0.with.checks.2", ("value",), "The answer has 2 values."),
-        ("markings.0.with.checks.4", ("id",), "Another check here is called x."),
+        ("markings.0.with.steps.2", ("input",), "The answer has 2 values."),
+        ("markings.0.with.steps.4", ("id",), "Another step here is called x."),
     ]
 
 
 def test_a_value_is_marked_as_its_type() -> None:
     number_value = {
         "question": "Q3",
-        "value": 2,
+        "input": "{{ values[1] }}",
         "uses": "gradeflow/key-points@1",
         "with": {"points": ["a"]},
     }
-    assert problems({"uses": "gradeflow/combination@1", "with": {"checks": [number_value]}}) == [
-        ("markings.0.with.checks.0", (), "Key Points can't mark a number value.")
+    assert problems({"uses": "gradeflow/workflow@1", "with": {"steps": [number_value]}}) == [
+        ("markings.0.with.steps.0", (), "Key Points can't be used on a number value.")
     ]
 
 
@@ -117,7 +117,9 @@ def test_markings_read_their_marked_questions_and_dependencies() -> None:
 
 
 @pytest.mark.parametrize(
-    "method", [method for method in BUILTINS if method.examples], ids=lambda method: method.name
+    "method",
+    [method for method in BUILTINS if method.examples and method.gives_marks({})],
+    ids=lambda method: method.name,
 )
 def test_checks_written_without_their_defaults_read_back_the_same(method: Method[Any]) -> None:
     for example in method.examples:
@@ -132,15 +134,15 @@ def test_loading_markings_that_arent_checks_says_where_each_problem_is() -> None
     markings = [
         {"question": "Q1", "uses": "gradeflow/full-marks@1"},
         {"question": "Q2", "uses": "gradeflow/nope@1"},
-        {"question": "Q3", "uses": "gradeflow/combination@1", "with": {"checks": [{}]}},
+        {"question": "Q3", "uses": "gradeflow/workflow@1", "with": {"steps": [{}]}},
     ]
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         MarkScheme.load(markings)
-    assert caught.value.problems == [
+    assert exc_info.value.problems == [
         Problem("There's no method gradeflow/nope@1.", "markings.1", ("uses",)),
-        Problem("Choose a method.", "markings.2.with.checks.0", ("uses",)),
+        Problem("Choose a method.", "markings.2.with.steps.0", ("uses",)),
     ]
-    assert isinstance(caught.value, GradeFlowError)
+    assert isinstance(exc_info.value, GradeFlowError)
 
 
 def test_a_mark_scheme_dumps_as_it_loads() -> None:

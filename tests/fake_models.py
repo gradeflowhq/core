@@ -174,8 +174,16 @@ def _verdict_word(verdict: Verdict) -> str:
 
 
 def example_verdicts(model: str, answer: str, criterion: str) -> Verdict:
-    """A model that marks Answer Criteria's own examples as they declare."""
-    return "yes" if criterion in CRITERIA_MET_BY_EXAMPLE_ANSWERS.get(answer, set()) else "no"
+    """A model that marks Answer Criteria's own examples as they declare, in any case."""
+    criteria_met = next(
+        (
+            criteria
+            for example, criteria in CRITERIA_MET_BY_EXAMPLE_ANSWERS.items()
+            if example.casefold() == answer.casefold()
+        ),
+        set(),
+    )
+    return "yes" if criterion in criteria_met else "no"
 
 
 CRITERIA_MET_BY_EXAMPLE_ANSWERS = {

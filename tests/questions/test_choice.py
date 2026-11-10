@@ -24,16 +24,16 @@ def test_choice_reads_with_a_custom_separator() -> None:
 
 
 def test_choice_rejects_empty_option() -> None:
-    with pytest.raises(ValidationError, match="Options can't be blank") as caught:
+    with pytest.raises(ValidationError, match="Options can't be blank") as exc_info:
         ChoiceQuestion(options=("", "A"))
-    assert caught.value.errors()[0]["loc"] == ("options",)
+    assert exc_info.value.errors()[0]["loc"] == ("options",)
 
 
 @pytest.mark.parametrize("options", [["A", "a"], ["a", " a "], ["a", "a"]])
 def test_choice_rejects_options_read_alike(options: list[str]) -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         ChoiceQuestion.load({"options": options})
-    assert caught.value.problems == [
+    assert exc_info.value.problems == [
         Problem("Options must be different: “a” appears twice.", field=("options",))
     ]
 
@@ -114,9 +114,9 @@ def test_options_keep_the_order_they_are_listed_in() -> None:
 
 
 def test_options_must_be_listed() -> None:
-    with pytest.raises(InvalidError) as caught:
+    with pytest.raises(InvalidError) as exc_info:
         ChoiceQuestion.load({"options": {"a", "b"}})
-    assert caught.value.problems == [Problem("Must be a list.", field=("options",))]
+    assert exc_info.value.problems == [Problem("Must be a list.", field=("options",))]
 
 
 def test_options_first_answered_come_after_the_listed_ones() -> None:

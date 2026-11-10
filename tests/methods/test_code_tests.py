@@ -58,7 +58,7 @@ def test_feedback_counts_the_tests_passed_and_says_why_the_others_failed() -> No
         "Passed 2 of 3 tests.\nf() + 1 gave 2. Expected 3."
     )
     assert mark(
-        code_tests(*three_tests, combine="any"), "def f():\n    return 2", CODE_QUESTION
+        code_tests(*three_tests, marks_by="any_correct"), "def f():\n    return 2", CODE_QUESTION
     ).feedback == ("Passed 1 of 3 tests."), "with Any, failures cost nothing"
     with_colon_fix = code_tests(*three_tests[::2], fixes={"colons": True, "colons_penalty": 0.5})
     feedback = mark(with_colon_fix, "def f()\n    return 1", CODE_QUESTION).feedback
@@ -81,7 +81,7 @@ def test_an_error_that_stops_several_tests_is_said_once() -> None:
 
 
 def test_feedback_shows_values_as_python_writes_them() -> None:
-    check = code_tests(F_GIVES_1, {"expression": "g()", "expected": "'b'"}, combine="proportional")
+    check = code_tests(F_GIVES_1, {"expression": "g()", "expected": "'b'"}, marks_by="proportional")
     assert mark(
         check, "def f():\n    return 1\ndef g():\n    return 'a'", CODE_QUESTION
     ).feedback == ("Passed 1 of 2 tests.\ng() gave 'a'. Expected 'b'.")
@@ -116,10 +116,11 @@ def test_code_that_cannot_start_is_left_for_a_person(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.parametrize(
-    ("combine", "proportion"), [("all", 0), ("any", 1), ("total", 1 / 6), ("proportional", 0.5)]
+    ("marks_by", "proportion"),
+    [("all_correct", 0), ("any_correct", 1), ("total", 1 / 6), ("proportional", 0.5)],
 )
-def test_combine_decides_the_proportion(combine: str, proportion: float) -> None:
-    two_tests = code_tests(F_GIVES_1, {**F_GIVES_1, "expected": "2"}, combine=combine)
+def test_marks_by_decides_the_proportion(marks_by: str, proportion: float) -> None:
+    two_tests = code_tests(F_GIVES_1, {**F_GIVES_1, "expected": "2"}, marks_by=marks_by)
     assert (
         mark(
             two_tests, "def f():\n    return 1", CODE_QUESTION.model_copy(update={"max_marks": 6})
@@ -262,27 +263,29 @@ def test_a_test_weight_where_weights_arent_used_is_a_problem() -> None:
         ("", ("tests", 1, "weight"), "“All must be correct” doesn't use weights.")
     ]
     assert (
-        problems_of({**check, "with": {**check["with"], "combine": "total"}}, CODE_QUESTION) == []
+        problems_of({**check, "with": {**check["with"], "marks_by": "total"}}, CODE_QUESTION) == []
     )
 
 
 def test_one_test_is_described_in_a_line() -> None:
     assert describe(code_tests(F_GIVES_1)) == "Makes `f()` give `1`."
-    assert describe(code_tests(F_GIVES_1, combine="none")) == "Doesn't make `f()` give `1`."
+    assert (
+        describe(code_tests(F_GIVES_1, marks_by="none_correct")) == "Doesn't make `f()` give `1`."
+    )
 
 
 @pytest.mark.parametrize(
-    ("combine", "opening"),
+    ("marks_by", "opening"),
     [
-        ("all", "Passes both tests:"),
-        ("any", "Passes any one of these tests:"),
-        ("none", "Passes none of these tests:"),
+        ("all_correct", "Passes both tests:"),
+        ("any_correct", "Passes any one of these tests:"),
+        ("none_correct", "Passes none of these tests:"),
         ("proportional", "Passes these tests, a share for each:"),
         ("total", "Passes these tests, marks added up:"),
     ],
 )
-def test_several_tests_are_listed_under_how_they_count(combine: str, opening: str) -> None:
-    assert describe(code_tests(F_GIVES_1, G_GIVES_2, combine=combine)) == (
+def test_several_tests_are_listed_under_how_they_count(marks_by: str, opening: str) -> None:
+    assert describe(code_tests(F_GIVES_1, G_GIVES_2, marks_by=marks_by)) == (
         f"{opening}\n- `f()` gives `1`.\n- `g()` gives `2`."
     )
     assert describe(code_tests(F_GIVES_1, G_GIVES_2, F_GIVES_1)).startswith("Passes all 3 tests:\n")
@@ -290,14 +293,16 @@ def test_several_tests_are_listed_under_how_they_count(combine: str, opening: st
 
 def test_tests_are_listed_with_their_weights() -> None:
     weighted = {**G_GIVES_2, "weight": 2}
-    assert describe(code_tests(F_GIVES_1, weighted, combine="total")) == (
+    assert describe(code_tests(F_GIVES_1, weighted, marks_by="total")) == (
         "Passes these tests, marks added up:\n- `f()` gives `1`.\n- **Weight 2:** `g()` gives `2`."
     )
-    assert describe(code_tests(F_GIVES_1, {**G_GIVES_2, "weight": 0.5}, combine="any")) == (
+    assert describe(
+        code_tests(F_GIVES_1, {**G_GIVES_2, "weight": 0.5}, marks_by="any_correct")
+    ) == (
         "Passes any one of these tests:\n"
         "- `f()` gives `1`.\n- **50% of the marks:** `g()` gives `2`."
     )
-    assert describe(code_tests(weighted, combine="total")) == "**Weight 2:** Makes `g()` give `2`."
+    assert describe(code_tests(weighted, marks_by="total")) == "**Weight 2:** Makes `g()` give `2`."
 
 
 def test_tests_ignore_surrounding_spaces() -> None:
@@ -325,7 +330,7 @@ def test_tests_found_where_they_are_not_allowed_are_listed_in_the_feedback() -> 
 def test_code_that_cant_be_tested_gets_no_marks_for_avoiding_the_tests(
     answer: str, error: str
 ) -> None:
-    result = mark(code_tests(F_GIVES_1, combine="none"), answer, CODE_QUESTION)
+    result = mark(code_tests(F_GIVES_1, marks_by="none_correct"), answer, CODE_QUESTION)
     assert (result.proportion, result.feedback) == (0, f"Couldn't test the code: {error}.")
     not_allowed = {"uses": "gradeflow/not-allowed@1", "with": {"check": code_tests(F_GIVES_1)}}
     result = mark(not_allowed, answer, CODE_QUESTION)
@@ -358,7 +363,7 @@ def test_each_fix_is_listed_with_its_penalty() -> None:
 def test_a_fix_costs_its_penalty_however_the_tests_count() -> None:
     three_tests = [{"expression": f"add({n}, 1)", "expected": str(n + 1)} for n in range(3)]
     fixes = {**COLON_AND_KEYWORD_FIXES, "colons_penalty": 0.25}
-    tests = code_tests(*three_tests, combine="total", fixes=fixes)
+    tests = code_tests(*three_tests, marks_by="total", fixes=fixes)
     assert mark(tests, ADD_WITH_TYPOS, CODE_QUESTION).proportion == 0.75
 
 

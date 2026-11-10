@@ -30,7 +30,7 @@ def method_file(uses: str, version: int = 1) -> str:
             "version": version,
             "summary": "A wrapper.",
             "question_types": ["text"],
-            "checks": [{"uses": uses}],
+            "steps": [{"uses": uses}],
         }
     )
 
@@ -48,7 +48,7 @@ def test_a_check_uses_the_built_in_methods_unless_given_others() -> None:
     assert Check.load({"uses": full_marks.ref}).method is full_marks
 
 
-def test_loading_preserves_input_order_and_does_not_modify_supplied_collections() -> None:
+def test_loading_preserves_setting_order_and_does_not_modify_supplied_collections() -> None:
     original = list(BUILTINS)
     files = [
         ("sample/outer", method_file("sample/inner@1")),
@@ -60,7 +60,7 @@ def test_loading_preserves_input_order_and_does_not_modify_supplied_collections(
     assert [method.ref for method in methods[-2:]] == ["sample/outer@1", "sample/inner@1"]
     assert methods.dependencies("sample/outer@1") == {
         "sample/inner@1",
-        "gradeflow/combination@1",
+        "gradeflow/workflow@1",
         "gradeflow/full-marks@1",
     }
 
@@ -173,18 +173,18 @@ def test_dependencies_include_default_checks_and_their_transitive_dependencies()
 version: 1
 summary: Uses the supplied checks.
 question_types: [text]
-inputs:
+settings:
   rules:
     default:
       - uses: sample/inner@1
-checks: "{{ inputs.rules }}"
+steps: "{{ settings.rules }}"
 """
     methods = BUILTINS.with_files(
         [("sample/wrapper", wrapper_file), ("sample/inner", method_file("gradeflow/full-marks@1"))]
     )
     assert methods.dependencies("sample/wrapper@1") == {
         "sample/inner@1",
-        "gradeflow/combination@1",
+        "gradeflow/workflow@1",
         "gradeflow/full-marks@1",
     }
     assert proportion_with(methods, {"question": "Q1", "uses": "sample/wrapper@1"}) == 1
@@ -195,12 +195,12 @@ def test_a_method_needs_a_model_endpoint_when_a_default_check_does() -> None:
 version: 1
 summary: Uses the supplied checks.
 question_types: [text]
-inputs:
+settings:
   rules:
     default:
       - uses: gradeflow/answer-criteria@1
         with: {criteria: [{text: Names a cell.}]}
-checks: "{{ inputs.rules }}"
+steps: "{{ settings.rules }}"
 """
     methods = BUILTINS.with_files([("sample/wrapper", wrapper_file)])
     assert methods.by_ref["sample/wrapper@1"].needs_model_endpoint
@@ -213,11 +213,11 @@ def test_a_finite_nested_example_does_not_create_a_composition_cycle() -> None:
 version: 1
 summary: A check with a default.
 question_types: [text]
-inputs:
+settings:
   rule:
     default: {uses: gradeflow/full-marks@1}
-checks:
-  - "{{ inputs.rule }}"
+steps:
+  - "{{ settings.rule }}"
 examples:
   - title: A nested check
     description: A wrapper inside a wrapper.
@@ -234,7 +234,7 @@ examples:
 """
     methods = BUILTINS.with_files([("sample/wrapper", wrapper_file)])
     assert methods.dependencies("sample/wrapper@1") == {
-        "gradeflow/combination@1",
+        "gradeflow/workflow@1",
         "gradeflow/full-marks@1",
     }
     [row] = mark_examples("sample/wrapper@1", methods=methods)[0].rows

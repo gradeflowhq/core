@@ -43,7 +43,7 @@ def test_partial_marks_add_an_alternative_and_join_one_of_the_same_proportion() 
     after_one_part = marked_by_example(ACCEPTS_9_81, ["-9.81"], "partial_marks", 0.5)
     after_two_parts = marked_by_example(after_one_part, ["10"], "partial_marks", 0.5)
     assert answer_proportions(after_two_parts) == [1, 0.5, 0, 0.5]
-    assert len(after_two_parts["with"]["checks"]) == 2, (
+    assert len(after_two_parts["with"]["steps"]) == 2, (
         "alternatives of the same proportion are one check"
     )
     assert after_two_parts["question"] == "Q1"
@@ -99,13 +99,13 @@ def test_questions_whose_markings_accept_answers_can_be_marked_by_example() -> N
         marked_by_example(ACCEPTS_9_81, ["a"], "full_marks", question=questions[2])
 
 
-def combination_depth(node: Any) -> int:
+def workflow_depth(node: Any) -> int:
     if isinstance(node, dict):
-        return int(node.get("uses") == "gradeflow/combination@1") + max(
-            (combination_depth(value) for value in node.values()), default=0
+        return int("steps" in node) + max(
+            (workflow_depth(value) for value in node.values()), default=0
         )
     if isinstance(node, list):
-        return max((combination_depth(value) for value in node), default=0)
+        return max((workflow_depth(value) for value in node), default=0)
     return 0
 
 
@@ -123,7 +123,7 @@ def test_changing_an_answer_groups_marks_replaces_its_previous_marks() -> None:
     for action, proportion in decisions * 8:
         marking = decide_again(marking, ["10"], action)
         assert answer_proportions(marking) == [1, 0, 0, proportion], action
-        assert combination_depth(marking) <= 2, marking
+        assert workflow_depth(marking) <= 2, marking
 
 
 def test_partial_marks_override_an_existing_matching_method() -> None:
@@ -137,7 +137,7 @@ def test_partial_marks_override_an_existing_matching_method() -> None:
     for action, expected in decisions:
         marking = decide_again(marking, ["10"], action)
         assert answer_proportions(marking) == expected
-        assert combination_depth(marking) <= 2
+        assert workflow_depth(marking) <= 2
 
 
 def test_cancelling_the_last_accepted_answer_gives_no_marks_to_every_answer() -> None:
@@ -196,8 +196,8 @@ def test_new_accepted_answers_share_the_existing_not_allowed_check(action: Decis
     empty_marking = {"question": "Q1", "uses": "gradeflow/accepted-answers@1", "with": {}}
     not_allowed_marking = marked_by_example(empty_marking, ["10"], "not_allowed")
     marking = marked_by_example(not_allowed_marking, ["9.81"], action)
-    assert marking["with"]["combine"] == "all"
-    not_allowed_check, accepting_checks = marking["with"]["checks"]
+    assert marking["with"]["marks_by"] == "all_correct"
+    not_allowed_check, accepting_checks = marking["with"]["steps"]
     assert not_allowed_check == {
         "uses": "gradeflow/not-allowed@1",
         "with": {"check": {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["10"]}}},
@@ -209,10 +209,10 @@ def test_new_accepted_answers_share_the_existing_not_allowed_check(action: Decis
         }
     else:
         assert accepting_checks == {
-            "uses": "gradeflow/combination@1",
+            "uses": "gradeflow/workflow@1",
             "with": {
-                "combine": "any",
-                "checks": [
+                "marks_by": "any_correct",
+                "steps": [
                     {
                         "weight": 0.5,
                         "uses": "gradeflow/accepted-answers@1",
@@ -229,16 +229,16 @@ def test_full_and_partial_answers_stay_together_beside_the_not_allowed_check() -
     actions: list[Decision] = ["partial_marks", "full_marks", "partial_marks"]
     for action in actions:
         marking = decide_again(marking, ["9.8"], action)
-        assert marking["with"]["combine"] == "all"
-        not_allowed_check, accepting_checks = marking["with"]["checks"]
+        assert marking["with"]["marks_by"] == "all_correct"
+        not_allowed_check, accepting_checks = marking["with"]["steps"]
         assert not_allowed_check["uses"] == "gradeflow/not-allowed@1"
-        assert combination_depth(marking) == (1 if action == "full_marks" else 2)
+        assert workflow_depth(marking) == (1 if action == "full_marks" else 2)
         assert answer_proportions(marking) == [1, 0, 1 if action == "full_marks" else 0.5, 0]
         if action == "partial_marks":
-            assert accepting_checks["with"]["combine"] == "any"
+            assert accepting_checks["with"]["marks_by"] == "any_correct"
             assert all(
                 check["uses"] == "gradeflow/accepted-answers@1"
-                for check in accepting_checks["with"]["checks"]
+                for check in accepting_checks["with"]["steps"]
             )
 
 
@@ -246,18 +246,18 @@ def test_existing_nested_accepted_answers_are_flattened_on_the_next_edit() -> No
     rejected = marked_by_example(ACCEPTS_9_81, ["10"], "not_allowed")
     nested = {
         "question": "Q1",
-        "uses": "gradeflow/combination@1",
+        "uses": "gradeflow/workflow@1",
         "with": {
-            "combine": "any",
-            "checks": [
+            "marks_by": "any_correct",
+            "steps": [
                 check_of(rejected),
                 {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["-9.81"]}},
             ],
         },
     }
     marking = marked_by_example(nested, ["9.8"], "full_marks")
-    assert marking["with"]["combine"] == "all"
-    assert combination_depth(marking) == 1
+    assert marking["with"]["marks_by"] == "all_correct"
+    assert workflow_depth(marking) == 1
     assert answer_proportions(marking) == [1, 1, 1, 0]
 
 
@@ -275,10 +275,10 @@ def test_a_not_allowed_check_stays_local_when_another_alternative_accepts_its_an
     rejected = marked_by_example(ACCEPTS_9_81, ["10"], "not_allowed")
     marking = {
         "question": "Q1",
-        "uses": "gradeflow/combination@1",
+        "uses": "gradeflow/workflow@1",
         "with": {
-            "combine": "any",
-            "checks": [
+            "marks_by": "any_correct",
+            "steps": [
                 check_of(rejected),
                 {"uses": "gradeflow/accepted-answers@1", "with": other_settings},
             ],
@@ -294,18 +294,18 @@ def test_a_not_allowed_check_stays_local_when_another_alternative_accepts_its_an
     ]
 
 
-def test_an_empty_combination_does_not_award_other_answers_full_marks() -> None:
-    empty = {"question": "Q1", "uses": "gradeflow/combination@1", "with": {"checks": []}}
+def test_an_empty_workflow_does_not_award_other_answers_full_marks() -> None:
+    empty = {"question": "Q1", "uses": "gradeflow/workflow@1", "with": {"steps": []}}
     assert answer_proportions(marked_by_example(empty, ["10"], "partial_marks")) == [0, 0, 0, 0.5]
 
 
 def test_cancelling_the_answers_of_a_weighted_check_keeps_its_weight() -> None:
     marking = {
         "question": "Q1",
-        "uses": "gradeflow/combination@1",
+        "uses": "gradeflow/workflow@1",
         "with": {
-            "combine": "proportional",
-            "checks": [
+            "marks_by": "proportional",
+            "steps": [
                 {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["9.81"]}},
                 {
                     "uses": "gradeflow/accepted-answers@1",
@@ -322,9 +322,9 @@ def test_cancelling_the_answers_of_a_weighted_check_keeps_its_weight() -> None:
 def test_changing_an_answer_preserves_other_answers_in_conjunctions() -> None:
     marking = {
         "question": "Q1",
-        "uses": "gradeflow/combination@1",
+        "uses": "gradeflow/workflow@1",
         "with": {
-            "checks": [
+            "steps": [
                 {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["9.81"]}},
                 {"uses": "gradeflow/number-range@1", "with": {"min_value": 0}},
             ]
@@ -345,7 +345,7 @@ def test_changing_one_example_keeps_the_other_answer_groups_decisions() -> None:
     for action, proportion in decisions * 8:
         marking = decide_again(marking, ["10"], action)
         assert answer_proportions(marking) == [1, 0.5, 1, proportion]
-        assert combination_depth(marking) <= 3
+        assert workflow_depth(marking) <= 3
 
 
 def test_mixed_decisions_across_answer_groups_do_not_accumulate_history() -> None:
@@ -358,7 +358,7 @@ def test_mixed_decisions_across_answer_groups_do_not_accumulate_history() -> Non
         marking = decide_again(marking, [ANSWERS[index]], action)
         expected[index] = {"full_marks": 1.0, "partial_marks": 0.5, "not_allowed": 0.0}[action]
         assert answer_proportions(marking) == expected
-        assert combination_depth(marking) <= 4
+        assert workflow_depth(marking) <= 4
 
 
 def test_equivalent_answers_share_a_decision() -> None:
@@ -382,15 +382,15 @@ def test_an_exact_decision_keeps_the_other_answers_a_tolerance_accepts() -> None
 
 
 def test_existing_nested_decisions_are_simplified_when_replaced() -> None:
-    marking = {
+    marking: dict[str, Any] = {
         "uses": "gradeflow/accepted-answers@1",
         "with": {"answers": ["9.81", "10"]},
     }
     for _ in range(8):
         marking = {
-            "uses": "gradeflow/combination@1",
+            "uses": "gradeflow/workflow@1",
             "with": {
-                "checks": [
+                "steps": [
                     marking,
                     {
                         "uses": "gradeflow/not-allowed@1",
@@ -405,10 +405,10 @@ def test_existing_nested_decisions_are_simplified_when_replaced() -> None:
             },
         }
         marking = {
-            "uses": "gradeflow/combination@1",
+            "uses": "gradeflow/workflow@1",
             "with": {
-                "combine": "any",
-                "checks": [
+                "marks_by": "any_correct",
+                "steps": [
                     marking,
                     {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["10"]}},
                 ],
@@ -417,7 +417,7 @@ def test_existing_nested_decisions_are_simplified_when_replaced() -> None:
     marking["question"] = "Q1"
     changed = decide_again(marking, ["10"], "partial_marks")
     assert answer_proportions(changed) == [1, 0, 0, 0.5]
-    assert combination_depth(changed) <= 2
+    assert workflow_depth(changed) <= 2
 
 
 def test_examples_validate_the_proportion_and_leave_empty_selections_unchanged() -> None:
@@ -433,17 +433,17 @@ def test_examples_validate_the_proportion_and_leave_empty_selections_unchanged()
 def test_conditional_checks_keep_their_original_scope() -> None:
     marking: dict[str, Any] = {
         "question": "Q1",
-        "uses": "gradeflow/combination@1",
+        "uses": "gradeflow/workflow@1",
         "with": {
-            "checks": [
+            "steps": [
                 {
                     "id": "prerequisite",
-                    "read_only": True,
+                    "weight": 0,
                     "uses": "gradeflow/accepted-answers@1",
                     "with": {"answers": ["42"]},
                 },
                 {
-                    "if": "{{ checks.prerequisite.correct }}",
+                    "if": "{{ steps.prerequisite.output.correct }}",
                     "uses": "gradeflow/accepted-answers@1",
                     "with": {"answers": ["9.81"]},
                 },

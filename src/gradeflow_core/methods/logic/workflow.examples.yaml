@@ -7,7 +7,7 @@ examples:
     questions:
       Q1: {type: text}
     with:
-      checks:
+      steps:
         - uses: gradeflow/key-points@1
           with: {points: [mitochondria]}
         - uses: gradeflow/length@1
@@ -35,8 +35,8 @@ examples:
     questions:
       Q1: {type: text, max_marks: 2}
     with:
-      combine: any
-      checks:
+      marks_by: any_correct
+      steps:
         - name: Largest
           uses: gradeflow/accepted-answers@1
           with: {answers: [Jupiter]}

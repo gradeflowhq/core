@@ -23,7 +23,7 @@ WRAPPED_NUMBER_RANGE = (
 version: 1
 summary: A wrapped number range.
 question_types: [text]
-checks:
+steps:
   - uses: gradeflow/number-range@1
     with: {min_value: 1}
 """,
@@ -43,12 +43,17 @@ def key_point(point: str, **check_keys: Any) -> dict[str, Any]:
     return {**check_keys, "uses": "gradeflow/key-point@1", "with": {"point": point}}
 
 
-def combination(combine: str, *checks: Mapping[str, Any], **check_keys: Any) -> dict[str, Any]:
+def workflow(marks_by: str, *steps: Mapping[str, Any], **step_keys: Any) -> dict[str, Any]:
     return {
-        **check_keys,
-        "uses": "gradeflow/combination@1",
-        "with": {"combine": combine, "checks": list(checks)},
+        **step_keys,
+        "uses": "gradeflow/workflow@1",
+        "with": {"marks_by": marks_by, "steps": list(steps)},
     }
+
+
+def with_value_inputs(*checks: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """``checks`` as Multiple Values holds them, each reading the value in its place."""
+    return [{**check, "input": f"{{{{ values[{index}] }}}}"} for index, check in enumerate(checks)]
 
 
 def code_tests(*tests: Mapping[str, Any], **settings: Any) -> dict[str, Any]:
@@ -91,7 +96,7 @@ def mark_group(
 
 def located(problems: Iterable[Problem]) -> list[tuple[str, tuple[str | int, ...], str]]:
     """Each problem as the check and field it is at, and its message."""
-    return [(problem.check, problem.field, problem.message) for problem in problems]
+    return [(problem.step_path, problem.field, problem.message) for problem in problems]
 
 
 def problems_of(

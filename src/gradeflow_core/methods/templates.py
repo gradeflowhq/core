@@ -21,7 +21,7 @@ from ..common.text import (
     quoted,
     reads_better_listed,
 )
-from .outcome import EarlierResult
+from .outcome import CheckOutput
 
 REFERENCE = re.compile(r"^\{\{((?:(?!\{\{|\}\}).)+)\}\}$", re.DOTALL)
 """A value that is exactly one reference, which keeps the type of what it refers to."""
@@ -117,12 +117,20 @@ class ListOf:
 
 
 _SCALARS: Mapping[type, Scalar] = {bool: "bool", float: "number", str: "text"}
-EARLIER_RESULT: Mapping[str, Shape] = {
-    key: _SCALARS[annotation] for key, annotation in get_type_hints(EarlierResult).items()
+CHECK_OUTPUT_SHAPE: Mapping[str, Shape] = {
+    key: _SCALARS[annotation] for key, annotation in get_type_hints(CheckOutput).items()
 }
-"""An earlier check's result, as ``checks.<id>``."""
-PART_RESULT: Mapping[str, Shape] = {**EARLIER_RESULT, "name": "text", "question": "text"}
-"""One of a check's own checks' results, as an item of ``parts``."""
+CHECK_RESULT_SHAPE: Mapping[str, Shape] = {"output": CHECK_OUTPUT_SHAPE, "skipped": "bool"}
+"""An earlier check, as ``steps.<id>``."""
+STEP_RESULT_SHAPE: Mapping[str, Shape] = {"output": "any", "skipped": "bool"}
+"""An earlier step whose kind isn't known, or a transform, as ``steps.<id>``."""
+PART_RESULT_SHAPE: Mapping[str, Shape] = {
+    **CHECK_OUTPUT_SHAPE,
+    "skipped": "bool",
+    "name": "text",
+    "question": "text",
+}
+"""A nested check's result, as an item of ``parts``."""
 LOOP_VARIABLES: Mapping[str, Shape] = {
     "index": "number",
     "first": "bool",
@@ -134,7 +142,7 @@ FEEDBACK_SCOPE: Mapping[str, Shape] = {
     "correct": "bool",
     "proportion": "number",
     "feedback": "text",
-    "parts": ListOf(PART_RESULT),
+    "parts": ListOf(PART_RESULT_SHAPE),
 }
 """What a check's feedback template sees of how it marked: `feedback` is its method's own."""
 
@@ -150,15 +158,30 @@ def reference(value: Any) -> str | None:
     return None
 
 
+@lru_cache(maxsize=4096)
+def expression_node(text: str) -> nodes.Expr | None:
+    """The expression of ``text`` when it is exactly one ``{{ … }}``, parsed."""
+    try:
+        body = ENVIRONMENT.parse(text.strip()).body
+    except TemplateSyntaxError:
+        return None
+    match body:
+        case [nodes.Output(nodes=[expression])] if not isinstance(expression, nodes.TemplateData):
+            return expression
+    return None
+
+
 def condition(text: str) -> str:
     """The expression of an ``if``, which must be exactly one ``{{ … }}``."""
     if (expression := reference(text)) is None:
-        raise TemplateError("Write a condition as one {{ … }}, such as {{ checks.test.correct }}.")
+        raise TemplateError(
+            "Write a condition as one {{ … }}, such as {{ steps.test.output.correct }}."
+        )
     return expression
 
 
 def top_level_names(expression: str) -> frozenset[str]:
-    """The names ``expression`` reads, such as ``inputs`` and ``checks``."""
+    """The names ``expression`` reads, such as ``settings`` and ``steps``."""
     return frozenset(meta.find_undeclared_variables(ENVIRONMENT.parse(f"{{{{ {expression} }}}}")))
 
 
@@ -261,9 +284,9 @@ def _shape_of(node: nodes.Node, scope: Mapping[str, Shape]) -> Shape:
     return "any"
 
 
-def unknown_check_message(name: str) -> str:
-    """What a condition reading a check that isn't before it is told."""
-    return f"No check before this one is called {name}."
+def unknown_step_message(name: str) -> str:
+    """The error for a template reading a step that isn't before it."""
+    return f"No step before this one is called {name}."
 
 
 def _member_shape(node: nodes.Getattr | nodes.Getitem, owner_shape: Shape) -> Shape:
@@ -281,8 +304,8 @@ def _member_shape(node: nodes.Getattr | nodes.Getitem, owner_shape: Shape) -> Sh
         attribute = node.attr
     if isinstance(owner_shape, Mapping):
         if attribute not in owner_shape:
-            if _path(node.node) == "checks":
-                raise TemplateError(unknown_check_message(str(attribute)))
+            if _path(node.node) == "steps":
+                raise TemplateError(unknown_step_message(str(attribute)))
             raise TemplateError(f"{_path(node.node)} has no {attribute}.")
         return owner_shape[attribute]
     if owner_shape == "any":
@@ -319,11 +342,11 @@ def _path(node: nodes.Node) -> str:
 
 
 def template_errors(
-    check: Mapping[str, Any], scope: Mapping[str, Shape]
+    step: Mapping[str, Any], scope: Mapping[str, Shape]
 ) -> Iterator[tuple[tuple[str, ...], TemplateError]]:
-    """What isn't allowed in the condition and feedback of ``check``, where it is, when ``scope``
+    """What isn't allowed in the condition and feedback of ``step``, where it is, when ``scope``
     holds what they may name. Feedback may be a template for each outcome."""
-    if isinstance(source := check.get("if"), str):
+    if isinstance(source := step.get("if"), str):
         try:
             validate(expression := condition(source), scope, expression_kind="condition")
         except TemplateError as error:
@@ -333,11 +356,11 @@ def template_errors(
                 yield (
                     ("if",),
                     TemplateError(
-                        "Make a condition read an earlier check or an input, such as "
-                        "{{ checks.test.correct }}."
+                        "Make a condition read an earlier step or a setting, such as "
+                        "{{ steps.test.output.correct }}."
                     ),
                 )
-    feedback = check.get("feedback")
+    feedback = step.get("feedback")
     sources = feedback.items() if isinstance(feedback, Mapping) else [(None, feedback)]
     for outcome_key, source in sources:
         if isinstance(source, str):
@@ -349,7 +372,7 @@ def template_errors(
 
 @lru_cache(maxsize=4096)
 def names_read(source: str, root: str) -> frozenset[str]:
-    """The names a template reads of ``root``, such as the checks a condition reads; none if it
+    """The names a template reads of ``root``, such as the steps a condition reads; none if it
     doesn't parse, which checking it reports."""
     try:
         tree = ENVIRONMENT.parse(source)

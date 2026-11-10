@@ -12,7 +12,8 @@ def test_rows_make_one_condition_that_reads_back() -> None:
     )
     written = condition_template(Condition(rows))
     assert written == (
-        "{{ checks.test.correct and not checks.unit.correct and checks.q5.proportion >= 0.5 }}"
+        "{{ steps.test.output.correct and not steps.unit.output.correct "
+        "and steps.q5.output.proportion >= 0.5 }}"
     )
     assert read_condition(written) == Condition(rows)
     assert read_condition(condition_template(Condition(rows[:2], "any"))) == Condition(
@@ -24,11 +25,11 @@ def test_rows_make_one_condition_that_reads_back() -> None:
 @pytest.mark.parametrize(
     "written",
     [
-        "{{ checks.a.proportion > 0.2 }}",
+        "{{ steps.a.output.proportion > 0.2 }}",
         "{{ x }}",
         "plain",
-        "{{ checks.a.correct and checks.b.correct or checks.c.correct }}",
-        "{{ checks.a.correct and (",
+        "{{ steps.a.output.correct and steps.b.output.correct or steps.c.output.correct }}",
+        "{{ steps.a.output.correct and (",
         "{{ results.a.correct }}",
     ],
 )

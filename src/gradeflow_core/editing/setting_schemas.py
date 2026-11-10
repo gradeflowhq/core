@@ -1,4 +1,4 @@
-"""The JSON schema of a composed method's input declaration, as the setting it fills allows it."""
+"""The JSON schema of a composed method's setting declaration, as the setting it fills allows it."""
 
 from collections.abc import Mapping
 from typing import Annotated, Any
@@ -7,20 +7,19 @@ from pydantic.fields import FieldInfo
 
 from ..common.hints import HINT_KEY, hint
 from ..common.schemas import JsonDict, json_schema
-from ..methods.composed.file import Input
-from ..methods.composed.inputs import input_field
+from ..methods.composed.declared_settings import declared_setting_field
+from ..methods.composed.file import DeclaredSetting
 
 PLACEMENT_HINTS = ("advanced", "applies_when")
-"""Hints of where a setting shows among its check's, which its input's own form doesn't follow."""
+"""Hints that place a setting in its step's form, not in its own."""
 FROM_SETTING_KEYS = ("description", "examples")
-"""What an input's default takes from the setting it fills, not from its own schema."""
+"""What a declared setting's default takes from the setting it fills, not from its own schema."""
 
 
-def input_schema(default: JsonDict | None, setting_schema: JsonDict | None) -> JsonDict:
-    """The JSON schema of an input's declaration whose default has the schema ``default``, filling
-    the setting whose schema is ``setting_schema``, if any; each with the definitions it refers
-    to."""
-    schema = json_schema(Input)
+def declared_setting_schema(default: JsonDict | None, setting_schema: JsonDict | None) -> JsonDict:
+    """The JSON schema of a declared setting, given the schemas of its default and of the
+    setting it fills, each with its ``$defs``."""
+    schema = json_schema(DeclaredSetting)
     properties, definitions = schema["properties"], schema.setdefault("$defs", {})
     if default is not None:
         definitions.update(default.get("$defs", {}))
@@ -50,9 +49,11 @@ def input_schema(default: JsonDict | None, setting_schema: JsonDict | None) -> J
     return schema
 
 
-def default_schema(declaration: Input, annotation: Any, field: FieldInfo) -> JsonDict:
-    """The JSON schema of the default of the input ``declaration``, typed as the field it fills."""
-    annotation, field = input_field(declaration, annotation, field)
+def default_schema(
+    declared_setting: DeclaredSetting, annotation: Any, field: FieldInfo
+) -> JsonDict:
+    """The JSON schema of the default of ``declared_setting``, typed as the field it fills."""
+    annotation, field = declared_setting_field(declared_setting, annotation, field)
     field.validate_default = None  # only for validating the default, not its schema
     return json_schema(Annotated[annotation, field])
 
@@ -109,7 +110,7 @@ def _default_property(
     from_setting: JsonDict,
     labels: dict[str, str],
 ) -> JsonDict:
-    """An input's default: one of the setting's options, if it has them, explained as it is."""
+    """The schema of a declared setting's default, limited to the setting's options if any."""
     if options := setting.get("enum"):
         default = {**_resolved(default, definitions), "enum": options}
     hints = {
@@ -124,7 +125,7 @@ def _default_property(
 
 
 def _choices(setting: JsonDict, labels: dict[str, str]) -> JsonDict | None:
-    """An input's choices among a text setting's options; None for any other setting."""
+    """A declared setting's choices among a text setting's options; None for any other setting."""
     if not (options := setting.get("enum")) or setting.get("type") != "string":
         return None
     items = {"type": "string", "enum": options, **hint(labels=labels)}
@@ -132,7 +133,8 @@ def _choices(setting: JsonDict, labels: dict[str, str]) -> JsonDict | None:
 
 
 def _examples(setting: JsonDict) -> JsonDict | None:
-    """An input's examples, typed like a text or number setting without options; None else."""
+    """Declared examples, typed like a text or number setting without options; None for any
+    other setting."""
     if setting.get("enum") or (json_type := setting.get("type")) not in (
         "string",
         "number",

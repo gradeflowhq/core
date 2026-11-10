@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 from unittest.mock import Mock
 
@@ -9,26 +9,23 @@ from gradeflow_core import (
     Check,
     GradeFlowError,
     MarkScheme,
-    Method,
     Methods,
-    ModelEndpoint,
-    Progress,
-    Question,
     QuestionResult,
     QuestionSet,
     ResultsCsv,
     Submission,
     mark,
 )
-from gradeflow_core.methods.check import Context
 from gradeflow_core.methods.code import runner as code_runner
-from gradeflow_core.methods.outcome import Outcome
+from gradeflow_core.methods.method import MarkingMethod
+from gradeflow_core.methods.outcome import Outcome, QuestionOutcomes
 from gradeflow_core.methods.settings import Settings
+from gradeflow_core.methods.step import Context, Step
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.types import QuestionId
 from gradeflow_core.questions.values import ValuesQuestion
-from tests.methods.helpers import accepted_answer, mark_all
+from tests.methods.helpers import accepted_answer, mark_all, with_value_inputs
 
 QUESTIONS = QuestionSet(
     {"Q1": TextQuestion(), "Q2": NumberQuestion(max_marks=2), "Q3": TextQuestion()}
@@ -87,7 +84,7 @@ def test_an_answer_with_more_values_than_the_question_has_is_left_for_a_person()
     values = {
         "question": "Q1",
         "uses": "gradeflow/multiple-values@1",
-        "with": {"checks": [accepted_answer("1"), accepted_answer("2")]},
+        "with": {"checks": with_value_inputs(accepted_answer("1"), accepted_answer("2"))},
     }
     [result] = mark_all(values, ["1, 2, 3"], questions["Q1"])
     assert (result.is_marked, result.feedback) == (False, "Expected 2 values, but got 3.")
@@ -136,11 +133,11 @@ def test_a_marking_with_problems_leaves_its_questions_for_a_person_saying_why() 
     assert results["Q1"].is_marked
 
 
-def test_an_empty_combination_leaves_its_question_for_a_person_saying_why() -> None:
-    empty = {"question": "Q1", "uses": "gradeflow/combination@1", "with": {"checks": []}}
+def test_an_empty_workflow_leaves_its_question_for_a_person_saying_why() -> None:
+    empty = {"question": "Q1", "uses": "gradeflow/workflow@1", "with": {"steps": []}}
     result = results_of(empty, Q1="a")["Q1"]
     assert (result.proportion, result.is_marked) == (0, False)
-    assert result.feedback == "checks: Add at least one check."
+    assert result.feedback == "steps: Add at least one step."
 
 
 def test_results_hold_a_proportion_of_the_questions_marks() -> None:
@@ -188,74 +185,71 @@ def test_a_marked_submission_is_the_submission_with_its_results() -> None:
     assert row.startswith("s1,a,1,Correct.")
 
 
-class Precomputing(Method[Settings]):
-    """Works out its own version for each answer, so a version that sees another's fails."""
+class BatchRecordingMethod(MarkingMethod[Settings]):
+    """Says which version marked each answer, and records what it was asked to mark together."""
 
-    label = "Precomputing"
+    label = "Recording Batches"
     summary = "Its version for each answer."
     question_types = frozenset({"text"})
     settings = Settings
+    needs_model_endpoint = True
 
-    def describe(self, check: Check) -> str:
+    def __init__(self) -> None:
+        self.batches: list[list[str]] = []
+
+    def describe(self, step: Step) -> str:
         return self.summary
 
-    def mark(
-        self, check: Check, context: Context, question: QuestionId | None, value: int | None
+    def run(
+        self, step: Step, contexts: Sequence[Context], question: QuestionId | None
+    ) -> list[QuestionOutcomes]:
+        assert question is not None
+        self.batches.append([context.written_answers[question] for context in contexts])
+        return super().run(step, contexts, question)
+
+    def _mark_student(
+        self, check: Check, context: Context, question: QuestionId | None
     ) -> dict[QuestionId, Outcome]:
         assert question is not None
-        precomputed_version = (
-            context.precomputed.get(self.ref, {})
-            .get(question, {})
-            .get(context.written_answers[question])
-        )
-        return {
-            question: Outcome(
-                float(precomputed_version == self.version), f"Saw {precomputed_version}."
-            )
-        }
-
-    def precompute(
-        self,
-        checks: Sequence[Check],
-        answers: Sequence[str],
-        question: Question,
-        endpoint: ModelEndpoint | None,
-        report: Callable[[Progress], None],
-    ) -> Mapping[Any, Any]:
-        return dict.fromkeys(answers, self.version)
+        return {question: Outcome(1.0, f"Saw {self.version}.")}
 
 
-class PrecomputingVersion1(Precomputing):
-    name = "test/precomputing"
+class BatchRecordingMethodVersion1(BatchRecordingMethod):
+    name = "test/recording-batches"
     version = 1
 
 
-class PrecomputingVersion2(Precomputing):
-    name = "test/precomputing"
+class BatchRecordingMethodVersion2(BatchRecordingMethod):
+    name = "test/recording-batches"
     version = 2
 
 
-def test_each_version_of_a_method_precomputes_for_itself() -> None:
-    methods = Methods([*BUILTINS, PrecomputingVersion1(), PrecomputingVersion2()])
-    both_versions = [{"uses": f"test/precomputing@{version}"} for version in (1, 2)]
+def test_each_version_of_a_method_marks_its_own_steps() -> None:
+    first, second = BatchRecordingMethodVersion1(), BatchRecordingMethodVersion2()
+    steps_of_both_versions = [{"uses": f"test/recording-batches@{version}"} for version in (1, 2)]
     marking = {
         "question": "Q1",
-        "uses": "gradeflow/combination@1",
-        "with": {"checks": both_versions},
+        "uses": "gradeflow/workflow@1",
+        "with": {"steps": steps_of_both_versions},
     }
-    [result] = mark_all(marking, ["x"], methods=methods)
+    [result] = mark_all(marking, ["x"], methods=Methods([*BUILTINS, first, second]))
     assert result.feedback == "Saw 1.\nSaw 2."
+    assert (first.batches, second.batches) == ([["x"]], [["x"]])
 
 
-def test_a_marking_of_a_question_not_supplied_precomputes_nothing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    precompute = Mock()
-    monkeypatch.setattr(PrecomputingVersion1, "precompute", precompute)
+def test_a_method_is_given_each_distinct_answer_once_in_one_batch() -> None:
+    method = BatchRecordingMethodVersion1()
+    marking = {"question": "Q1", "uses": "test/recording-batches@1"}
+    results = mark_all(marking, ["a", "b", "a"], methods=Methods([*BUILTINS, method]))
+    assert method.batches == [["a", "b"]]
+    assert [result.feedback for result in results] == ["Saw 1."] * 3
+
+
+def test_a_marking_of_a_question_not_supplied_marks_nothing() -> None:
+    method = BatchRecordingMethodVersion1()
     scheme = MarkScheme.load(
-        [{"question": "Q9", "uses": "test/precomputing@1"}],
-        methods=Methods([PrecomputingVersion1()]),
+        [{"question": "Q9", "uses": "test/recording-batches@1"}], methods=Methods([method])
     )
     [submission] = mark(QUESTIONS, scheme, [Submission(student_id="s1", answers={"Q9": "x"})])
     assert "Q9" not in submission.results
-    precompute.assert_not_called()
+    assert method.batches == []

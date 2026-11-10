@@ -7,7 +7,6 @@ from ..common.hints import HINT_KEY
 from ..common.model_service import list_models
 from ..marking.examples import RowResult, mark_rows
 from ..marking.model_choice import try_model
-from ..methods.check import Marking
 from ..methods.collection import FailedFile, LoadedFiles, load_method_files, rewrite_references
 from ..methods.composed.file import methods_used
 from ..methods.example import Example, ExampleRow
@@ -18,14 +17,13 @@ from ..questions.inference import converted_question
 from ..questions.types import QuestionType
 from .by_example import DECISIONS, Decision, can_mark_by_example
 from .conditions import Condition, ConditionRow
-from .drafts import ChecksSetting, MarkingDraft, compatible_methods
+from .drafts import MarkingDraft, StepsSetting, compatible_methods
 from .method_drafts import MethodDraft
 
 __all__ = [
     "DECISIONS",
     "HINT_KEY",
     "QUESTION_TYPES",
-    "ChecksSetting",
     "Condition",
     "ConditionRow",
     "Decision",
@@ -34,12 +32,12 @@ __all__ = [
     "ExampleRow",
     "FailedFile",
     "LoadedFiles",
-    "Marking",
     "MarkingDraft",
     "MethodDraft",
     "Position",
     "QuestionType",
     "RowResult",
+    "StepsSetting",
     "can_mark_by_example",
     "compatible_methods",
     "converted_question",

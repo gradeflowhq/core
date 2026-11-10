@@ -18,13 +18,13 @@ from ...common.text import (
 from ...questions.base import Question
 from ...questions.text import TextQuestion
 from ...questions.types import Answer
-from ..check import Check
 from ..example import examples_beside
 from ..matching import read_or_none
 from ..method import AnswerMethod
 from ..outcome import CORRECT, Outcome
 from ..position import Position
 from ..settings import NonBlankText, Settings
+from ..step import Step
 from . import expressions
 from .expressions import Expression
 
@@ -57,14 +57,14 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
         "`ln` and `log` (base 10).\n\n"
         "**Good to know:** Every equal form is correct, so `x + x + 2` is correct for `2x + 2`.\n\n"
         "**Related:** To ask for one form, such as factorised, add a Pattern check in a "
-        "Combination."
+        "Workflow."
     )
     question_types = frozenset({"text"})
     settings = EquivalentExpressionSettings
     examples = examples_beside(__file__)
 
-    def describe(self, check: Check) -> str:
-        answers = self._settings_of(check).answers
+    def describe(self, step: Step) -> str:
+        answers = self._settings_of(step).answers
         if reads_better_listed(answers):
             return f"Equals any of these:\n{markdown_code_list(answers)}"
         return f"Equals {code_join(answers, conjunction='or')}."
@@ -88,7 +88,7 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
             return Outcome(1.0, CORRECT)
         return Outcome(0.0, expected)
 
-    def problems(self, check: Check, position: Position) -> Iterator[Problem]:
+    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
         question = position.question_model
         assert isinstance(question, TextQuestion)  # it marks only text questions
         if question.reading.ignore_punctuation:
@@ -98,7 +98,7 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
             )
             return
         accepted: dict[int, Expression] = {}
-        for index, text in enumerate(self._settings_of(check).answers):
+        for index, text in enumerate(self._settings_of(step).answers):
             try:
                 accepted[index] = _read(text, question)
             except ValueError as error:

@@ -103,7 +103,7 @@ def test_code_that_cant_run_is_a_problem_of_the_check() -> None:
     ]
     [marking] = mark_scheme_of(custom_code_for_a_group("results = {}\nif True\n", "Q1")).markings
     [problem] = marking.problems(QuestionSet(QUESTIONS))
-    assert (problem.check, problem.field, problem.message) == (
+    assert (problem.step_path, problem.field, problem.message) == (
         "",
         ("code",),
         "Line 2: expected ':'.",
@@ -184,9 +184,9 @@ def test_limits_are_bounded(
     limits: dict[str, int], settings: type[BaseModel], valid_settings: dict[str, Any]
 ) -> None:
     settings.model_validate(valid_settings)
-    with pytest.raises(ValidationError) as caught:
+    with pytest.raises(ValidationError) as exc_info:
         settings.model_validate({**valid_settings, **limits})
-    assert [error_detail["loc"] for error_detail in caught.value.errors()] == [tuple(limits)]
+    assert [error_detail["loc"] for error_detail in exc_info.value.errors()] == [tuple(limits)]
 
 
 def test_group_code_marks_each_of_its_questions_from_its_results() -> None:

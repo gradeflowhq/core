@@ -11,10 +11,10 @@ from .marking.mark_scheme import MarkScheme
 from .marking.model_choice import ModelTrial, best_models, try_models
 from .marking.results import CheckResult, MarkedSheet, MarkedSubmission, QuestionResult, ReportLine
 from .methods.catalogue import BUILTINS
-from .methods.check import Check
 from .methods.collection import Methods
 from .methods.method import Method, Progress
 from .methods.outcome import Detail
+from .methods.step import Check, Step
 from .questions.base import Question
 from .questions.choice import ChoiceQuestion
 from .questions.code import CodeQuestion
@@ -55,6 +55,7 @@ __all__ = [
     "QuestionSet",
     "ReportLine",
     "ResultsCsv",
+    "Step",
     "Submission",
     "TextQuestion",
     "ValuesQuestion",

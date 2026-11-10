@@ -11,14 +11,14 @@ guide: |-
   **Good to know:** The first set holds the expected answers. Add a set for each common mistake or reading, worked through to the later questions, with a share such as 50%.
 
   **Related:** When a later number follows from earlier answers by a formula, Formula of Answers covers every mistake at once.
-inputs:
+settings:
   sets:
     title: Sets
     description: Each set checks the questions it covers, with its share of the marks.
     default:
-      - {name: Expected, uses: gradeflow/combination@1, with: {checks: []}}
-combine: any
-checks: "{{ inputs.sets }}"
+      - {name: Expected, uses: gradeflow/workflow@1, with: {steps: []}}
+marks_by: any_correct
+steps: "{{ settings.sets }}"
 examples:
   - title: A rectangle is 6 cm by 4 cm.
     description: |-
@@ -35,18 +35,18 @@ examples:
     with:
       sets:
         - name: Expected
-          uses: gradeflow/combination@1
+          uses: gradeflow/workflow@1
           with:
-            checks:
-              - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['20']}}
-              - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['25']}}
+            steps:
+            - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['20']}}
+            - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['25']}}
         - name: Perimeter as 6 + 4
           weight: 0.5
-          uses: gradeflow/combination@1
+          uses: gradeflow/workflow@1
           with:
-            checks:
-              - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['10']}}
-              - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['6.25']}}
+            steps:
+            - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['10']}}
+            - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['6.25']}}
     rows:
       - answers:
           Q1: '20'
@@ -87,17 +87,17 @@ examples:
     with:
       sets:
         - name: Left to right
-          uses: gradeflow/combination@1
+          uses: gradeflow/workflow@1
           with:
-            checks:
-              - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['9']}}
-              - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['81']}}
+            steps:
+            - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['9']}}
+            - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['81']}}
         - name: Brackets first
-          uses: gradeflow/combination@1
+          uses: gradeflow/workflow@1
           with:
-            checks:
-              - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['1']}}
-              - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['1']}}
+            steps:
+            - {question: Q1, uses: gradeflow/accepted-answers@1, with: {answers: ['1']}}
+            - {question: Q2, uses: gradeflow/accepted-answers@1, with: {answers: ['1']}}
     rows:
       - answers:
           Q1: '9'

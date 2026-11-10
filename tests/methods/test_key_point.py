@@ -142,7 +142,7 @@ def test_key_points_count_each_point_or_add_up_a_mark_for_each() -> None:
     assert mark(check, "light").feedback == "Has “light”.\nMissing “water”.\nMissing “glucose”."
     assert describe(check) == "Includes `light`, `water` and `glucose`, a share for each."
     assert describe(key_points("light")) == "Includes `light`."
-    a_mark_each = key_points("light", "water", "glucose", combine="total")
+    a_mark_each = key_points("light", "water", "glucose", marks_by="total")
     full, half = mark_all(a_mark_each, ["light and water", "light"], TextQuestion(max_marks=2))
     assert (full.proportion, full.feedback) == (1, "Has “light”.\nHas “water”.")
     assert half.proportion == 0.5
@@ -150,20 +150,20 @@ def test_key_points_count_each_point_or_add_up_a_mark_for_each() -> None:
 
 
 def test_key_points_any_one_of_which_is_missing_names_them_all() -> None:
-    check = key_points("light", "sunlight", combine="any")
+    check = key_points("light", "sunlight", marks_by="any_correct")
     assert mark(check, "water").feedback == "Missing “light” or “sunlight”."
     assert mark(check, "sunlight").feedback == "Has “light”."
     assert describe(check) == "Includes `light` or `sunlight`."
 
 
 def test_key_points_none_of_which_may_appear_say_which_did() -> None:
-    check = key_points("for", "while", combine="none")
+    check = key_points("for", "while", marks_by="none_correct")
     assert [mark(check, answer).feedback for answer in ("n % 10", "for x in y")] == [
         "Has none of “for” or “while”.",
         "Not allowed. Has “for”.",
     ]
     assert describe(check) == "Doesn't include `for` and `while`."
-    whole_words = key_points("for", "while", combine="none", whole_words=True)
+    whole_words = key_points("for", "while", marks_by="none_correct", whole_words=True)
     assert mark(whole_words, "format").proportion == 1
     assert describe(whole_words) == "Doesn't include the whole words `for` and `while`."
 
@@ -195,15 +195,18 @@ def test_key_points_pass_how_they_match_to_each_point(
 @pytest.mark.parametrize(
     ("settings", "heading"),
     [
-        ({"combine": "all"}, "Includes all of these:"),
-        ({"combine": "any"}, "Includes any of these:"),
-        ({"combine": "none", "whole_words": True}, "Doesn't include all of these as whole words:"),
+        ({"marks_by": "all_correct"}, "Includes all of these:"),
+        ({"marks_by": "any_correct"}, "Includes any of these:"),
         (
-            {"combine": "proportional", "match": "meaning"},
+            {"marks_by": "none_correct", "whole_words": True},
+            "Doesn't include all of these as whole words:",
+        ),
+        (
+            {"marks_by": "proportional", "match": "meaning"},
             "Includes these in meaning, a share for each:",
         ),
         (
-            {"combine": "total", "match": "spelling", "strictness": "lenient"},
+            {"marks_by": "total", "match": "spelling", "strictness": "lenient"},
             ("Includes these in similar spelling (lenient), a mark each:"),
         ),
     ],
