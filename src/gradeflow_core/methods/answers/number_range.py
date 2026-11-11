@@ -28,7 +28,7 @@ class NumberRangeSettings(Settings):
     @model_validator(mode="after")
     def _check_limits_in_order(self) -> Self:
         check_limits_in_order(
-            self.min_value, self.max_value, "The highest number is below the lowest."
+            self.min_value, self.max_value, "The highest number is below the lowest.", "/max_value"
         )
         return self
 

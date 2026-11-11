@@ -38,7 +38,13 @@ class ChoiceQuestion(Question):
             return options
         reading = info.data.get("reading") or ListReading()
         read_options: list[str] = []
-        for option in map(reading.normalized, options):
+        for option in options:
+            if reading.separator in option:
+                raise ValueError(
+                    f"Options can't have the separator in them: {quoted(option)} has "
+                    f"{quoted(reading.separator)}."
+                )
+            option = reading.normalized(option)
             if not option:
                 raise ValueError("Options can't be blank.")
             if option in read_options:

@@ -14,10 +14,9 @@ from typing import Any, Self
 from pydantic import ValidationError
 
 from ..common.documents import line_of, load_yaml_with_lines
-from ..common.error_formatting import error_message
 from ..common.exceptions import GradeFlowError
-from ..common.paths import pointer
-from ..common.problems import InvalidError, Problem
+from ..common.paths import parts_of
+from ..common.problems import InvalidError, Problem, validation_problem
 from ..steps.method import Method
 from ..steps.names import method_name, method_ref
 from ..steps.step import STEP_OWN_PROPERTIES
@@ -216,14 +215,10 @@ def _validated(document: Any, data: Any) -> MethodFile:
     try:
         return MethodFile.model_validate(data)
     except ValidationError as error:
-        first_error = error.errors()[0]
-        location = first_error["loc"]
-        message = error_message(first_error)
-        problem = Problem(
-            f"{'.'.join(map(str, location))}: {message}" if location else message,
-            line=line_of(document, pointer(*location)),
-        )
-        raise InvalidError([problem]) from None
+        problem = validation_problem(error.errors()[0], data)
+        field_name = ".".join(parts_of(problem.field))
+        message = f"{field_name}: {problem.message}" if field_name else problem.message
+        raise InvalidError([Problem(message, line=line_of(document, problem.field))]) from None
 
 
 def _composed_method(

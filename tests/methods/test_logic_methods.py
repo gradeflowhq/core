@@ -110,6 +110,20 @@ def test_multiple_values_needs_a_check_for_each_value(any_order: bool) -> None:
     ]
 
 
+def test_multiple_values_in_any_order_need_values_of_one_type() -> None:
+    check = {
+        "uses": "gradeflow/multiple-values@1",
+        "with": {
+            "any_order": True,
+            "checks": with_value_inputs(accepted_answer("Everest"), accepted_answer("8849")),
+        },
+    }
+    assert problems_of(check, ValuesQuestion(value_types=["text", "number"])) == [
+        ("", "/with/any_order", "Any order needs values of one type.")
+    ]
+    assert problems_of(check, ValuesQuestion(value_types=["text", "text"])) == []
+
+
 def test_checks_in_a_check_of_one_value_read_it_unless_they_name_another() -> None:
     accepted_answers_method = {"uses": "gradeflow/accepted-answers@1"}
     heights = {

@@ -122,12 +122,20 @@ def _problem_results(marking: Step, questions: QuestionSet) -> _QuestionResults 
 
 
 def _marking_results(marking: Step, contexts: list[Context]) -> list[_QuestionResults]:
-    """The results of each student in ``contexts``. A failure leaves only that student's answers
-    unmarked."""
+    """The results of each student in ``contexts``. A failure, or an outcome that isn't one,
+    leaves only that student's answers unmarked."""
     label, questions = marking.method_label, contexts[0].questions
     question_ids = marking.questions_marked() & questions.keys()
     try:
-        outcomes_by_context = running.mark(marking, contexts)
+        return [
+            {
+                question_id: _question_result(
+                    outcome_of(outcomes.get(question_id, Skipped())), questions[question_id], label
+                )
+                for question_id in question_ids
+            }
+            for outcomes in running.mark(marking, contexts)
+        ]
     except Exception as error:
         if len(contexts) > 1:
             return [_marking_results(marking, [context])[0] for context in contexts]
@@ -142,15 +150,6 @@ def _marking_results(marking: Step, contexts: list[Context]) -> list[_QuestionRe
                 for question_id in question_ids
             }
         ]
-    return [
-        {
-            question_id: _question_result(
-                outcome_of(outcomes.get(question_id, Skipped())), questions[question_id], label
-            )
-            for question_id in question_ids
-        }
-        for outcomes in outcomes_by_context
-    ]
 
 
 def _question_result(outcome: Outcome, question: Question, label: str) -> QuestionResult:

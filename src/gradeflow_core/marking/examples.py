@@ -14,7 +14,7 @@ from ..questions.question_set import QuestionSet
 from ..questions.reading import write_answer
 from ..questions.types import QuestionId, Unreadable
 from ..steps.context import Context
-from ..steps.example import Example, ExampleRow, ExpectedResult
+from ..steps.example import Example, ExampleRow, ExpectedResult, missing_answers_message
 from ..steps.method import Method
 from ..steps.outcome import NO_ANSWER_FEEDBACK, ROUNDING_TOLERANCE, Skipped, StepResult
 from ..steps.places import marking_position
@@ -179,11 +179,8 @@ def _row_results(
     model_endpoint: ModelEndpoint | None,
 ) -> list[RowResult]:
     needed_question_ids = {question_id} if question_id is not None else set(questions)
-    for row_number, row in enumerate(rows, 1):
-        if missing_question_ids := needed_question_ids - row.answers.keys():
-            raise GradeFlowError(
-                f"Row {row_number} has no answer to {', '.join(sorted(missing_question_ids))}."
-            )
+    if message := missing_answers_message(rows, needed_question_ids):
+        raise GradeFlowError(message)
     return [
         RowResult(
             **dict(marked),

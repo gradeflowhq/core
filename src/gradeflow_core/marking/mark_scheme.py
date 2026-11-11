@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..common.documents import dump_yaml, load_yaml
+from ..common.documents import dump_yaml, load_yaml_with_lines, problems_on_lines
 from ..common.paths import pointer
 from ..common.problems import InvalidError, Problem
 from ..methods.catalogue import BUILTINS
@@ -48,7 +48,9 @@ class MarkScheme:
     def from_yaml(cls, text: str, *, methods: Methods = BUILTINS) -> MarkScheme:
         """The mark scheme YAML ``text`` holds, as ``to_yaml`` writes it. Raises ``InvalidError``
         if it isn't YAML or a marking isn't a check."""
-        return cls.load(load_yaml(text), methods=methods)
+        document, data = load_yaml_with_lines(text)
+        with problems_on_lines(document, "/markings"):
+            return cls.load(data, methods=methods)
 
     def dump(self) -> list[dict[str, Any]]:
         """The markings as YAML or JSON holds them, as ``load`` reads them."""

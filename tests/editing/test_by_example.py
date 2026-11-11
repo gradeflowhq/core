@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core import Question
-from gradeflow_core.editing import Decision, EditingError, can_mark_by_example
+from gradeflow_core import Question, QuestionSet
+from gradeflow_core.editing import Decision, EditingError, MarkingDraft, can_mark_by_example
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
@@ -435,6 +435,18 @@ def test_examples_validate_the_proportion_and_leave_empty_selections_unchanged()
     with pytest.raises(EditingError):
         marked_by_example(ACCEPTS_9_81, ["10"], "most")  # type: ignore[arg-type]
     assert marked_by_example(ACCEPTS_9_81, [], "full_marks") == ACCEPTS_9_81
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "N/A"])
+def test_a_blank_answer_cant_be_marked_by_example(blank: str) -> None:
+    with pytest.raises(EditingError, match="A blank answer can't be marked by example"):
+        marked_by_example(ACCEPTS_9_81, ["10", blank], "full_marks")
+
+
+def test_a_question_group_cant_be_marked_by_example() -> None:
+    draft = MarkingDraft.new("gradeflow/workflow@1", QuestionSet(), None)
+    with pytest.raises(EditingError, match="A question group can't be marked by example"):
+        draft.mark_by_example(["10"], "full_marks")
 
 
 def test_conditional_checks_keep_their_original_scope() -> None:

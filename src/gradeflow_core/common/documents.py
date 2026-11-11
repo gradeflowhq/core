@@ -1,7 +1,9 @@
 """YAML as people write it: loaded with the line of everything in it, and written back."""
 
 import re
-from collections.abc import Mapping
+from collections.abc import Generator, Mapping
+from contextlib import contextmanager
+from dataclasses import replace
 from io import StringIO
 from typing import Any
 
@@ -33,8 +35,9 @@ class _Representer(RoundTripRepresenter):
         return True
 
     def represent_str(self, data: str) -> ScalarNode:
-        """``data``, as a block if it has several lines, as people write code."""
-        style = "|" if "\n" in data else None
+        """``data``, as a block if it has several lines, as people write code. A carriage return
+        is written quoted, as a block reads back without it."""
+        style = '"' if "\r" in data else "|" if "\n" in data else None
         return self.represent_scalar("tag:yaml.org,2002:str", data, style=style)
 
 
@@ -75,12 +78,16 @@ def _yaml_error_message(error: YAMLError) -> str:
 
 
 def _as_plain_data(value: Any) -> Any:
-    """``value`` as plain dicts and lists. Raises ``InvalidError`` for a ``{{ … }}`` left
-    unquoted, which YAML reads as a mapping."""
+    """``value`` as plain dicts and lists. Raises ``InvalidError`` for a key that is a list, or
+    a ``{{ … }}`` left unquoted, which YAML reads as a mapping."""
     if isinstance(value, CommentedMap):
         for key in value:
-            if isinstance(key, Mapping):
-                message = 'Quote {{ … }}, as in "{{ settings.name }}".'
+            if isinstance(key, Mapping | tuple):
+                message = (
+                    'Quote {{ … }}, as in "{{ settings.name }}".'
+                    if isinstance(key, Mapping)
+                    else "A key can't be a list."
+                )
                 raise InvalidError([Problem(message, line=value.lc.key(key)[0] + 1)])
         return {str(key): _as_plain_data(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -99,6 +106,20 @@ def dump_yaml(data: Any) -> str:
     buffer = StringIO()
     _new_yaml().dump(data, buffer)
     return buffer.getvalue()
+
+
+@contextmanager
+def problems_on_lines(document: Any, root: str = "") -> Generator[None]:
+    """Puts each problem of an ``InvalidError`` raised inside on its line of ``document``, whose
+    data the problems place at ``root``."""
+    try:
+        yield
+    except InvalidError as error:
+        problems = [
+            replace(problem, line=line_of(document, problem.where.removeprefix(root)))
+            for problem in error.problems
+        ]
+        raise InvalidError(problems) from None
 
 
 def line_of(document: Any, path: str) -> int | None:

@@ -47,6 +47,7 @@ class ComposedMethod(Method[ComposedSettings]):
         )
         self.marks_question_group = file.marks_question_group
         self.examples = tuple(file.examples)
+        self.describes_by_steps = file.description is None
         self.settings = settings_model(file, methods_by_ref)
         self.needs_model_endpoint = any(
             methods_by_ref[ref].needs_model_endpoint

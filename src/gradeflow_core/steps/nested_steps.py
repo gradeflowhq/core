@@ -8,8 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, PlainValidat
 from pydantic_core import InitErrorDetails, PydanticCustomError, ValidationError
 
 from ..common.hints import hint
-from ..common.paths import parts_of
-from ..common.problems import InvalidError, Problem
+from ..common.problems import InvalidError, problem_error
 from ..questions.types import QuestionId
 from .combining import MARKS_BY_LABELS, MarksBy, Part
 from .step import (
@@ -37,17 +36,12 @@ def _validate_step(value: Any, info: ValidationInfo) -> Step:
         return valid_step(value, (info.context or {})[METHODS_CONTEXT_KEY])
     except InvalidError as error:
         raise ValidationError.from_exception_data(
-            "Step", [_error_details(problem, value) for problem in error.problems]
+            "Step",
+            [
+                InitErrorDetails(type=problem_error(problem), input=value)
+                for problem in error.problems
+            ],
         ) from None
-
-
-def _error_details(problem: Problem, value: Any) -> InitErrorDetails:
-    """A problem of a step as pydantic reports one, where it is in the step's data."""
-    return InitErrorDetails(
-        type=PydanticCustomError("invalid_step", "{message}", {"message": problem.message}),
-        loc=tuple(parts_of(problem.where)),
-        input=value,
-    )
 
 
 def _validate_check(value: Any, info: ValidationInfo) -> Step:

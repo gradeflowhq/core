@@ -342,7 +342,7 @@ def test_paths_that_arent_checks_are_refused(path: str) -> None:
         ("question: Q1\nuses: gradeflow/key-point@1\nwith: 5\n", ["Line 3: Must be an object."]),
         (
             "question: Q1\nuses: gradeflow/length@1\nwith: {min_length: 3, max_length: 2}\n",
-            ["Line 2: The highest count is below the lowest."],
+            ["Line 3: max_length: The highest count is below the lowest."],
         ),
         (
             "question: Q1\nuses: gradeflow/workflow@1\nwith:\n  steps:\n"

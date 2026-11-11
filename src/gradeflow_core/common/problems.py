@@ -5,14 +5,15 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from pydantic import ValidationError
-from pydantic_core import ErrorDetails
+from pydantic_core import ErrorDetails, PydanticCustomError
 
 from .error_formatting import error_message
 from .exceptions import GradeFlowError
-from .paths import is_list_item, last_part, parent, pointer, value_at
+from .paths import is_list_item, last_part, parent, pointer
 
 _INCOMPLETE_ERROR_TYPES = frozenset({"missing", "too_short"})
 """What pydantic finds of a value not filled in yet, rather than wrong."""
+_PROBLEM_ERROR_TYPE = "problem"
 
 
 @dataclass(frozen=True)
@@ -90,22 +91,40 @@ def validation_problems(error: ValidationError, data: object) -> list[Problem]:
 
 def validation_problem(error_details: ErrorDetails, data: object) -> Problem:
     """A problem pydantic found validating ``data``, at its field."""
+    error_type = error_details["type"]
+    field = _pointer_in(data, error_details["loc"], ends_at_missing_key=error_type == "missing")
+    if error_type == _PROBLEM_ERROR_TYPE:
+        field += error_details["ctx"]["where"]
     return Problem(
         error_message(error_details),
-        field=_untagged(error_details["loc"], data),
-        is_incomplete=error_details["type"] in _INCOMPLETE_ERROR_TYPES,
+        field=field,
+        is_incomplete=error_type in _INCOMPLETE_ERROR_TYPES,
     )
 
 
-def _untagged(location: tuple[str | int, ...], data: object) -> str:
-    """The JSON Pointer to ``location``, without the tags pydantic puts in it for a member of a
-    tagged union: a value of the object there, such as its ``type``, rather than one of its
-    keys."""
+def problem_error(problem: Problem) -> PydanticCustomError:
+    """``problem`` as the error a pydantic validator raises for the value it is in, which
+    `validation_problem` reads back where it is."""
+    context = {"message": problem.message, "where": problem.where}
+    return PydanticCustomError(_PROBLEM_ERROR_TYPE, "{message}", context)
+
+
+def _pointer_in(data: object, location: tuple[str | int, ...], *, ends_at_missing_key: bool) -> str:
+    """The JSON Pointer into ``data`` of ``location``, without the parts pydantic adds that
+    aren't keys of the data, such as the member of a union it tried."""
     parts: list[str | int] = []
     value = data
-    for part in location:
-        if isinstance(value, Mapping) and part not in value and part in value.values():
+    for index, part in enumerate(location, start=1):
+        items = (
+            value
+            if isinstance(value, Mapping)
+            else dict(enumerate(value))
+            if isinstance(value, list | tuple)
+            else {}
+        )
+        if part in items:
+            value = items[part]
+        elif not (ends_at_missing_key and index == len(location)):
             continue
         parts.append(part)
-        value = value_at(value, pointer(part))
     return pointer(*parts)

@@ -9,10 +9,9 @@ from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError, 
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from ...common.error_formatting import error_message
 from ...common.hints import Hint, hint_of
 from ...common.paths import pointer
-from ...common.problems import InvalidError, Problem
+from ...common.problems import InvalidError, Problem, validation_problem
 from ...common.text import quoted_join
 from ...steps.method import Method
 from ...steps.settings import annotated, item_field, literal_type, step_cardinality
@@ -326,10 +325,8 @@ def _validate_written_value(
             value, context={METHODS_CONTEXT_KEY: methods_by_ref}
         )
     except ValidationError as error:
-        first_error = error.errors()[0]
-        raise method_file_error(
-            error_message(first_error), path + pointer(*first_error["loc"])
-        ) from None
+        problem = validation_problem(error.errors()[0], value)
+        raise method_file_error(problem.message, path + problem.field) from None
 
 
 def declared_setting_field(

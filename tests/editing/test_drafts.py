@@ -11,7 +11,7 @@ from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 from gradeflow_core.steps.step import valid_step
 
-from ..methods.helpers import located
+from ..methods.helpers import accepted_answer, located
 
 QUESTIONS = QuestionSet(
     {"Q1": TextQuestion(), "Q2": ValuesQuestion(value_types=["number", "number"])}
@@ -207,6 +207,35 @@ def test_optional_settings_left_empty_are_not_written() -> None:
     assert custom_code_draft.data["with"] == {"code": ""}
 
 
+def test_settings_left_at_their_defaults_stay_unset_until_written() -> None:
+    code_questions = QuestionSet({"Q1": CodeQuestion()})
+    custom_code_draft = MarkingDraft.new("gradeflow/custom-code@1", code_questions, "Q1")
+    custom_code_draft.update("", {"code": "correct = True", "time_limit": 5})
+    assert custom_code_draft.data["with"] == {"code": "correct = True"}
+    custom_code_draft.update("", {"time_limit": 9})
+    custom_code_draft.update("", {"time_limit": 5})
+    assert custom_code_draft.data["with"]["time_limit"] == 5
+    method_file = """label: Starts with
+version: 1
+summary: Starts with a prefix.
+question_types: [text]
+settings:
+  prefix: {title: Prefix pattern, default: "^paired"}
+steps:
+  - uses: gradeflow/pattern@1
+    with: {pattern: "{{ settings.prefix }}"}
+"""
+    methods = BUILTINS.with_files([("sample/starts-with", method_file)])
+    draft = MarkingDraft.new("gradeflow/workflow@1", QUESTIONS, "Q1", methods=methods)
+    draft.add("/with/steps/0", "sample/starts-with@1")
+    draft.update("/with/steps/0", {"prefix": "^paired", "weight": 2})
+    assert draft.data["with"]["steps"][0] == {
+        "uses": "sample/starts-with@1",
+        "with": {},
+        "weight": 2,
+    }
+
+
 def test_a_condition_names_the_checks_it_reads_by_path_and_gives_them_ids() -> None:
     draft = workflow_draft()
     draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "incorrect"),))})
@@ -289,6 +318,22 @@ def test_a_condition_reading_a_removed_check_says_no_check_before_it_has_that_na
     assert located(draft.problems) == [
         ("/with/steps/0", "/if", "No step before this one is called capital.")
     ]
+
+
+def test_an_input_from_a_removed_step_can_still_be_chosen_away() -> None:
+    extract = {"id": "part", "uses": "gradeflow/extract@1", "with": {"type": "number"}}
+    reader = {"input": "{{ steps.part.output }}", **accepted_answer("Paris")}
+    draft = MarkingDraft(
+        {"question": "Q1", "uses": "gradeflow/workflow@1", "with": {"steps": [extract, reader]}},
+        QUESTIONS,
+        "Q1",
+    )
+    draft.remove("/with/steps/0")
+    input_schema = draft.schema("/with/steps/0")["properties"]["input"]
+    assert input_schema["enum"] == ["{{ answer }}", "{{ steps.part.output }}"]
+    assert [problem.field for problem in draft.problems] == ["/input"]
+    draft.update("/with/steps/0", {"input": input_schema["default"]})
+    assert draft.problems == []
 
 
 def test_checks_in_nested_lists_read_those_before_them_at_every_level() -> None:

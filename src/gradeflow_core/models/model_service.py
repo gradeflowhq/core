@@ -38,7 +38,7 @@ class ModelEndpoint(BaseModel):
     """Where a person's language models are, the model chosen for each role, and how many
     students' answers one request holds."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     url: str
     api_key: SecretStr

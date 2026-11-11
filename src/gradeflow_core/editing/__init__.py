@@ -10,11 +10,11 @@ from ..methods.composed.file import methods_used
 from ..questions import QUESTION_CLASSES, new_question
 from ..questions.inference import converted_question
 from ..questions.types import QuestionType
+from ..steps.conditions import Condition, ConditionRow
 from ..steps.example import Example, ExampleRow
 from ..steps.names import method_name, method_ref, split_ref
 from ..steps.position import Position
 from .by_example import DECISIONS, Decision, can_mark_by_example
-from .conditions import Condition, ConditionRow
 from .drafts import Draft, StepsSetting, compatible_methods, field_in_values
 from .marking_drafts import MarkingDraft
 from .method_drafts import MethodDraft

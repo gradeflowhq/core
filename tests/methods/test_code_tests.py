@@ -267,6 +267,18 @@ def test_a_test_weight_where_weights_arent_used_is_a_problem() -> None:
     )
 
 
+def test_a_test_that_isnt_python_is_a_problem() -> None:
+    check = code_tests(
+        {"expression": "add(2, 3", "expected": "5"},
+        {"expression": "import os", "expected": "5 +"},
+    )
+    assert problems_of(check, CODE_QUESTION) == [
+        ("", "/with/tests/0/expression", "Line 1: '(' was never closed."),
+        ("", "/with/tests/1/expression", "Line 1: invalid syntax."),
+        ("", "/with/tests/1/expected", "Line 1: invalid syntax."),
+    ]
+
+
 def test_one_test_is_described_in_a_line() -> None:
     assert describe(code_tests(F_GIVES_1)) == "Makes `f()` give `1`."
     assert (
@@ -294,15 +306,12 @@ def test_several_tests_are_listed_under_how_they_count(marks_by: str, opening: s
 def test_tests_are_listed_with_their_weights() -> None:
     weighted = {**G_GIVES_2, "weight": 2}
     assert describe(code_tests(F_GIVES_1, weighted, marks_by="total")) == (
-        "Passes these tests, marks added up:\n- `f()` gives `1`.\n- **Weight 2:** `g()` gives `2`."
+        "Passes these tests, marks added up:\n- `f()` gives `1`.\n- **Worth 2:** `g()` gives `2`."
     )
     assert describe(
         code_tests(F_GIVES_1, {**G_GIVES_2, "weight": 0.5}, marks_by="any_correct")
-    ) == (
-        "Passes any one of these tests:\n"
-        "- `f()` gives `1`.\n- **50% of the marks:** `g()` gives `2`."
-    )
-    assert describe(code_tests(weighted, marks_by="total")) == "**Weight 2:** Makes `g()` give `2`."
+    ) == ("Passes any one of these tests:\n- `f()` gives `1`.\n- **Worth ½:** `g()` gives `2`.")
+    assert describe(code_tests(weighted, marks_by="total")) == "**Worth 2:** Makes `g()` give `2`."
 
 
 def test_tests_ignore_surrounding_spaces() -> None:

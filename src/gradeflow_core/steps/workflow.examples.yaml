@@ -31,7 +31,7 @@ examples:
     description: |-
       Any one of these:
       - **Largest:** Matches `Jupiter`.
-      - **Second largest** (50% of the marks): Matches `Saturn`.
+      - **Second largest** (Worth ½): Matches `Saturn`.
     questions:
       Q1: {type: text, max_marks: 2}
     with:

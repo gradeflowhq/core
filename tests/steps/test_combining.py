@@ -128,20 +128,16 @@ def test_none_may_be_correct_gives_no_marks_when_a_part_couldnt_be_checked() -> 
 
 
 @pytest.mark.parametrize(
-    ("marks_by", "notes", "problem_count"),
+    ("marks_by", "problem_count"),
     [
-        ("all_correct", (), 1),
-        ("none_correct", (), 1),
-        ("any_correct", ("50% of the marks",), 0),
-        ("total", ("weight 0.5",), 0),
-        ("proportional", ("weight 0.5",), 0),
+        ("all_correct", 1),
+        ("none_correct", 1),
+        ("any_correct", 0),
+        ("total", 0),
+        ("proportional", 0),
     ],
 )
-def test_weights_are_noted_where_they_count_and_problems_where_they_dont(
-    marks_by: MarksBy, notes: tuple[str, ...], problem_count: int
-) -> None:
+def test_weights_are_problems_where_they_dont_count(marks_by: MarksBy, problem_count: int) -> None:
     combination = COMBINATIONS[marks_by]
-    assert combination.weight_notes(0.5) == notes
-    assert combination.weight_notes(1) == ()
     problems = list(combination.weight_problems([1, 0, 0.5], "steps"))
     assert [problem.field for problem in problems] == ["/steps/2/weight"] * problem_count

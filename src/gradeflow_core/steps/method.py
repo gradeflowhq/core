@@ -42,6 +42,8 @@ class Method[S: Settings = Any](ABC):
     """Whether it asks a language model."""
     marks_blank_answers: bool = False
     """Whether it marks blank answers, which otherwise get no marks before it runs."""
+    describes_by_steps: bool = False
+    """Whether its description is that of the steps it runs, which doesn't name it."""
     settings: type[S]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:

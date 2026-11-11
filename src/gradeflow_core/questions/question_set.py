@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import Field, RootModel
 
-from ..common.documents import dump_yaml, load_yaml
+from ..common.documents import dump_yaml, load_yaml_with_lines, problems_on_lines
 from ..common.problems import invalid_errors
 from . import AnyQuestion
 from .base import Question
@@ -38,7 +38,9 @@ class QuestionSet(RootModel[dict[QuestionId, AnyQuestion]], Mapping[QuestionId, 
     def from_yaml(cls, text: str) -> QuestionSet:
         """The questions YAML ``text`` holds, as ``to_yaml`` writes them. Raises ``InvalidError``
         if it isn't YAML or one isn't a question."""
-        return cls.load(load_yaml(text))
+        document, data = load_yaml_with_lines(text)
+        with problems_on_lines(document):
+            return cls.load(data)
 
     def to_yaml(self) -> str:
         """The questions as YAML text, as ``from_yaml`` reads them."""

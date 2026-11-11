@@ -33,7 +33,7 @@ from ..methods.composed.file import (
 from ..questions import new_question
 from ..questions.question_set import QuestionSet
 from ..questions.types import ALL_QUESTION_TYPES, QuestionId, QuestionType
-from ..steps.example import Example, ExampleRow
+from ..steps.example import Example, ExampleRow, missing_answers_message
 from ..steps.method import Method
 from ..steps.names import method_ref
 from ..steps.places import marking_position
@@ -431,8 +431,13 @@ class MethodDraft(Draft):
     def set_example(self, rows: Sequence[ExampleRow], *, index: int | None) -> int | None:
         """Make these rows the example at ``index`` with the questions and test values, adding
         one if ``index`` is None and removing it if there are no rows. Other examples stay. Where
-        the example is now."""
+        the example is now. Raises ``EditingError`` if there's no example at ``index`` or a row
+        doesn't answer every question."""
         examples = list(self.examples)
+        if index is not None and index not in range(len(examples)):
+            raise EditingError(f"There's no example {index}.")
+        if message := missing_answers_message(rows, self.questions.keys()):
+            raise EditingError(message)
         previous_example = examples[index] if index is not None else None
         if not rows:
             if index is not None:

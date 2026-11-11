@@ -1,7 +1,7 @@
 import pytest
 
 from gradeflow_core.editing import Condition, ConditionRow
-from gradeflow_core.editing.conditions import condition_template, read_condition
+from gradeflow_core.steps.conditions import condition_template, read_condition
 
 
 def test_rows_make_one_condition_that_reads_back() -> None:

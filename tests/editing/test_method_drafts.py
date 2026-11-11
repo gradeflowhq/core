@@ -628,6 +628,17 @@ def test_missing_test_values_say_how_to_fix_them_naming_the_setting() -> None:
     assert "input_value" not in messages
 
 
+def test_a_test_value_the_setting_it_fills_refuses_is_a_problem_at_its_field() -> None:
+    draft = MethodDraft.new(TEXT_QUESTIONS, name="starts", version=1, label="Starts")
+    draft.add("/with/steps/0", "gradeflow/pattern@1")
+    draft.update("/with/steps/0", {"pattern": "^a"})
+    draft.bind_new_setting("/with/steps/0/with/pattern")
+    draft.test_values = {"pattern": "^(a"}
+    assert draft.problems == [
+        Problem("Not a valid pattern: missing ) at position 3.", field="/with/pattern")
+    ]
+
+
 def test_a_complex_field_value_becomes_its_settings_default() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
     draft.add("/with/steps/0", "gradeflow/custom-code@1")
@@ -919,6 +930,15 @@ def test_setting_one_example_keeps_the_others_and_its_title() -> None:
     assert draft.examples[0].rows == example_rows("16")
     assert draft.set_example([], index=0) is None
     assert draft.examples == (second,)
+
+
+def test_an_example_needs_an_answer_to_each_question_and_a_place_among_the_examples() -> None:
+    draft = number_range_draft()
+    with pytest.raises(EditingError, match="Row 2 has no answer to Q1"):
+        draft.set_example([*example_rows("15"), ExampleRow(answers={"Q9": "15"})], index=None)
+    with pytest.raises(EditingError, match="There's no example 7"):
+        draft.set_example(example_rows("15"), index=7)
+    assert draft.examples == ()
 
 
 def test_a_draft_reads_its_examples_without_results_and_keeps_those_it_is_given() -> None:

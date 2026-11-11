@@ -163,8 +163,7 @@ class CodeFixSettings(Settings):
 
 
 FIXES_FIELD: CodeFixSettings = Field(
-    default={},
-    validate_default=True,
+    default_factory=CodeFixSettings,
     title="Fix code",
     description="Common errors fixed before marking.",
     json_schema_extra=ADVANCED_HINT,

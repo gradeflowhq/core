@@ -181,6 +181,15 @@ def test_a_setting_may_be_used_inside_a_field_template() -> None:
     assert result.feedback == "Expected “the cell”.\nMissing “Mentions cells”."
 
 
+def test_a_method_file_problem_names_its_field_as_the_file_writes_it() -> None:
+    method_file = METHOD_FILE_HEADER.replace("[text]", "[essay]") + "steps: []\n"
+    with pytest.raises(MethodFileError) as exc_info:
+        BUILTINS.with_files([("sample/term", method_file)])
+    assert str(exc_info.value).partition(": ")[2] == (
+        "Line 4: question_types.0: Choose 'text', 'number', 'choice', 'values' or 'code'."
+    )
+
+
 @pytest.mark.parametrize(
     ("method_file", "message"),
     [
@@ -377,6 +386,17 @@ def test_a_composed_method_describes_itself_and_marks_like_a_built_in_one() -> N
     key_points = {"uses": "gradeflow/key-points@1", "with": {"points": ["a"]}}
     assert describe(key_points) == "Includes `a`."
     assert mark(key_points, "a").method_label == "Key Points"
+
+
+def test_a_composed_method_without_a_description_is_listed_under_its_label() -> None:
+    methods = with_sample_files(
+        term=METHOD_FILE_HEADER + "steps:\n  - uses: gradeflow/key-point@1\n    with: {point: a}\n"
+    )
+    steps = [{"uses": "sample/term@1"}, {"uses": "gradeflow/key-point@1", "with": {"point": "b"}}]
+    marking = {"uses": "gradeflow/workflow@1", "with": {"steps": steps}}
+    assert valid_step(marking, methods.by_ref).describe() == (
+        "All of these:\n- **Term:** All of these:\n  - Includes `a`.\n- Includes `b`."
+    )
 
 
 def test_a_setting_applies_for_a_list_of_values_not_one() -> None:

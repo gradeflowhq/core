@@ -38,6 +38,16 @@ def test_choice_rejects_options_read_alike(options: list[str]) -> None:
     ]
 
 
+def test_choice_rejects_an_option_with_the_separator_in_it() -> None:
+    with pytest.raises(InvalidError) as exc_info:
+        ChoiceQuestion.load({"options": ["Yes, always", "No"]})
+    assert exc_info.value.problems == [
+        Problem("Options can't have the separator in them: “Yes, always” has “,”.", "", "/options")
+    ]
+    question = ChoiceQuestion(options=("Yes, always", "No"), reading=ListReading(separator=";"))
+    assert question.read("Yes, always") == frozenset({"yes, always"})
+
+
 def test_choice_options_are_read_like_answers() -> None:
     question = ChoiceQuestion(options=(" A", "b "))
     assert question.options == ("a", "b")

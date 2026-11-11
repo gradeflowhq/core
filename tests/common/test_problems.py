@@ -51,11 +51,15 @@ def problems_of(check: dict[str, Any]) -> list[tuple[str, str, str]]:
         ),
         (
             {"uses": "gradeflow/number-range@1", "with": {"min_value": 5, "max_value": 1}},
-            [("", "", "The highest number is below the lowest.")],
+            [("", "/with/max_value", "The highest number is below the lowest.")],
         ),
         (
             {"uses": "gradeflow/length@1", "with": {"min_length": 8, "max_length": 2}},
-            [("", "", "The highest count is below the lowest.")],
+            [("", "/with/max_length", "The highest count is below the lowest.")],
+        ),
+        (
+            {"uses": "gradeflow/extract@1", "with": {"type": "text"}},
+            [("", "/with/pattern", "Text needs a pattern to find it by.")],
         ),
         (
             {"uses": "gradeflow/number-range@1", "with": {"min_value": math.nan}},
@@ -146,7 +150,7 @@ def problems_of(check: dict[str, Any]) -> list[tuple[str, str, str]]:
             [
                 (
                     "",
-                    "/with/parameters/answer/[key]",
+                    "/with/parameters/answer",
                     "Your code already uses answer; choose another name.",
                 )
             ],
@@ -186,6 +190,17 @@ def test_messages_keep_the_reason_a_question_gives() -> None:
     assert problem.message == "Options must be different: “a” appears twice."
     case_sensitive = ChoiceQuestion(options=("A", "a"), reading=ListReading(ignore_case=False))
     assert case_sensitive.options == ("A", "a")
+
+
+def test_a_problems_place_is_in_the_data_whichever_type_a_value_may_be() -> None:
+    check = {"uses": "gradeflow/full-marks@1", "feedback": {"right": "Yay"}}
+    assert problems_of(check) == [
+        ("", "/feedback", "Must be text."),
+        ("", "/feedback/right", "Unknown setting."),
+    ]
+    with pytest.raises(InvalidError) as exc_info:
+        QuestionSet.load({1: {"type": "text"}})
+    assert exc_info.value.problems == [Problem("Must be text.", field="/1")]
 
 
 def test_a_problem_reads_after_its_line_and_field_and_an_error_after_its_place() -> None:

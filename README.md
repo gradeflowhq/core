@@ -200,8 +200,8 @@ with:
 ```
 
 A step can also have an `if` condition, such as `{{ steps.id.output.correct }}`, and a `feedback`
-template. A `weight` of 0 gives no marks. A marking without a `question` marks a question group, and
-its steps name the questions they mark.
+template; a step in a list can have a `weight`, and 0 gives no marks. A marking without a
+`question` marks a question group, and its steps name the questions they mark.
 
 A `MarkScheme` is a list of markings, each a `Step`: what its YAML holds, with `settings` for its
 `with`. `problems(questions)` lists what would stop it marking. Each `Problem` gives the JSON
@@ -460,6 +460,7 @@ The library raises `GradeFlowError`, with messages fit to show people. `InvalidE
 `problems` with invalid data: each `Problem` has a `message`, the `step_path` and `field` at
 fault and, if it was read from YAML, its `line`. `where` joins the two into one JSON Pointer.
 `MethodFileError` is the `InvalidError` of a method file, which its `ref` names.
+A draft in `gradeflow_core.editing` raises `EditingError` for an edit it can't make.
 
 ## Editing
 

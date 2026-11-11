@@ -26,6 +26,8 @@ from ..common.paths import is_within, pointer
 from ..common.problems import InvalidError, Problem, validation_problem, validation_problems
 from ..common.text import capitalized
 from ..questions.types import QuestionId
+from .combining import weight_note
+from .conditions import condition_note
 from .input_sources import InputSource, OtherAnswerSource, input_source
 from .method import Method
 from .outcome import Outcome
@@ -156,14 +158,24 @@ class Step(BaseModel):
         method, settings = method_and_settings(self)
         return method.describe(settings)
 
-    def described_in_list(self, weight_notes: Sequence[str]) -> str:
-        """What it does, as an item of a list. A check comes after its question and its name, with
-        ``weight_notes`` after them: ``**Q2, Sign error** (50% of the marks): …``."""
+    def notes(self, check_labels: Mapping[str, str]) -> list[str]:
+        """Its weight and condition in words, naming each check its condition reads by
+        ``check_labels``, by ID: ``Worth ½``, ``Only when Units isn't correct``."""
+        weight = weight_note(self.weight) if self.resolution.gives_marks else None
+        condition = condition_note(self.if_, check_labels) if self.if_ else None
+        return [note for note in (weight, condition) if note]
+
+    def described_in_list(self, notes: Sequence[str]) -> str:
+        """What it does, as an item of a list. A check comes after its question and its name, or
+        the label of a method that is described by its steps, with ``notes`` after them:
+        ``**Q2, Sign error** (Worth ½): …``."""
         description = self.describe()
         if not self.resolution.gives_marks:
             return description
-        heading = ", ".join(part for part in (self.question, self.name) if part)
-        notes_text = ", ".join(weight_notes)
+        method = self.resolution.method
+        name = self.name or (self.method_label if method and method.describes_by_steps else None)
+        heading = ", ".join(part for part in (self.question, name) if part)
+        notes_text = " · ".join(notes)
         if heading and notes_text:
             return f"**{heading}** ({notes_text}): {description}"
         if title := heading or capitalized(notes_text):

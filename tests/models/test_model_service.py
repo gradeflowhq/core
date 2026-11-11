@@ -4,6 +4,7 @@ import httpx2
 import openai
 import pytest
 from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenLogprob
+from pydantic import ValidationError
 
 from gradeflow_core import GradeFlowError
 from gradeflow_core.models import model_service
@@ -81,3 +82,10 @@ def test_listing_models_waits_briefly_and_closes_its_client(
     model_service.list_models(ENDPOINT)
     assert [options for _, options in clients] == [{"timeout": 15, "max_retries": 1}] * 2
     assert all(listing_client.is_closed() for listing_client, _ in clients)
+
+
+def test_an_endpoint_refuses_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        model_service.ModelEndpoint.model_validate(
+            {"url": "https://models.example", "api_key": "key", "fast_modle": "m"}
+        )

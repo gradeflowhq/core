@@ -106,6 +106,26 @@ def test_a_method_written_in_python_marks_describes_and_is_offered() -> None:
     assert list(method.settings_schema(Position(QUESTIONS, "Q1"))["properties"]) == ["prefix"]
 
 
+@pytest.mark.parametrize("outcome", [Outcome(float("nan"), "Share."), Outcome(1.0, None), 1.0])  # type: ignore[arg-type]
+def test_an_outcome_that_isnt_valid_leaves_only_its_answer_for_a_person(outcome: Any) -> None:
+    class Broken(StartsWith):
+        name = "sample/broken"
+
+        def mark_answer(
+            self, settings: StartsWithSettings, answer: Answer, question: Question
+        ) -> Outcome:
+            return outcome if answer == "bad" else Outcome(1.0, "Correct.")
+
+    scheme = MarkScheme.load(
+        [{**STARTS_WITH, "uses": "sample/broken@1"}], methods=Methods([*BUILTINS, Broken()])
+    )
+    submissions = [Submission(student_id=answer, answers={"Q1": answer}) for answer in ("bad", "a")]
+    assert [
+        (marked.results["Q1"].feedback, marked.results["Q1"].is_marked)
+        for marked in mark(QUESTIONS, scheme, submissions)
+    ] == [("Couldn't mark this answer.", False), ("Correct.", True)]
+
+
 def test_its_settings_are_validated_as_a_built_in_methods_are() -> None:
     with pytest.raises(InvalidError, match=r"/markings/0/with/prefix: Required\."):
         MarkScheme.load([{**STARTS_WITH, "with": {}}], methods=METHODS)

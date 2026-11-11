@@ -66,7 +66,7 @@ examples:
       - **Q2:** Matches `Rome`.
     questions:
       Q1: {type: choice, options: [a, b], description: Which part did you answer?}
-      Q2: {type: text, description: The capital of France for part A, or of Italy for part B.}
+      Q2: {type: text, description: "The capital of France for part A, or of Italy for part B."}
     with:
       condition:
         - {question: Q1, uses: gradeflow/multiple-choice@1, with: {correct: [a]}}

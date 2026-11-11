@@ -180,7 +180,7 @@ def test_any_correct_across_questions_picks_one_check_by_its_total_marks() -> No
 def test_a_workflow_describes_its_steps_with_their_names_and_weights() -> None:
     check = workflow("any_correct", key_point("a", name="A"), key_point("b", weight=0.5))
     assert describe(check) == (
-        "Any one of these:\n- **A:** Includes `a`.\n- **50% of the marks:** Includes `b`."
+        "Any one of these:\n- **A:** Includes `a`.\n- **Worth ½:** Includes `b`."
     )
     proportional = workflow(
         "proportional",
@@ -191,9 +191,28 @@ def test_a_workflow_describes_its_steps_with_their_names_and_weights() -> None:
     assert describe(proportional) == (
         "Each one counts:\n"
         "- Includes `a`.\n"
-        "- **Weight 2:** Includes `b`.\n"
-        "- **C** (weight -1): Includes `c`."
+        "- **Worth 2:** Includes `b`.\n"
+        "- **C** (Penalty 1): Includes `c`."
     )
+
+
+def test_a_workflow_describes_each_steps_condition() -> None:
+    reads_a = {"if": "{{ not steps.a.output.correct }}"}
+    check = workflow(
+        "total",
+        key_point("a", id="a", name="A"),
+        key_point("b", weight=0.5, **reads_a),
+        key_point("c", **{"if": "{{ steps.a.output.proportion > 0.2 }}"}),
+        key_point("d", id="d", weight=0),
+        key_point("e", **{"if": "{{ steps.d.output.correct }}"}),
+    )
+    assert describe(check).splitlines()[1:] == [
+        "- **A:** Includes `a`.",
+        "- **Worth ½ · Only when A isn't correct:** Includes `b`.",
+        "- **Only when its condition holds:** Includes `c`.",
+        "- **Gives no marks:** Includes `d`.",
+        "- **Only when Key Point is correct:** Includes `e`.",
+    ]
 
 
 def test_a_nested_workflow_is_described_as_an_indented_list() -> None:

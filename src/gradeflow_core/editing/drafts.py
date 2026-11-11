@@ -16,11 +16,12 @@ from ..common.hints import HINT_KEY, hint, hint_of
 from ..common.paths import is_list_item, is_within, last_part, parent, patched, pointer, value_at
 from ..common.problems import Problem
 from ..common.schemas import JsonDict, json_schema
-from ..common.text import format_fraction, plain_markdown
+from ..common.text import plain_markdown
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
+from ..steps.conditions import Condition, condition_template, read_condition
 from ..steps.input_sources import (
     ANSWER_INPUT,
     AnswerValueSource,
@@ -43,7 +44,6 @@ from ..steps.step import (
     settings_of,
 )
 from ..steps.templates import Shape, names_read
-from .conditions import Condition, condition_template, read_condition
 
 POSITION_KEYS = ("id", "question", "input", "name", "weight", "if")
 """The properties of a step that stay when its method changes."""
@@ -335,10 +335,11 @@ class Draft:
         return not self._step(path).resolution.gives_marks
 
     def _input_choices(self, path: str, method: Method) -> dict[str, str]:
-        """Each input the step at ``path`` can read besides the answer, with its label."""
-        readable_inputs = self._readable_inputs(path)
-        if not readable_inputs:
+        """Each input the step at ``path`` can read besides the answer, with its label, and the
+        input it reads as written if it can't, to be chosen away."""
+        if not self._enclosing_position(path).is_in_workflow:
             return {}
+        readable_inputs = self._readable_inputs(path)
         paths_by_id = self._paths_by_id(self._earlier_step_paths(path))
         output_labels = self._output_labels(
             [
@@ -437,7 +438,11 @@ class Draft:
             for key, property_schema in schema["properties"].items()
         }
 
+        written_settings = settings_of(step_data)
+
         def is_unset(key: str, value: Any) -> bool:
+            if key not in written_settings and key in defaults and value == defaults[key]:
+                return True
             return (
                 value in EMPTY_VALUES
                 and key not in schema.get("required", ())
@@ -617,26 +622,15 @@ class Draft:
 
     def notes(self, path: str) -> list[str]:
         """Notes beside the step's label: its question, input, weight and condition."""
-        values = self.values(path)
-        notes = [str(values["question"])] if values.get("question") else []
+        step = self._step(path)
+        notes = [step.question] if step.question else []
         if input_label := self._input_label(path):
             notes.append(f"Reads {input_label}")
-        weight = values.get("weight", STEP_PROPERTIES["weight"].default)
-        if weight == 0:
-            notes.append("Gives no marks")
-        elif isinstance(weight, int | float) and weight != 1:
-            notes.append(
-                f"Worth {format_fraction(weight)}"
-                if weight > 0
-                else f"Penalty {format_fraction(-weight)}"
-            )
-        if condition := values.get("if"):
-            notes.append(
-                condition.describe(self.label)
-                if isinstance(condition, Condition)
-                else "Only when its condition holds"
-            )
-        return notes
+        check_labels = {
+            step_id: self.label(check_path)
+            for step_id, check_path in self._paths_by_id(self.earlier_checks(path)).items()
+        }
+        return notes + step.notes(check_labels)
 
     def _input_label(self, path: str) -> str | None:
         """What the step at ``path`` reads, in words, if it isn't the answer as it is."""

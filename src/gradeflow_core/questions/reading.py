@@ -19,7 +19,7 @@ from .types import Answer
 
 
 class Reading(BaseModel):
-    model_config = ConfigDict(title="Reading answers")
+    model_config = ConfigDict(extra="forbid", title="Reading answers")
 
     blank_marker: str = Field(
         default="N/A",

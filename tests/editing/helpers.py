@@ -4,6 +4,7 @@ from typing import Any, Literal
 from gradeflow_core import BUILTINS, Methods, Question, QuestionSet
 from gradeflow_core.editing import Decision, MarkingDraft, MethodDraft
 from gradeflow_core.questions.number import NumberQuestion
+from gradeflow_core.questions.text import TextQuestion
 
 from ..methods.helpers import accepted_answer, mark_all, proportions
 
@@ -51,7 +52,6 @@ def decisions_of(
 
 
 def _draft(marking: Mapping[str, Any], question: Question | None, methods: Methods) -> MarkingDraft:
-    """A draft of ``marking`` of Q1, or of no question to use the plain spelling of answers."""
-    if question is None:
-        return MarkingDraft(marking, QuestionSet(), None, methods=methods)
-    return MarkingDraft(marking, QuestionSet({"Q1": question}), "Q1", methods=methods)
+    """A draft of ``marking`` of Q1, a text question unless ``question`` says."""
+    questions = QuestionSet({"Q1": question or TextQuestion()})
+    return MarkingDraft(marking, questions, "Q1", methods=methods)

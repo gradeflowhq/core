@@ -1,5 +1,5 @@
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -99,13 +99,15 @@ def code_error_outcome(error: runner.CodeError) -> Outcome:
     return code_failure_outcome(as_sentence(f"Your code failed: {error}"))
 
 
-def code_problems(code: str) -> Iterator[Problem]:
-    """Code that can't run at all, at the line at fault."""
+def code_problems(
+    code: str, field: str = "/code", mode: Literal["exec", "eval"] = "exec"
+) -> Iterator[Problem]:
+    """Code at ``field`` that can't run at all, at the line at fault."""
     try:
-        compile(code, "<code>", "exec")
+        compile(code, "<code>", mode)
     except SyntaxError as error:
         line_note = f"Line {error.lineno}: " if error.lineno else ""
-        yield Problem(as_sentence(f"{line_note}{error.msg}"), field="/code")
+        yield Problem(as_sentence(f"{line_note}{error.msg}"), field=field)
 
 
 class CustomCode(AnswerMethod[CustomCodeSettings]):

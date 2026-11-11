@@ -190,13 +190,13 @@ def mark_by_example(
     question: Question | None,
 ) -> dict[str, Any] | None:
     """``marking`` with ``answers`` given ``decision``; None when that changes nothing."""
-    _validate_decision(decision, question)
-    if not 0 <= proportion <= 1:
-        raise EditingError("The proportion of the marks must be between 0 and 1.")
+    _validate_decision(decision, proportion, question)
     example_methods = _ExampleMethods.for_methods(methods, question, marking.get("question"))
     chosen_answers = set(map(example_methods.normalize, answers))
     if not chosen_answers:
         return None
+    if "" in chosen_answers:
+        raise EditingError("A blank answer can't be marked by example.")
     position_fields = {key: value for key, value in marking.items() if key not in _METHOD_KEYS}
     check = {key: value for key, value in marking.items() if key in _METHOD_KEYS}
     decided_proportions = _decided_proportions(marking, example_methods)
@@ -237,10 +237,14 @@ def mark_by_example(
     return {**position_fields, **check}
 
 
-def _validate_decision(decision: str, question: Question | None) -> None:
+def _validate_decision(decision: str, proportion: float, question: Question | None) -> None:
     if decision not in (*DECISIONS, "cancel"):
         raise EditingError(f"There's no decision {decision}.")
-    if question is not None and not can_mark_by_example(question):
+    if not 0 <= proportion <= 1:
+        raise EditingError("The proportion of the marks must be between 0 and 1.")
+    if question is None:
+        raise EditingError("A question group can't be marked by example.")
+    if not can_mark_by_example(question):
         raise EditingError(f"A {question.label.lower()} question can't be marked by example.")
 
 

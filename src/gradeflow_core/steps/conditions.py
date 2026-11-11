@@ -6,7 +6,7 @@ from typing import ClassVar, Literal
 
 from jinja2 import nodes
 
-from ..steps.templates import expression_node
+from .templates import expression_node
 
 type Match = Literal["all", "any"]
 type ConditionTest = Literal["correct", "incorrect", "half_correct"]
@@ -54,6 +54,15 @@ def read_condition(template: str) -> Condition | None:
     ]
     valid_rows = [row for row in rows if row is not None]
     return Condition(tuple(valid_rows), match) if len(valid_rows) == len(rows) else None
+
+
+def condition_note(template: str, check_labels: Mapping[str, str]) -> str:
+    """The condition ``template`` in words, naming each check it reads by ``check_labels``, by
+    ID; or that it has one, if it reads another check or isn't made of rows."""
+    condition = read_condition(template)
+    if condition is None or any(row.check not in check_labels for row in condition.rows):
+        return "Only when its condition holds"
+    return condition.describe(check_labels.__getitem__)
 
 
 def condition_template(condition: Condition) -> str:

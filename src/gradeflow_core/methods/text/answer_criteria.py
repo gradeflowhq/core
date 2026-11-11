@@ -10,6 +10,7 @@ from typing import Literal, Self
 from pydantic import Field, model_validator
 
 from ...common.hints import hint
+from ...common.problems import Problem, problem_error
 from ...common.text import as_sentence, escaped_markdown, format_number, markdown_list, plural
 from ...models import model_service
 from ...models.model_service import ModelEndpoint, ReasoningEffort
@@ -120,7 +121,8 @@ class AnswerCriteriaSettings(Settings):
     @model_validator(mode="after")
     def _check_best_fit_criteria_count(self) -> Self:
         if self.marks_by == "best_fit" and len(self.criteria) > MAX_BEST_FIT_CRITERIA:
-            raise ValueError(f"Best fit takes at most {MAX_BEST_FIT_CRITERIA} criteria.")
+            message = f"Best fit takes at most {MAX_BEST_FIT_CRITERIA} criteria."
+            raise problem_error(Problem(message, field="/criteria"))
         return self
 
 

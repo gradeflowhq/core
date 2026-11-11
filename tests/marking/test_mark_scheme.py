@@ -65,6 +65,18 @@ def test_checks_mark_only_where_they_can() -> None:
     ]
 
 
+def test_only_a_step_in_a_list_has_a_weight() -> None:
+    workflow = {
+        "question": "Q1",
+        "uses": "gradeflow/workflow@1",
+        "with": {"marks_by": "proportional", "steps": [{**key_point("a"), "weight": 0.5}]},
+    }
+    assert problems(workflow) == []
+    assert problems({**key_point("a", question="Q1"), "weight": 0}) == [
+        ("/markings/0", "/weight", "Only a step in a list has a weight.")
+    ]
+
+
 def test_problems_in_a_question_group_are_located_in_its_checks() -> None:
     group = {
         "uses": "gradeflow/workflow@1",
@@ -155,6 +167,15 @@ def test_a_mark_scheme_dumps_as_it_loads() -> None:
     assert MarkScheme.load(scheme.dump()) == scheme
 
 
+def test_nested_settings_left_at_their_defaults_arent_written() -> None:
+    tests = [{"expression": "f()", "expected": "1"}]
+    markings = [
+        {"question": "Q1", "uses": "gradeflow/code-uses@1", "with": {"looks_for": "loop"}},
+        {"question": "Q2", "uses": "gradeflow/code-tests@1", "with": {"tests": tests}},
+    ]
+    assert MarkScheme.load(markings).dump() == markings
+
+
 def test_a_mark_scheme_is_written_and_read_as_yaml() -> None:
     scheme = MarkScheme.load([key_point("a", question="Q1")])
     assert MarkScheme.from_yaml(scheme.to_yaml()) == scheme
@@ -162,3 +183,12 @@ def test_a_mark_scheme_is_written_and_read_as_yaml() -> None:
         MarkScheme.from_yaml("- question: [Q1")
     with pytest.raises(InvalidError, match="markings: Must be a list"):
         MarkScheme.load("- question: Q1")
+
+
+def test_problems_of_a_mark_scheme_read_from_yaml_are_on_their_lines() -> None:
+    text = "- question: Q1\n  uses: gradeflow/key-points@1\n  with:\n    points: []\n"
+    with pytest.raises(InvalidError) as exc_info:
+        MarkScheme.from_yaml(text)
+    assert exc_info.value.problems == [
+        Problem("Add at least one.", "/markings/0", "/with/points", line=4, is_incomplete=True)
+    ]

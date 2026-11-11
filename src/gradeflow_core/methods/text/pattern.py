@@ -1,4 +1,4 @@
-from pydantic import Field, field_validator
+from pydantic import Field
 
 from ...common.text import code_span
 from ...questions.base import Question
@@ -7,21 +7,15 @@ from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import Outcome
 from ...steps.settings import Settings
-from .regexes import PATTERN_TIMEOUT_MESSAGE, compile_pattern, pattern_matches
+from .regexes import PATTERN_TIMEOUT_MESSAGE, ValidPattern, pattern_matches
 
 
 class PatternSettings(Settings):
-    pattern: str = Field(
+    pattern: ValidPattern = Field(
         min_length=1,
         title="Pattern",
         examples=["^colou?r$"],
     )
-
-    @field_validator("pattern")
-    @classmethod
-    def _check_compiles(cls, pattern: str) -> str:
-        compile_pattern(pattern)
-        return pattern
 
 
 class Pattern(AnswerMethod[PatternSettings]):

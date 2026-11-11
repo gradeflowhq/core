@@ -7,6 +7,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model
 from pydantic.fields import FieldInfo
 
 from ..common.hints import hint_of
+from ..common.problems import Problem, problem_error
 
 IDENTIFIER = r"^[A-Za-z_][A-Za-z0-9_]*$"
 """A name code and conditions can use: letters, digits and underscores, not starting with a
@@ -29,10 +30,12 @@ NonBlankText = Annotated[str, AfterValidator(_require_not_blank)]
 """Text a check marks with, such as an accepted answer, which can't be only spaces."""
 
 
-def check_limits_in_order(low: float | None, high: float | None, message: str) -> None:
-    """Raises ``ValueError`` with ``message`` if both limits are set and ``high`` is below."""
+def check_limits_in_order(
+    low: float | None, high: float | None, message: str, high_field: str
+) -> None:
+    """Raises ``message`` at ``high_field`` if both limits are set and ``high`` is below."""
     if low is not None and high is not None and high < low:
-        raise ValueError(message)
+        raise problem_error(Problem(message, field=high_field))
 
 
 def literal_type(values: Iterable[Any]) -> Any:

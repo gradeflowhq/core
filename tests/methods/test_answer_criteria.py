@@ -27,7 +27,7 @@ from tests.fake_models import (
     example_verdicts,
 )
 
-from .helpers import describe, mark_all, problems_of, with_value_inputs
+from .helpers import describe, located, mark_all, problems_of, with_value_inputs
 
 QUESTION = TextQuestion(
     max_marks=3, description="Pens cost $2 and books $5. What do 3 pens and 2 books cost?"
@@ -530,6 +530,9 @@ def test_two_lists_of_best_fit_criteria_are_chosen_from_separately(
 
 def test_best_fit_chooses_among_at_most_nine_criteria() -> None:
     ten_criteria = [{"text": f"Level {number}", "marks": 1} for number in range(10)]
-    with pytest.raises(InvalidError, match="Best fit takes at most 9 criteria"):
+    with pytest.raises(InvalidError) as error:
         problems_of(best_fit(criteria=ten_criteria), QUESTION)
+    assert located(error.value.problems) == [
+        ("/markings/0", "/with/criteria", "Best fit takes at most 9 criteria.")
+    ]
     assert problems_of(answer_criteria(criteria=ten_criteria), QUESTION) == []

@@ -58,7 +58,7 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
         "share. With **Values in any order**, the pairing of values and checks that gives the "
         "most marks counts.\n\n"
         "**Good to know:** The question sets how many values there are, and there's one check "
-        f"for each. Any order works for up to {MAX_ANY_ORDER_VALUES} values.\n\n"
+        f"for each. Any order works for up to {MAX_ANY_ORDER_VALUES} values of one type.\n\n"
         "**Related:** To mark items in a sequence, use Order."
     )
     question_types = frozenset({"values"})
@@ -174,10 +174,14 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
             yield Problem(
                 f"List {question.value_count} checks, one for each value.", field="/checks"
             )
-        if settings.any_order and question.value_count > MAX_ANY_ORDER_VALUES:
+        if not settings.any_order:
+            return
+        if question.value_count > MAX_ANY_ORDER_VALUES:
             yield Problem(
                 f"Any order works for up to {MAX_ANY_ORDER_VALUES} values.", field="/any_order"
             )
+        if len(set(question.value_types)) > 1:
+            yield Problem("Any order needs values of one type.", field="/any_order")
 
 
 def _named_by_value(

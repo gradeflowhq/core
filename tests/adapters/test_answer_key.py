@@ -21,8 +21,8 @@ def test_each_blank_reads_as_its_first_accepted_answer(cell: str, answer: str) -
     assert read_answer_key({"Q1": cell}).answers == {"Q1": answer}
 
 
-def test_an_empty_cell_answers_nothing() -> None:
-    assert read_answer_key({"Q1": "", "Q2": " "}).answers == {}
+def test_an_empty_or_missing_cell_answers_nothing() -> None:
+    assert read_answer_key({"Q1": "", "Q2": " ", "Q3": None}).answers == {}
 
 
 def test_the_answer_key_sets_questions_up_with_the_students_answers() -> None:

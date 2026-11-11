@@ -8,7 +8,7 @@ from ..common.paths import is_within
 from ..common.problems import Problem
 from .places import StepPlace, places, usable_places
 from .position import Position
-from .step import OutcomeFeedback, Step, method_and_settings
+from .step import STEP_PROPERTIES, OutcomeFeedback, Step, method_and_settings
 from .templates import CHECK_RESULT_SHAPE, STEP_RESULT_SHAPE, Shape, template_errors
 
 
@@ -58,6 +58,12 @@ def place_problems(
         if place.position_problem is not None:
             yield replace(place.position_problem, step_path=step_path)
             continue
+        if (
+            step.resolution.gives_marks
+            and step.weight != STEP_PROPERTIES["weight"].default
+            and not place.position.is_in_list
+        ):
+            yield Problem("Only a step in a list has a weight.", step_path, "/weight")
         # A method file's templates were checked when it loaded.
         if not step.resolution.scope:
             for field, error in template_errors(

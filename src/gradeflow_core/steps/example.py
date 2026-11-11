@@ -1,5 +1,6 @@
 """A method's examples: questions, settings and answers, with the results declared for them."""
 
+from collections.abc import Iterable, Set
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,17 @@ class Example(BaseModel):
     questions: dict[QuestionId, AnyQuestion]
     with_: dict[str, Any] = Field(default_factory=dict, alias="with")
     rows: list[ExampleRow]
+
+
+def missing_answers_message(
+    rows: Iterable[ExampleRow], question_ids: Set[QuestionId]
+) -> str | None:
+    """What the first of ``rows`` without an answer to each of ``question_ids`` lacks; None if
+    they all answer them."""
+    for row_number, row in enumerate(rows, 1):
+        if missing_question_ids := question_ids - row.answers.keys():
+            return f"Row {row_number} has no answer to {', '.join(sorted(missing_question_ids))}."
+    return None
 
 
 def examples_beside(module_file: str) -> tuple[Example, ...]:

@@ -1,6 +1,9 @@
 """Regular expressions people write, run on answers students write."""
 
+from typing import Annotated
+
 import regex
+from pydantic import AfterValidator
 
 from ...questions.base import Question
 from ...questions.text import TextQuestion
@@ -16,6 +19,23 @@ def compile_pattern(pattern: str, flags: int = 0) -> regex.Pattern[str]:
         return regex.compile(pattern, flags)
     except regex.error as error:
         raise ValueError(f"Not a valid pattern: {error}.") from None
+
+
+def _check_compiles(pattern: str) -> str:
+    compile_pattern(pattern)
+    return pattern
+
+
+def _check_one_group(pattern: str) -> str:
+    if compile_pattern(pattern).groups != 1:
+        raise ValueError("Write a pattern with one group, in brackets.")
+    return pattern
+
+
+ValidPattern = Annotated[str, AfterValidator(_check_compiles)]
+"""A pattern that compiles, checked by its type, which a setting that fills one takes on."""
+OneGroupPattern = Annotated[str, AfterValidator(_check_one_group)]
+"""A pattern with one group, around the part to find."""
 
 
 def _compiled_for(pattern: str, question: Question) -> regex.Pattern[str]:

@@ -1,9 +1,10 @@
 from typing import Literal, Self
 
 import regex
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 from ...common.hints import hint
+from ...common.problems import Problem, problem_error
 from ...common.text import code_span, plain_join
 from ...questions.base import Question
 from ...questions.number import NumberQuestion, reads_as_number
@@ -13,7 +14,7 @@ from ...steps.example import examples_beside
 from ...steps.method import TransformMethod
 from ...steps.outcome import TransformResult
 from ...steps.settings import Settings
-from .regexes import PATTERN_TIMEOUT_MESSAGE, compile_pattern, pattern_captures
+from .regexes import PATTERN_TIMEOUT_MESSAGE, OneGroupPattern, pattern_captures
 
 _NUMBER = regex.compile(
     r"(?<![\w.^])[-+]?(?:\d+(?:,\d{3})*(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?(?:/\d+)?"
@@ -28,7 +29,7 @@ class ExtractSettings(Settings):
         title="Type",
         json_schema_extra=hint(labels={"number": "Number", "text": "Text"}),
     )
-    pattern: str | None = Field(
+    pattern: OneGroupPattern | None = Field(
         default=None,
         title="Pattern",
         description="A regular expression with one group around the part to find.",
@@ -41,17 +42,10 @@ class ExtractSettings(Settings):
         json_schema_extra=hint(labels={"only": "Only one", "first": "First", "last": "Last"}),
     )
 
-    @field_validator("pattern")
-    @classmethod
-    def _check_one_group(cls, pattern: str | None) -> str | None:
-        if pattern is not None and compile_pattern(pattern).groups != 1:
-            raise ValueError("Write a pattern with one group, in brackets.")
-        return pattern
-
     @model_validator(mode="after")
     def _check_text_has_pattern(self) -> Self:
         if self.type == "text" and self.pattern is None:
-            raise ValueError("Text needs a pattern to find it by.")
+            raise problem_error(Problem("Text needs a pattern to find it by.", field="/pattern"))
         return self
 
 

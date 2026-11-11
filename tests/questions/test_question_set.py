@@ -101,6 +101,16 @@ def test_loading_what_isnt_a_question_says_where(question_id: str) -> None:
     ]
 
 
+def test_a_question_with_an_unknown_setting_is_refused() -> None:
+    question = {"type": "choice", "options": ["a"], "max_mark": 5, "reading": {"seperator": ";"}}
+    with pytest.raises(InvalidError) as exc_info:
+        QuestionSet.load({"Q1": question})
+    assert exc_info.value.problems == [
+        Problem("Unknown setting.", field="/Q1/reading/seperator"),
+        Problem("Unknown setting.", field="/Q1/max_mark"),
+    ]
+
+
 def test_questions_are_written_and_read_as_yaml() -> None:
     questions = QuestionSet({"Q1": NumberQuestion(max_marks=2)})
     assert questions.to_yaml() == "Q1:\n  type: number\n  max_marks: 2.0\n"
@@ -108,3 +118,9 @@ def test_questions_are_written_and_read_as_yaml() -> None:
     assert QuestionSet() == QuestionSet({})
     with pytest.raises(InvalidError, match="Line 1: "):
         QuestionSet.from_yaml("Q1: {type: number")
+
+
+def test_problems_of_questions_read_from_yaml_are_on_their_lines() -> None:
+    with pytest.raises(InvalidError) as exc_info:
+        QuestionSet.from_yaml("Q1:\n  type: text\n  max_marks: -1\n")
+    assert exc_info.value.problems == [Problem("Must be 0 or more.", field="/Q1/max_marks", line=3)]

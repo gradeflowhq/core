@@ -16,9 +16,10 @@ class Question(BaseModel, ABC):
     """A question of one of the types, which reads answers as its type says."""
 
     model_config = ConfigDict(
+        extra="forbid",
         model_title_generator=lambda cls: (
             f"{cls.label} question" if hasattr(cls, "label") else cls.__name__
-        )
+        ),
     )
 
     label: ClassVar[str]

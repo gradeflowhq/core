@@ -143,8 +143,13 @@ class Workflow(Method[WorkflowSettings]):
         if settings.output == "step_output":
             return "\n".join(inner_step.describe() for inner_step in settings.steps)
         combination = COMBINATIONS[settings.marks_by]
+        check_labels = {
+            inner_step.id: inner_step.name or inner_step.method_label
+            for inner_step in settings.steps
+            if inner_step.id
+        }
         step_list_markdown = markdown_list(
-            inner_step.described_in_list(combination.weight_notes(inner_step.weight))
+            inner_step.described_in_list(inner_step.notes(check_labels))
             for inner_step in settings.steps
         )
         return f"{combination.description_heading()}\n{step_list_markdown}"
@@ -217,7 +222,11 @@ class Workflow(Method[WorkflowSettings]):
         output_step = next(
             (inner_step for inner_step in settings.steps if inner_step.id == step_id), None
         )
-        if step_id is None:
+        if step_id is None and all(
+            inner_step.resolution.gives_marks for inner_step in settings.steps
+        ):
+            yield Problem("Add a step that gives an output, such as Extract.", field="/output_step")
+        elif step_id is None:
             yield Problem(
                 "Choose the step whose output it gives.",
                 field="/output_step",

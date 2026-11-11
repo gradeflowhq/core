@@ -26,7 +26,7 @@ examples:
       - **Expected:** All of these:
         - **Q1:** Matches `20`.
         - **Q2:** Matches `25`.
-      - **Perimeter as 6 + 4** (50% of the marks): All of these:
+      - **Perimeter as 6 + 4** (Worth ½): All of these:
         - **Q1:** Matches `10`.
         - **Q2:** Matches `6.25`.
     questions:
@@ -83,7 +83,7 @@ examples:
         - **Q2:** Matches `1`.
     questions:
       Q1: {type: number, description: What is the answer?}
-      Q2: {type: number, description: What is your answer to Q1, squared?}
+      Q2: {type: number, description: "What is your answer to Q1, squared?"}
     with:
       sets:
         - name: Left to right

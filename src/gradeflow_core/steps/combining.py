@@ -8,7 +8,7 @@ from typing import Literal
 
 from ..common.paths import pointer
 from ..common.problems import Problem
-from ..common.text import as_sentence, format_number, plain_markdown
+from ..common.text import as_sentence, format_fraction, plain_markdown
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
 from .outcome import (
@@ -66,10 +66,6 @@ class Combination(ABC):
     def description_heading(self, *notes: str) -> str:
         """How a description of combined checks opens: ``Each one counts, in any order:``."""
         return f"{', '.join([self.heading, *notes])}:"
-
-    def weight_notes(self, weight: float) -> tuple[str, ...]:
-        """What ``weight``, when it isn't 1, makes a check worth."""
-        return ()
 
     def weight_problems(self, weights: Sequence[float], setting_name: str) -> Iterator[Problem]:
         """A problem at each weight other than 0 and 1, when weights aren't used."""
@@ -228,9 +224,6 @@ class _AnyCorrect(Combination):
     label = "Any one must be correct"
     heading = "Any one of these"
 
-    def weight_notes(self, weight: float) -> tuple[str, ...]:
-        return () if weight == 1 else (f"{weight:.0%} of the marks",)
-
     def proportion(
         self, weighted_proportions: Sequence[tuple[float, float]], denominator: float
     ) -> float:
@@ -310,9 +303,6 @@ class _Additive(_QuestionByQuestion):
     divides_by_max_marks: bool
     """Whether weights are marks of the question, not shares of them."""
 
-    def weight_notes(self, weight: float) -> tuple[str, ...]:
-        return () if weight == 1 else (f"weight {format_number(weight)}",)
-
     def denominator(self, weights: Sequence[float], max_marks: float) -> float:
         if self.divides_by_max_marks:
             return max_marks or 1
@@ -361,6 +351,17 @@ COMBINATIONS: Mapping[MarksBy, Combination] = {
 MARKS_BY_LABELS: dict[str, str] = {
     marks_by: combination.label for marks_by, combination in COMBINATIONS.items()
 }
+
+
+def weight_note(weight: float) -> str | None:
+    """What ``weight`` makes a check worth, unless it is 1: ``Worth ½``, ``Penalty 1``."""
+    if weight == 1:
+        return None
+    if weight == 0:
+        return "Gives no marks"
+    if weight > 0:
+        return f"Worth {format_fraction(weight)}"
+    return f"Penalty {format_fraction(-weight)}"
 
 
 def combine(

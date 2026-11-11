@@ -5,10 +5,10 @@ from dataclasses import replace
 from pydantic import ConfigDict, Field
 
 from ...common.hints import ADVANCED_HINT, hint
+from ...common.paths import pointer
 from ...common.problems import Problem
 from ...common.text import (
     as_sentence,
-    capitalized,
     code_span,
     plain_join,
     plain_markdown,
@@ -17,7 +17,7 @@ from ...common.text import (
 from ...questions.base import Question
 from ...questions.code_files import python_files, split_answer
 from ...questions.types import Answer
-from ...steps.combining import COMBINATIONS, MARKS_BY_LABELS, MarksBy, Part
+from ...steps.combining import COMBINATIONS, MARKS_BY_LABELS, MarksBy, Part, weight_note
 from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import CORRECT_FEEDBACK, Detail, Outcome
@@ -25,7 +25,7 @@ from ...steps.position import Position
 from ...steps.settings import Settings
 from . import runner
 from .code_fixes import FIXES_FIELD, CodeFixSettings, best_fixed_outcome
-from .custom_code import memory_limit_field, time_limit_field
+from .custom_code import code_problems, memory_limit_field, time_limit_field
 
 MAX_SHOWN_LENGTH = 200
 """How many characters of a value feedback shows."""
@@ -93,8 +93,7 @@ class CodeTestsSettings(Settings):
         description="An expression to run, and the value it should give.",
     )
     setup: TestSetup = Field(
-        default={},
-        validate_default=True,
+        default_factory=TestSetup,
         title="Test setup",
         description="Code before and after the student's, and each test's time limit.",
         json_schema_extra=ADVANCED_HINT,
@@ -135,9 +134,9 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
         if len(tests) == 1:
             [test] = tests
             is_negated = marks_by == "none_correct"
-            return f"{_weight_prefix(test, marks_by)}{_test_title(test, is_negated=is_negated)}"
+            return f"{_weight_prefix(test)}{_test_title(test, is_negated=is_negated)}"
         test_lines = "\n".join(
-            f"- {_weight_prefix(test, marks_by)}{code_span(test.expression)} gives "
+            f"- {_weight_prefix(test)}{code_span(test.expression)} gives "
             f"{code_span(test.expected)}."
             for test in tests
         )
@@ -146,6 +145,9 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
     def problems(self, settings: CodeTestsSettings, position: Position) -> Iterator[Problem]:
         weights = [test.weight for test in settings.tests]
         yield from COMBINATIONS[settings.marks_by].weight_problems(weights, "tests")
+        for index, test in enumerate(settings.tests):
+            for name in ("expression", "expected"):
+                yield from code_problems(getattr(test, name), pointer("tests", index, name), "eval")
 
     def mark_answer(
         self, settings: CodeTestsSettings, answer: Answer, question: Question
@@ -253,9 +255,9 @@ def _test_title(test: Test, *, is_negated: bool = False) -> str:
     return f"{makes} {code_span(test.expression)} give {code_span(test.expected)}."
 
 
-def _weight_prefix(test: Test, marks_by: MarksBy) -> str:
-    notes = COMBINATIONS[marks_by].weight_notes(test.weight)
-    return "".join(f"**{capitalized(note)}:** " for note in notes)
+def _weight_prefix(test: Test) -> str:
+    note = weight_note(test.weight)
+    return f"**{note}:** " if note else ""
 
 
 def _which_tests(marks_by: MarksBy, test_count: int) -> str:

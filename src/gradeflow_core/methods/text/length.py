@@ -28,7 +28,10 @@ class LengthSettings(Settings):
     @model_validator(mode="after")
     def _check_limits_in_order(self) -> Self:
         check_limits_in_order(
-            self.min_length, self.max_length, "The highest count is below the lowest."
+            self.min_length,
+            self.max_length,
+            "The highest count is below the lowest.",
+            "/max_length",
         )
         return self
 

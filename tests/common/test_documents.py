@@ -13,7 +13,15 @@ def test_text_of_several_lines_is_written_as_a_block() -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["  indented\nfirst line", "trailing  \n\nspaces", "no final newline\n", "two\n\n", "a\tb\nc"],
+    [
+        "  indented\nfirst line",
+        "trailing  \n\nspaces",
+        "no final newline\n",
+        "two\n\n",
+        "a\tb\nc",
+        "windows\r\nline endings\r\n",
+        "old mac\rline endings",
+    ],
 )
 def test_text_of_several_lines_reads_back_as_written(text: str) -> None:
     document = {"checks": [{"with": {"code": text}}]}
@@ -28,6 +36,7 @@ def test_text_of_several_lines_reads_back_as_written(text: str) -> None:
             'Line 4: "checks" is written twice.',
         ),
         ("{a: 1, a: 2}", 'Line 1: "a" is written twice.'),
+        ("a: 1\n? [b]\n: 2\n", "Line 2: A key can't be a list."),
         ("a: &x 1\nb: *y\n", "Line 2: found undefined alias 'y'."),
         ("[" * 1000 + "]" * 1000, "Line 1: It nests more than 100 levels deep."),
     ],

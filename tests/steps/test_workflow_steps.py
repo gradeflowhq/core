@@ -513,6 +513,17 @@ def test_output_step_offers_the_workflows_own_transforms_by_label() -> None:
     assert field[HINT_KEY]["applies_when"] == {"output": ["step_output"]}
 
 
+def test_a_step_output_workflow_without_a_step_that_gives_one_says_so() -> None:
+    pattern = {"uses": PATTERN, "with": {"pattern": "^a"}}
+    nested = {"uses": "gradeflow/workflow@1", "with": {"output": "step_output", "steps": [pattern]}}
+    draft = MarkingDraft(workflow("all_correct", nested, question="Q1"), QUESTIONS, "Q1")
+    [problem] = [problem for problem in draft.problems if problem.field == "/with/output_step"]
+    assert (problem.message, problem.is_incomplete) == (
+        "Add a step that gives an output, such as Extract.",
+        False,
+    )
+
+
 def test_a_step_reading_a_transform_says_which_one() -> None:
     first_number = {"id": "first", "uses": EXTRACT, "with": {"occurrence": "first"}}
     named = {**EXTRACT_LAST_NUMBER, "name": "Final number"}
