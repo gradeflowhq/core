@@ -14,10 +14,14 @@ from ...common.text import (
     quoted_join,
     reads_better_listed,
 )
-from ...ml import nli
+from ...models import nli
 from ...questions.base import Question
 from ...questions.types import Answer
-from ..example import examples_beside
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import CORRECT_FEEDBACK, Outcome
+from ...steps.position import Position
+from ...steps.settings import NonBlankText, Settings, specialized
 from ..matching import (
     MATCH_FIELD,
     SPELLING_CUTOFFS,
@@ -33,11 +37,6 @@ from ..matching import (
     model_context,
     unreadable_problems,
 )
-from ..method import AnswerMethod
-from ..outcome import CORRECT_FEEDBACK, Outcome
-from ..position import Position
-from ..settings import NonBlankText, Settings, specialized
-from ..step import Step
 
 # The lower, over both directions, of entailment minus contradiction; calibrated on real students'
 # answers to science, civics and computing questions.
@@ -84,8 +83,7 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
         }.get(position.question_type or "", ("tolerance",))
         return specialized(AcceptedAnswersSettings, excluded_fields=hidden_fields)
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: AcceptedAnswersSettings) -> str:
         if not settings.answers:
             return "No accepted answers."
         comparison_note = (
@@ -99,7 +97,7 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
             f"Matches {code_join(settings.answers, conjunction='or')}{comparison_note}"
         )
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: AcceptedAnswersSettings, answer: Answer, question: Question
     ) -> Outcome:
         if not settings.answers:
@@ -137,8 +135,7 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
             return not_accepted_outcome
         return Outcome(1.0, f"Accepted as {quoted(settings.answers[index])}.")
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(step)
+    def problems(self, settings: AcceptedAnswersSettings, position: Position) -> Iterator[Problem]:
         yield from match_problems(settings.match)
         question = position.question_model
         if question is not None:

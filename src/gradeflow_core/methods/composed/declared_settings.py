@@ -3,7 +3,7 @@
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, get_args, get_origin
+from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError, create_model
 from pydantic.fields import FieldInfo
@@ -12,15 +12,20 @@ from pydantic_core import PydanticUndefined
 from ...common.error_formatting import error_message
 from ...common.hints import Hint, hint_of
 from ...common.paths import Location
+from ...common.problems import InvalidError, Problem
 from ...common.text import quoted_join
-from ..settings import Settings, annotated, item_field, literal_type
-from ..step import METHODS_CONTEXT_KEY, STEP_OWN_FIELDS, step_cardinality
-from ..templates import TemplateError, has_template, names_read_in, reference_expression, validate
-from .expand import EXPANDED_NAMES
-from .file import TEMPLATE_KEYS, DeclaredSetting, MethodFile, MethodFileFieldError
-
-if TYPE_CHECKING:
-    from ..method import Method
+from ...steps.method import Method
+from ...steps.settings import annotated, item_field, literal_type, step_cardinality
+from ...steps.step import METHODS_CONTEXT_KEY, NOT_A_STEP_MESSAGE, STEP_OWN_PROPERTIES
+from ...steps.templates import (
+    TemplateError,
+    has_template,
+    names_read_in,
+    reference_expression,
+    validate,
+)
+from .expand import EXPANDED_NAMES, ComposedSettings
+from .file import TEMPLATE_KEYS, DeclaredSetting, MethodFile, method_file_error
 
 _DOTTED_NAME = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
 """A reference by name, such as ``settings.points``."""
@@ -29,7 +34,7 @@ _DOTTED_NAME = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
 class _SettingTypes:
     """The type and field of each declared setting, from the setting it fills."""
 
-    def __init__(self, file: MethodFile, methods_by_ref: Mapping[str, Method[Any]]) -> None:
+    def __init__(self, file: MethodFile, methods_by_ref: Mapping[str, Method]) -> None:
         self.file = file
         self.methods_by_ref = methods_by_ref
         self.setting_types: dict[str, tuple[Any, FieldInfo]] = {}
@@ -37,36 +42,30 @@ class _SettingTypes:
         self.settings_in_templates = names_read_in(
             [file.description, file.feedback, file.steps, file.marks_by], "settings"
         )
-        self.errors: list[MethodFileFieldError] = []
+        self.problems: list[Problem] = []
         """The problems found so far."""
 
     def declared_setting_types(self) -> dict[str, tuple[Any, FieldInfo]]:
         workflow_step_data = self.file.workflow_step_data()
         method = self.methods_by_ref.get(workflow_step_data["uses"])
         if method is None:
-            raise MethodFileFieldError(
-                f"There's no method {workflow_step_data['uses']}.", ("uses",)
-            )
+            raise method_file_error(f"There's no method {workflow_step_data['uses']}.", ("uses",))
         self._visit_settings(workflow_step_data["with"], method, ())
         for setting_name, declared_setting in self.file.settings.items():
             with self._collect_errors():
                 self._visit_declared_setting(setting_name, declared_setting)
-        if self.errors:
-            raise MethodFileFieldError.combined(self.errors)
+        if self.problems:
+            raise InvalidError(self.problems)
         return self.setting_types
 
     def _visit_declared_setting(self, setting_name: str, declared_setting: DeclaredSetting) -> None:
-        if setting_name in STEP_OWN_FIELDS:
-            raise MethodFileFieldError(
-                f"Steps already have a field called {setting_name}. Choose another name.",
-                ("settings", setting_name),
-            )
-        if (
-            setting_name in self.setting_types or self.errors
-        ):  # a setting that failed may be the one that uses it
+        if message := setting_name_problem(setting_name):
+            raise method_file_error(message, ("settings", setting_name))
+        # A setting that failed may be the one that uses it.
+        if setting_name in self.setting_types or self.problems:
             return
         if setting_name not in self.settings_in_templates:
-            raise MethodFileFieldError(
+            raise method_file_error(
                 f"{declared_setting.title or f'Setting {setting_name}'} isn't used.",
                 ("settings", setting_name),
             )
@@ -77,8 +76,8 @@ class _SettingTypes:
         """Records a problem raised inside, and goes on."""
         try:
             yield
-        except MethodFileFieldError as error:
-            self.errors.append(error)
+        except InvalidError as error:
+            self.problems += error.problems
 
     def _record_setting_type(
         self, expression: str, annotation: Any, field_info: FieldInfo, path: Location
@@ -90,8 +89,8 @@ class _SettingTypes:
                     expression, dict.fromkeys(EXPANDED_NAMES, "any"), expression_kind="reference"
                 )
             except TemplateError as error:
-                raise MethodFileFieldError(str(error), path) from None
-            raise MethodFileFieldError("Use one {{ settings.name }} and nothing else.", path)
+                raise method_file_error(str(error), path) from None
+            raise method_file_error("Use one {{ settings.name }} and nothing else.", path)
         root, *attribute_names = expression.split(".")
         if (
             root == "settings"
@@ -100,7 +99,7 @@ class _SettingTypes:
         ):
             recorded_type = self.setting_types.get(attribute_names[0])
             if recorded_type is not None and recorded_type[0] != annotation:
-                raise MethodFileFieldError(
+                raise method_file_error(
                     f"Setting {attribute_names[0]} fills settings of different types.", path
                 )
             self.setting_types.setdefault(attribute_names[0], (annotation, field_info))
@@ -109,41 +108,41 @@ class _SettingTypes:
                 attribute_names[0] if attribute_names else "", (annotation, field_info)
             )
         elif root != "index":
-            raise MethodFileFieldError(f"There's no {expression}.", path)
+            raise method_file_error(f"There's no {expression}.", path)
 
     def _visit_step(self, step_data: Any, path: Location) -> None:
         if not isinstance(step_data, Mapping) or "uses" not in step_data:
-            raise MethodFileFieldError("A step needs uses: and a method's name.", path)
+            raise method_file_error(NOT_A_STEP_MESSAGE, path)
         method = self.methods_by_ref.get(str(step_data["uses"]))
         if method is None:
-            raise MethodFileFieldError(f"There's no method {step_data['uses']}.", (*path, "uses"))
+            raise method_file_error(f"There's no method {step_data['uses']}.", (*path, "uses"))
         for step_key, value in sorted(step_data.items(), key=lambda item: item[0] != "with"):
             if step_key in TEMPLATE_KEYS or step_key in ("uses", "for_each"):
                 continue
             if step_key == "with":
                 self._visit_settings(value, method, (*path, "with"))
-            elif step_key not in STEP_OWN_FIELDS:
-                raise MethodFileFieldError(f"A step has no {step_key}:.", (*path, step_key))
+            elif step_key not in STEP_OWN_PROPERTIES:
+                raise method_file_error(f"A step has no {step_key}:.", (*path, step_key))
             elif (expression := reference_expression(value)) is not None:
-                field_info = STEP_OWN_FIELDS[step_key]
+                field_info = STEP_OWN_PROPERTIES[step_key]
                 self._record_setting_type(
                     expression, field_info.annotation, field_info, (*path, step_key)
                 )
 
-    def _visit_settings(self, settings: Any, method: Method[Any], path: Location) -> None:
+    def _visit_settings(self, settings: Any, method: Method, path: Location) -> None:
         if (expression := reference_expression(settings)) is not None:
-            raise MethodFileFieldError(
+            raise method_file_error(
                 f"Fill in a method's settings one by one, not with {expression}.",
                 path,
             )
         if not isinstance(settings, Mapping | None):
-            raise MethodFileFieldError("A step's settings aren't a mapping.", path)
+            raise method_file_error("A step's settings aren't a mapping.", path)
         model = method.settings
         for setting_name, value in (settings or {}).items():
             with self._collect_errors():
                 field_info = model.model_fields.get(setting_name)
                 if field_info is None:
-                    raise MethodFileFieldError(
+                    raise method_file_error(
                         f"{method.label} has no setting {setting_name}.", (*path, setting_name)
                     )
                 if (root := _root_of(value)) is not None:
@@ -161,7 +160,9 @@ class _SettingTypes:
         match step_cardinality(field_info):
             case "one":
                 self._visit_step(value, path)
-            case "many" if (item_field_info := item_field(field_info)) is not None:
+            case "many" if (
+                isinstance(value, list) and (item_field_info := item_field(field_info)) is not None
+            ):
                 for index, item in enumerate(value):
                     with self._collect_errors():
                         self._visit_item(item, item_field_info, (*path, index))
@@ -188,9 +189,7 @@ class _SettingTypes:
         if isinstance(item, Mapping) and "for_each" in item:
             list_reference = reference_expression(item["for_each"])
             if list_reference is None or not list_reference.startswith("settings."):
-                raise MethodFileFieldError(
-                    "for_each needs one {{ settings.… }}.", (*path, "for_each")
-                )
+                raise method_file_error("for_each needs one {{ settings.… }}.", (*path, "for_each"))
             self.repeated_item_fields.append({})
             self._visit_step(item, path)
             item_fields = self._with_item_titles(
@@ -209,7 +208,7 @@ class _SettingTypes:
                 )  # type: ignore[call-overload]
                 item_field_info = FieldInfo()
             else:
-                raise MethodFileFieldError("A repeated step uses {{ item }}.", path)
+                raise method_file_error("A repeated step uses {{ item }}.", path)
             self._record_setting_type(
                 list_reference,
                 list[annotation],  # type: ignore[valid-type]
@@ -228,7 +227,7 @@ class _SettingTypes:
         declared_setting = self.file.settings.get(list_reference.removeprefix("settings."))
         item_titles = (declared_setting.items if declared_setting else None) or {}
         if unused_item_fields := item_titles.keys() - item_fields.keys():
-            raise MethodFileFieldError(
+            raise method_file_error(
                 f"Each item has no {', '.join(sorted(unused_item_fields))}.", (*path, "for_each")
             )
         return {
@@ -243,6 +242,17 @@ class _SettingTypes:
             else (annotation, item_field_info)
             for item_field_name, (annotation, item_field_info) in item_fields.items()
         }
+
+
+def setting_name_problem(name: str) -> str | None:
+    """Why a declared setting can't be called ``name``, if it can't: a step has a field of that
+    name, or the settings model has it already, as it has ``expansion``."""
+    if name in STEP_OWN_PROPERTIES:
+        return f"Steps already have a field called {name}. Choose another name."
+    # Pydantic keeps names with a leading underscore for private attributes.
+    if name.startswith("_") or hasattr(ComposedSettings, name):
+        return f"A setting can't be called {name}. Choose another name."
+    return None
 
 
 def _root_of(value: Any) -> str | None:
@@ -280,7 +290,7 @@ def _with_setting_conditions(
             allowed_values = quoted_join(
                 [labels.get(str(option), option) for option in applicable_values], conjunction="or"
             )
-            raise MethodFileFieldError(
+            raise method_file_error(
                 f"{field_info.title} applies when {sibling_field_info.title} is {allowed_values}.",
                 path,
             )
@@ -304,7 +314,10 @@ def _type_of(default: Any) -> Any:
 
 
 def _validate_written_value(
-    value: Any, field_info: FieldInfo, path: Location, methods_by_ref: Mapping[str, Method[Any]]
+    value: Any,
+    field_info: FieldInfo,
+    path: Location,
+    methods_by_ref: Mapping[str, Method],
 ) -> None:
     """Refuses a setting written as it is that its method wouldn't accept."""
     try:
@@ -313,9 +326,7 @@ def _validate_written_value(
         )
     except ValidationError as error:
         first_error = error.errors()[0]
-        raise MethodFileFieldError(
-            error_message(first_error), (*path, *first_error["loc"])
-        ) from None
+        raise method_file_error(error_message(first_error), (*path, *first_error["loc"])) from None
 
 
 def declared_setting_field(
@@ -352,7 +363,9 @@ def declared_setting_field(
     return annotation, declared_field_info
 
 
-def settings_model(file: MethodFile, methods_by_ref: Mapping[str, Method[Any]]) -> type[Settings]:
+def settings_model(
+    file: MethodFile, methods_by_ref: Mapping[str, Method]
+) -> type[ComposedSettings]:
     """The settings model of the method ``file`` defines."""
     setting_types = _SettingTypes(file, methods_by_ref).declared_setting_types()
     fields = {
@@ -367,5 +380,10 @@ def settings_model(file: MethodFile, methods_by_ref: Mapping[str, Method[Any]]) 
                 ("settings", setting_name, "default"),
                 methods_by_ref,
             )
-    model: type[Settings] = create_model(file.label, __base__=Settings, **fields)  # type: ignore[call-overload]
+    model: type[ComposedSettings] = create_model(  # type: ignore[call-overload]
+        file.label,
+        __base__=ComposedSettings,
+        __cls_kwargs__={"workflow": file.workflow_step_data()},
+        **fields,
+    )
     return model

@@ -20,6 +20,7 @@ from .helpers import (
     mark_all,
     mark_group,
     mark_scheme_of,
+    problems_in,
     problems_of,
 )
 
@@ -107,7 +108,7 @@ def test_code_that_cant_run_is_a_problem_of_the_check() -> None:
         ("", ("code",), "Line 1: '(' was never closed.")
     ]
     [marking] = mark_scheme_of(custom_code_for_a_group("results = {}\nif True\n", "Q1")).markings
-    [problem] = marking.problems(QuestionSet(QUESTIONS))
+    [problem] = problems_in(marking, QuestionSet(QUESTIONS))
     assert (problem.step_path, problem.field, problem.message) == (
         "",
         ("code",),
@@ -117,7 +118,10 @@ def test_code_that_cant_run_is_a_problem_of_the_check() -> None:
 
 def test_the_starting_code_gives_no_marks() -> None:
     [marking] = mark_scheme_of({"question": "Q1", "uses": "gradeflow/custom-code@1"}).markings
-    assert marking.with_.code == 'correct = False\nfeedback = ""\n'  # type: ignore[attr-defined]
+    assert marking.dump() == {"question": "Q1", "uses": "gradeflow/custom-code@1"}
+    settings = marking.settings
+    assert isinstance(settings, CustomCodeSettings)
+    assert settings.code == 'correct = False\nfeedback = ""\n'
     assert mark_all({"uses": "gradeflow/custom-code@1"}, ["x"])[0].proportion == 0
     assert describe(custom_code("correct = True")) == (
         "Python code decides the marks:\n\n```python\ncorrect = True\n```"
@@ -236,7 +240,7 @@ def test_group_code_that_fails_leaves_its_questions_for_a_person(source: str, me
 
 def test_group_code_lists_each_question_of_the_assessment_once() -> None:
     [marking] = mark_scheme_of(custom_code_for_a_group("results = {}", "Q1", "Q1", "Q9")).markings
-    problems = located(marking.problems(QuestionSet(QUESTIONS)))
+    problems = located(problems_in(marking, QuestionSet(QUESTIONS)))
     assert problems == [
         ("", ("questions", 1), "Q1 is listed twice."),
         ("", ("questions", 2), "Q9 isn't one of the questions."),

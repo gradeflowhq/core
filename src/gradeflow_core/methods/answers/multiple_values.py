@@ -10,27 +10,29 @@ from ...common.problems import Problem
 from ...common.text import markdown_list
 from ...questions.types import QuestionId
 from ...questions.values import ValuesQuestion
-from ..example import examples_beside
-from ..logic.workflow import (
-    MARKS_BY_FIELD,
-    MarksBy,
+from ...steps.combining import COMBINATIONS, Part, combine
+from ...steps.context import Context
+from ...steps.example import examples_beside
+from ...steps.method import MarkingMethod
+from ...steps.nested_steps import (
+    MarksBySetting,
     NestedCheck,
-    combine,
-    description_heading,
-    run_steps,
+    combined_part,
+    questions_marked_by,
+    questions_read_by,
 )
-from ..method import MarkingMethod
-from ..outcome import CORRECT_FEEDBACK, Outcome
-from ..position import Position
-from ..settings import Settings, specialized
-from ..step import Check, Context, Step
+from ...steps.outcome import CORRECT_FEEDBACK, Outcome, QuestionOutcomes
+from ...steps.position import Position
+from ...steps.running import mark, run_steps
+from ...steps.settings import Settings, specialized
+from ...steps.step import Step
 from .accepted_answers import AcceptedAnswers
 
 MAX_ANY_ORDER_VALUES = 6
 
 
 class MultipleValuesSettings(Settings):
-    marks_by: MarksBy = MARKS_BY_FIELD
+    marks_by: MarksBySetting = "all_correct"
     checks: list[NestedCheck] = Field(
         default_factory=list, title="Checks", description="One check for each value."
     )
@@ -88,68 +90,83 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
             ]
         }
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: MultipleValuesSettings) -> str:
         check_lines = markdown_list(
             f"**{check.name or f'Value {value_number}'}:** {check.describe()}"
             for value_number, check in enumerate(settings.checks, start=1)
         )
-        heading = description_heading(
-            settings.marks_by, *(["in any order"] if settings.any_order else [])
+        heading = COMBINATIONS[settings.marks_by].description_heading(
+            *(["in any order"] if settings.any_order else [])
         )
         return f"{heading}\n{check_lines}"
 
-    def _mark_student(
+    def mark_student(
         self, settings: MultipleValuesSettings, context: Context, question_id: QuestionId | None
-    ) -> dict[QuestionId, Outcome]:
+    ) -> QuestionOutcomes:
         assert question_id is not None  # it marks a values question
         checks = settings.checks
         if not settings.any_order:
             [check_outcomes], _ = run_steps(checks, [context], question_id)
-            named_check_outcomes = [
-                (check, _named_by_value(outcomes, check, value_number))
-                for value_number, (check, outcomes) in enumerate(check_outcomes, start=1)
-            ]
             return _with_correct_feedback(
-                combine(settings.marks_by, named_check_outcomes, context.questions)
+                combine(
+                    settings.marks_by,
+                    [
+                        _named_by_value(check, outcomes, value_number)
+                        for value_number, (check, outcomes) in enumerate(check_outcomes, start=1)
+                    ],
+                    context.questions,
+                )
             )
         answer = context.answers.get(question_id)
         assert isinstance(answer, list)  # it marks a values question
         value_count = len(answer)
         outcomes_by_check_and_value = {
-            (index, value_number): _named_by_value(
-                check.model_copy(update={"input": None}).mark(
-                    [context.with_value_as_answer(question_id, value_number)], question_id
-                )[0],
-                check,
-                value_number,
-            )
+            (index, value_number): mark(
+                check.model_copy(update={"input": None}),
+                [replace(context, input=context.value(question_id, value_number))],
+                question_id,
+            )[0]
             for index, check in enumerate(checks)
             for value_number in range(1, value_count + 1)
         }
 
-        def combined_for_pairing(value_numbers: tuple[int, ...]) -> dict[QuestionId, Outcome]:
-            check_outcomes = [
-                (check, outcomes_by_check_and_value[index, value_number])
-                for index, (check, value_number) in enumerate(
-                    zip(checks, value_numbers, strict=True)
-                )
-            ]
-            return combine(settings.marks_by, check_outcomes, context.questions)
+        def combined_for_pairing(value_numbers: tuple[int, ...]) -> QuestionOutcomes:
+            return combine(
+                settings.marks_by,
+                [
+                    _named_by_value(
+                        check, outcomes_by_check_and_value[index, value_number], value_number
+                    )
+                    for index, (check, value_number) in enumerate(
+                        zip(checks, value_numbers, strict=True)
+                    )
+                ],
+                context.questions,
+            )
+
+        def proportion(outcomes: QuestionOutcomes) -> float:
+            outcome = outcomes.get(question_id)
+            return outcome.proportion if isinstance(outcome, Outcome) else 0.0
 
         pairings = permutations(range(1, value_count + 1), len(checks))
         return _with_correct_feedback(
-            max(
-                (combined_for_pairing(value_numbers) for value_numbers in pairings),
-                key=lambda outcomes: outcomes.get(question_id, Outcome(0.0)).proportion,
-            )
+            max((combined_for_pairing(value_numbers) for value_numbers in pairings), key=proportion)
         )
 
-    def reads_earlier_results(self, settings: Mapping[str, Any]) -> bool:
+    def runs_inner_steps_in_order(self, settings: Mapping[str, Any]) -> bool:
         return not settings.get("any_order", False)
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(step)
+    def questions_marked(
+        self, settings: MultipleValuesSettings, question_id: QuestionId | None
+    ) -> set[QuestionId]:
+        return questions_marked_by(settings.checks, question_id)
+
+    def questions_read(
+        self, settings: MultipleValuesSettings, question_id: QuestionId | None
+    ) -> set[QuestionId]:
+        return questions_read_by(settings.checks, question_id)
+
+    def problems(self, settings: MultipleValuesSettings, position: Position) -> Iterator[Problem]:
         question = position.question_model
         if not isinstance(question, ValuesQuestion):
             return
@@ -164,24 +181,27 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
 
 
 def _named_by_value(
-    outcomes: dict[QuestionId, Outcome], check: Check, value_number: int
-) -> dict[QuestionId, Outcome]:
-    """Outcomes named by the value they marked, so each line of feedback says which it is."""
-    if check.name:
-        return {
-            question_id: replace(outcome, name=check.name)
-            for question_id, outcome in outcomes.items()
-        }
+    check: Step, outcomes: QuestionOutcomes, value_number: int
+) -> tuple[Part, QuestionOutcomes]:
+    """A check and its outcomes to combine. One without a name is named by the value it marked, so
+    each line of feedback says which it is."""
     value_label = f"Value {value_number}"
-    return {
-        question_id: replace(outcome, name=value_label, labels=(*outcome.labels, value_label))
+    part = combined_part(check, value_label)
+    if check.name:
+        return part, outcomes
+    return part, {
+        question_id: replace(outcome, labels=(*outcome.labels, value_label))
+        if isinstance(outcome, Outcome)
+        else outcome
         for question_id, outcome in outcomes.items()
     }
 
 
-def _with_correct_feedback(outcomes: dict[QuestionId, Outcome]) -> dict[QuestionId, Outcome]:
+def _with_correct_feedback(outcomes: QuestionOutcomes) -> QuestionOutcomes:
     """An answer whose every value is correct is “Correct.”, without a line for each."""
     return {
-        question_id: replace(outcome, feedback=CORRECT_FEEDBACK) if outcome.correct else outcome
+        question_id: replace(outcome, feedback=CORRECT_FEEDBACK)
+        if isinstance(outcome, Outcome) and outcome.correct
+        else outcome
         for question_id, outcome in outcomes.items()
     }

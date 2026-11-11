@@ -10,7 +10,8 @@ from rapidfuzz.distance import Levenshtein
 
 from ..common.hints import hint
 from ..common.problems import Problem
-from ..ml import MISSING_MODEL_MESSAGE, nli
+from ..models import nli
+from ..models.local import MISSING_MODEL_MESSAGE
 from ..questions.base import Question
 
 type MatchMode = Literal["exact", "spelling", "meaning"]

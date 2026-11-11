@@ -138,7 +138,7 @@ def test_a_question_ignoring_punctuation_is_a_problem() -> None:
     assert problems_of(equivalent_expression("2(x + 1)"), question) == [
         (
             "",
-            ("with",),
+            (),
             "The question ignores punctuation, which removes the brackets and signs "
             "expressions need.",
         )

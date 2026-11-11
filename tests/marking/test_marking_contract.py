@@ -3,10 +3,12 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core import Check, MarkScheme, QuestionSet, Submission, mark
-from gradeflow_core.methods.outcome import Outcome
-from gradeflow_core.methods.step import Context
+from gradeflow_core import MarkScheme, QuestionSet, Submission, mark
 from gradeflow_core.questions.text import TextQuestion
+from gradeflow_core.steps import running
+from gradeflow_core.steps.context import Context
+from gradeflow_core.steps.outcome import QuestionOutcomes
+from gradeflow_core.steps.step import Step
 
 
 def test_mark_marks_each_distinct_answer_once_and_isolates_results(
@@ -38,16 +40,16 @@ def test_mark_marks_each_distinct_answer_once_and_isolates_results(
         ]
     )
     marked_questions: list[str | None] = []
-    original = Check.mark
+    original = running.mark
 
     def recording_mark(
-        self: Check, contexts: Sequence[Context], *args: Any, **kwargs: Any
-    ) -> list[dict[str, Outcome]]:
-        if any(self is marking for marking in scheme.markings):
-            marked_questions.append(self.question)
-        return original(self, contexts, *args, **kwargs)
+        check: Step, contexts: Sequence[Context], *args: Any, **kwargs: Any
+    ) -> list[QuestionOutcomes]:
+        if any(check is marking for marking in scheme.markings):
+            marked_questions.append(check.question)
+        return original(check, contexts, *args, **kwargs)
 
-    monkeypatch.setattr(Check, "mark", recording_mark)
+    monkeypatch.setattr(running, "mark", recording_mark)
     students_read: list[str] = []
 
     def submissions() -> Iterator[Submission]:
@@ -66,7 +68,7 @@ def test_mark_marks_each_distinct_answer_once_and_isolates_results(
     first.results["Q1"].proportion = 0
     first.results["Q3"].feedback = "Changed by caller"
     remaining = list(marked_submissions)
-    assert [submission.student_id for submission in remaining] == ["bob", "cara", "dan"]
+    assert [submission.sheet.student_id for submission in remaining] == ["bob", "cara", "dan"]
     assert [submission.results["Q3"].proportion for submission in remaining] == [0, 1, 1]
     assert all(submission.results["Q1"].proportion == 1 for submission in remaining)
     assert remaining[1].results["Q3"].feedback != "Changed by caller"
@@ -185,6 +187,6 @@ def test_custom_code_marking_has_no_student_identity_and_reuses_settings(
         Submission(student_id=student, answers={"Q1": "yes"}) for student in ["alice", "bob"]
     ]
     results = list(mark(questions, scheme, submissions))
-    assert [submission.student_id for submission in results] == ["alice", "bob"]
+    assert [submission.sheet.student_id for submission in results] == ["alice", "bob"]
     assert all(submission.results["Q1"].proportion == 1 for submission in results)
     assert code_variables == [{"answer": "yes"}]

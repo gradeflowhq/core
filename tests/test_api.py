@@ -10,8 +10,7 @@ import gradeflow_core
 from gradeflow_core import (
     AnswersCsv,
     AnswerSheet,
-    MarkedSheet,
-    MarkedSubmission,
+    Marked,
     MarkScheme,
     QuestionSet,
     Submission,
@@ -28,11 +27,12 @@ SCHEME = MarkScheme.load(
 
 def test_scripting_needs_only_these_names() -> None:
     assert sorted(gradeflow_core.__all__) == [
+        "Answer",
         "AnswerComparison",
+        "AnswerMethod",
         "AnswerSheet",
         "AnswersCsv",
         "BUILTINS",
-        "Check",
         "CheckResult",
         "ChoiceQuestion",
         "CodeQuestion",
@@ -40,15 +40,15 @@ def test_scripting_needs_only_these_names() -> None:
         "GradeFlowError",
         "InvalidError",
         "MarkScheme",
+        "Marked",
         "MarkedExample",
-        "MarkedSheet",
-        "MarkedSubmission",
         "Method",
         "MethodFileError",
         "Methods",
         "ModelEndpoint",
         "ModelTrial",
         "NumberQuestion",
+        "Outcome",
         "Problem",
         "Progress",
         "Question",
@@ -56,17 +56,22 @@ def test_scripting_needs_only_these_names() -> None:
         "QuestionSet",
         "ReportLine",
         "ResultsCsv",
+        "Settings",
         "Step",
         "Submission",
         "TextQuestion",
+        "TransformMethod",
+        "Unreadable",
         "ValuesQuestion",
         "answer_from_files",
         "best_models",
         "compare_answers",
+        "list_models",
         "mark",
         "mark_examples",
         "read_answer_key",
         "read_question_document",
+        "try_model",
         "try_models",
     ]
     assert not set(gradeflow_core.__all__) & set(editing.__all__)
@@ -116,7 +121,7 @@ def test_imported_answers_are_marked_and_unmarked_questions_keep_their_given_mar
         student_id_column="student_id", answer_columns=["Q1", "Q2"], marks_columns={"Q2": "m2"}
     ).read("student_id,Q1,Q2,m2\ns1,hello,x,0.5\ns2,world,y,1\n")
     results_by_student = {
-        submission.student_id: submission.results
+        submission.sheet.student_id: submission.results
         for submission in mark(QUESTIONS, SCHEME, submissions)
     }
     assert {
@@ -134,22 +139,25 @@ def test_mark_yields_each_student_once_they_are_marked() -> None:
         Submission(student_id=f"s{index}", answers={"Q1": "hello"}) for index in range(3)
     )
     marked_submissions = mark(QUESTIONS, SCHEME, submissions)
-    assert next(marked_submissions).student_id == "s0"
+    assert next(marked_submissions).sheet.student_id == "s0"
 
 
-def test_a_sheet_is_marked_as_a_sheet_and_a_submission_as_a_submission() -> None:
+def test_a_marked_sheet_holds_the_sheet_it_was_given() -> None:
     sheets = [
         AnswerSheet(answers={"Q1": "hello"}, marks={"Q2": 0.5}),
         Submission(student_id="s1", answers={"Q1": "world"}),
     ]
-    sheet, submission = mark(QUESTIONS, SCHEME, sheets)
-    assert type(sheet) is MarkedSheet
-    assert {question_id: result.proportion for question_id, result in sheet.results.items()} == {
-        "Q1": 1,
-        "Q2": 0.5,
-    }
-    assert isinstance(submission, MarkedSubmission)
-    assert submission.student_id == "s1"
+    marked_sheet, marked_submission = mark(QUESTIONS, SCHEME, sheets)
+    assert [marked_sheet.sheet, marked_submission.sheet] == sheets
+    assert {
+        question_id: result.proportion for question_id, result in marked_sheet.results.items()
+    } == {"Q1": 1, "Q2": 0.5}
+
+
+def test_marked_submissions_round_trip() -> None:
+    submissions = [Submission(student_id="s1", answers={"Q1": "hello"})]
+    [marked] = mark(QUESTIONS, SCHEME, submissions)
+    assert Marked[Submission].model_validate_json(marked.model_dump_json()) == marked
 
 
 def test_marking_inputs_round_trip() -> None:

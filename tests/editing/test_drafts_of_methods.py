@@ -2,10 +2,11 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core import BUILTINS, Check, QuestionSet
+from gradeflow_core import BUILTINS, QuestionSet
 from gradeflow_core.editing import EditingError, MarkingDraft, MethodDraft
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
+from gradeflow_core.steps.step import valid_step
 from tests.methods.helpers import mark_all, proportions, with_value_inputs
 
 from ..methods.helpers import WRAPPED_NUMBER_RANGE, located
@@ -27,8 +28,8 @@ def test_any_order_values_give_their_checks_no_earlier_checks() -> None:
         },
     }
     draft = MarkingDraft(marking, questions, "Q1")
-    assert draft.earlier_checks("with.checks.1") == []
-    assert "if" not in draft.schema("with.checks.0")["properties"]
+    assert draft.earlier_checks("/with/checks/1") == []
+    assert "if" not in draft.schema("/with/checks/0")["properties"]
 
 
 def test_a_composed_methods_check_that_cant_mark_the_question_is_its_users_problem() -> None:
@@ -52,7 +53,7 @@ def test_a_drafts_problems_are_where_the_check_is_in_a_branch() -> None:
         },
     }
     draft = MarkingDraft(marking, questions, None)
-    assert draft.problems[0].step_path == "with.then.0"
+    assert draft.problems[0].step_path == "/with/then/0"
 
 
 def test_a_drafts_earlier_checks_match_generated_execution_order() -> None:
@@ -68,7 +69,7 @@ def test_a_drafts_earlier_checks_match_generated_execution_order() -> None:
     }
     draft = MarkingDraft(marking, QUESTIONS, None)
     assert not draft.problems
-    assert draft.earlier_checks("with.then.1") == ["with.then.0"]
+    assert draft.earlier_checks("/with/then/1") == ["/with/then/0"]
 
 
 def test_a_branchs_checks_read_those_before_them_while_the_condition_is_unfinished() -> None:
@@ -88,8 +89,8 @@ def test_a_branchs_checks_read_those_before_them_while_the_condition_is_unfinish
         },
     }
     draft = MarkingDraft(marking, questions, None)
-    assert draft.earlier_checks("with.then.1") == ["with.then.0"]
-    assert [problem.step_path for problem in draft.problems] == ["with.condition.0"]
+    assert draft.earlier_checks("/with/then/1") == ["/with/then/0"]
+    assert [problem.step_path for problem in draft.problems] == ["/with/condition/0"]
 
 
 MARKING = {
@@ -111,15 +112,15 @@ MARKING = {
 def test_a_marking_saved_as_a_method_marks_like_it_with_its_fields_as_settings() -> None:
     name = "sample/term-not-look-alike"
     draft = MethodDraft.from_marking(
-        Check.load(MARKING),
+        valid_step(MARKING, BUILTINS.by_ref),
         QUESTIONS,
         name=name,
         version=1,
         label="Term, not look-alike",
         summary="The term, not its look-alike.",
     )
-    draft.bind_new_setting("with.steps.0.with.points")
-    draft.bind_new_setting("with.steps.1.with.check.with.point")
+    draft.bind_new_setting("/with/steps/0/with/points")
+    draft.bind_new_setting("/with/steps/1/with/check/with/point")
     methods = BUILTINS.with_files([(name, draft.to_yaml())])
     saved = {"uses": draft.finalized().ref}
     filled = {"uses": saved["uses"], "with": {"points": ["photon"], "point": "foton"}}
@@ -129,7 +130,12 @@ def test_a_marking_saved_as_a_method_marks_like_it_with_its_fields_as_settings()
 
 def test_exposing_a_setting_refuses_unknown_paths() -> None:
     draft = MethodDraft.from_marking(
-        Check.load(MARKING), QUESTIONS, name="x", version=1, label="X", summary="X."
+        valid_step(MARKING, BUILTINS.by_ref),
+        QUESTIONS,
+        name="x",
+        version=1,
+        label="X",
+        summary="X.",
     )
     with pytest.raises(EditingError, match="isn't a field a setting can fill"):
-        draft.bind_new_setting("with.nope")
+        draft.bind_new_setting("/with/nope")

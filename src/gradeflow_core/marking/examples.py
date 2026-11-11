@@ -7,36 +7,40 @@ from typing import Any
 from pydantic import BaseModel
 
 from ..common.exceptions import GradeFlowError
-from ..common.model_service import ModelEndpoint
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
-from ..methods.example import Example, ExampleRow, ExpectedResult
-from ..methods.method import Method
-from ..methods.outcome import NO_ANSWER_FEEDBACK, ROUNDING_TOLERANCE, SkippedStep, StepResult
-from ..methods.step import Context, Step, Transform
+from ..models.model_service import ModelEndpoint
 from ..questions.question_set import QuestionSet
 from ..questions.reading import write_answer
 from ..questions.types import QuestionId, Unreadable
+from ..steps.context import Context
+from ..steps.example import Example, ExampleRow, ExpectedResult
+from ..steps.method import Method
+from ..steps.outcome import NO_ANSWER_FEEDBACK, ROUNDING_TOLERANCE, Skipped, StepResult
+from ..steps.places import marking_position
+from ..steps.problems import located_problems
+from ..steps.running import marked_question_id, transform
+from ..steps.step import Step, valid_step
 from .mark import mark
 from .mark_scheme import MarkScheme
-from .results import MarkedSheet, QuestionResult
+from .results import Marked, QuestionResult
 
 
-class RowResult(MarkedSheet):
-    """What marking one row gave, and whether it is as declared."""
+class RowResult(Marked[ExampleRow]):
+    """An example row with what marking gave it, and whether that is as it declares."""
 
     matches_expected: bool | None
     """None when the row declares no result."""
 
     def as_example(self) -> ExampleRow:
         """The row declaring what marking gave it."""
-        return ExampleRow(
-            answers=self.answers,
-            marks=self.marks,
-            expected={
-                question_id: ExpectedResult(marks=result.marks, feedback=result.feedback)
-                for question_id, result in self.results.items()
-            },
+        return self.sheet.model_copy(
+            update={
+                "expected": {
+                    question_id: ExpectedResult(marks=result.marks, feedback=result.feedback)
+                    for question_id, result in self.results.items()
+                }
+            }
         )
 
 
@@ -68,9 +72,8 @@ def mark_rows(
         if problems := scheme.problems(questions):
             raise GradeFlowError(str(problems[0]))
         return _row_results(scheme, questions, question, rows, model_endpoint)
-    step = Step.load(data, methods=methods)
-    assert isinstance(step, Transform)  # a method that gives no marks
-    if problems := step.problems(questions):
+    step = valid_step(data, methods.by_ref)
+    if problems := located_problems(step, marking_position(questions, step.question)):
         raise GradeFlowError(str(problems[0]))
     return _transform_row_results(step, questions, question, rows)
 
@@ -86,7 +89,7 @@ def mark_examples(
 
 
 def _marked_example(
-    method: Method[Any],
+    method: Method,
     example: Example,
     methods: Methods,
     model_endpoint: ModelEndpoint | None,
@@ -102,12 +105,12 @@ def _marked_example(
             questions=questions,
             question=question_id,
             settings=example.with_,
-            rows=example.rows,
+            rows=[row.model_copy(deep=True) for row in example.rows],
             model_endpoint=model_endpoint,
         )
     except GradeFlowError as error:
         raise GradeFlowError(f"{example.title}: {error}") from None
-    step = Step.load(method_step_data(method.ref, question_id, example.with_), methods=methods)
+    step = valid_step(method_step_data(method.ref, question_id, example.with_), methods.by_ref)
     return MarkedExample(title=example.title, description=step.describe(), rows=row_results)
 
 
@@ -119,7 +122,7 @@ def method_step_data(
 
 
 def _transform_row_results(
-    step: Transform,
+    step: Step,
     questions: QuestionSet,
     question_id: QuestionId | None,
     rows: Sequence[ExampleRow],
@@ -129,15 +132,14 @@ def _transform_row_results(
         Context(questions.read(row), questions, written_answers=row.answers) for row in rows
     ]
     max_marks = sum(question.max_marks for question in questions.values())
-    marked_question_id = step.marked_question_id(question_id)
-    question_ids = {marked_question_id} if marked_question_id else step.questions_read(question_id)
+    marked_id = marked_question_id(step, question_id)
+    question_ids = {marked_id} if marked_id else step.questions_read(question_id)
     row_results = []
-    for row, result in zip(rows, step.transform(contexts, question_id), strict=True):
-        results = _transform_results(result, question_ids, questions, step.method.label)
+    for row, result in zip(rows, transform(step, contexts, question_id), strict=True):
+        results = _transform_results(result, question_ids, questions, step.method_label)
         row_results.append(
             RowResult(
-                answers=row.answers,
-                marks=row.marks,
+                sheet=row,
                 results=results,
                 max_marks=max_marks,
                 matches_expected=_matches_expected(row.expected, results),
@@ -150,7 +152,7 @@ def _transform_results(
     result: StepResult, question_ids: Collection[QuestionId], questions: QuestionSet, label: str
 ) -> dict[QuestionId, QuestionResult]:
     answer = result.transform_result
-    if isinstance(answer, SkippedStep):
+    if isinstance(answer, Skipped):
         return {}
     proportion, feedback = 0.0, NO_ANSWER_FEEDBACK
     if isinstance(answer, Unreadable):
@@ -182,10 +184,12 @@ def _row_results(
             raise GradeFlowError(
                 f"Row {row_number} has no answer to {', '.join(sorted(missing_question_ids))}."
             )
-    marked_sheets = mark(questions, scheme, rows, model_endpoint=model_endpoint)
     return [
-        RowResult(**dict(sheet), matches_expected=_matches_expected(row.expected, sheet.results))
-        for row, sheet in zip(rows, marked_sheets, strict=True)
+        RowResult(
+            **dict(marked),
+            matches_expected=_matches_expected(marked.sheet.expected, marked.results),
+        )
+        for marked in mark(questions, scheme, rows, model_endpoint=model_endpoint)
     ]
 
 

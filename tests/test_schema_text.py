@@ -6,11 +6,12 @@ import pytest
 from pydantic import BaseModel
 from pydantic.json_schema import GenerateJsonSchema
 
-from gradeflow_core import BUILTINS, AnswersCsv, Check, QuestionSet, ResultsCsv
+from gradeflow_core import BUILTINS, AnswersCsv, QuestionSet, ResultsCsv
 from gradeflow_core.editing import HINT_KEY, QUESTION_CLASSES, Position, compatible_methods
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
+from gradeflow_core.steps.step import Step
 from tests.schemas import schema_nodes
 
 METHODS = {method.name: method for method in BUILTINS}
@@ -51,7 +52,7 @@ def test_form_fields_have_plain_titles_help_and_enum_labels(model: type[BaseMode
 
 def _schemas() -> Iterator[dict[str, Any]]:
     yield from (model.model_json_schema() for model in FORM_MODELS)
-    yield Check.model_json_schema()
+    yield Step.model_json_schema()
     yield from (question_type.json_schema() for question_type in QUESTION_CLASSES.values())
     question_set = QuestionSet(
         {

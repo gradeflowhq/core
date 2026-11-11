@@ -10,10 +10,11 @@ from gradeflow_core import (
     QuestionSet,
     Submission,
     best_models,
+    list_models,
     mark,
+    try_model,
     try_models,
 )
-from gradeflow_core.editing import list_models, try_model
 from gradeflow_core.methods.text.answer_criteria import ModelRole
 from gradeflow_core.questions.text import TextQuestion
 from tests.fake_models import (

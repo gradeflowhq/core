@@ -8,8 +8,10 @@ from .text import as_sentence, as_text
 
 _MAX_REASON_LENGTH = 500
 IDENTIFIER_RULE = "Use letters, digits and underscores, not starting with a digit."
+REQUIRED_MESSAGE = "Required."
+UNKNOWN_MESSAGE = "Unknown setting."
 _ERROR_MESSAGES = {
-    "missing": "Required.",
+    "missing": REQUIRED_MESSAGE,
     "too_short": "Add at least {min_length}.",
     "too_long": "Keep at most {max_length}.",
     "int_parsing": "Must be a whole number.",
@@ -34,7 +36,7 @@ _ERROR_MESSAGES = {
     "model_type": "Must be an object.",
     "model_attributes_type": "Must be an object.",
     "union_tag_not_found": "Choose a type.",
-    "extra_forbidden": "Unknown setting.",
+    "extra_forbidden": UNKNOWN_MESSAGE,
     "string_pattern_mismatch": IDENTIFIER_RULE,
 }
 

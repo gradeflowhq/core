@@ -5,12 +5,12 @@ import statistics
 from collections import Counter
 from collections.abc import Iterable, Iterator
 
+from ..common.python_layouts import guess_layouts
 from . import new_question
 from .base import Question
 from .choice import ChoiceQuestion
 from .code import CodeQuestion
 from .code_files import split_answer
-from .layouts import guess_layouts
 from .number import NumberQuestion, reads_as_number
 from .reading import ListReading, Reading, is_blank, read_code, read_list, sorted_options
 from .text import TextQuestion

@@ -18,6 +18,8 @@ classifiers = [
 keywords = ["marking", "grading", "assessment", "education", "examplify"]
 dependencies = [
     "jinja2~=3.1",
+    "jsonpatch==1.33",
+    "jsonpointer==3.1.1",
     "natsort~=8.4",
     "pydantic~=2.14",
     "pyeryx~=0.12.1",
@@ -61,7 +63,6 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "PT", "C90", "FURB"
 allowed-confusables = ["×"]  # 6.02 × 10^23
 
 [tool.ruff.lint.per-file-ignores]
-"src/gradeflow_core/methods/step.py" = ["SLF001"]  # a validated check's _methods
 "tests/**" = ["SLF001"]  # tests access internals
 
 [tool.mypy]
@@ -75,7 +76,7 @@ ignore_missing_imports = true
 enable_error_code = ["deprecated", "truthy-bool", "truthy-iterable", "ignore-without-code"]
 
 [[tool.mypy.overrides]]
-module = ["fastembed.*", "onnxruntime.*", "scipy.*", "regex"]  # untyped, or the ml extra
+module = ["fastembed.*", "jsonpatch", "jsonpointer", "onnxruntime.*", "scipy.*", "regex"]  # untyped, or the ml extra
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

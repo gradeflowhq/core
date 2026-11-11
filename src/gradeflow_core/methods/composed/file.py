@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any, Literal, Self
 
@@ -6,11 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from ...common.hints import hint
 from ...common.paths import Location
+from ...common.problems import InvalidError, Problem
 from ...questions import QUESTION_CLASSES
 from ...questions.types import QuestionType
-from ..example import Example
-from ..logic.workflow import Workflow
-from ..method import Level
+from ...steps.example import Example
+from ...steps.method import Level
+from ...steps.workflow import Workflow
 
 WORKFLOW_REF = Workflow().ref
 WORKFLOW_KEYS = ("steps", "marks_by", "output", "output_step")
@@ -130,23 +131,9 @@ def as_file_steps(step_data: Mapping[str, Any]) -> dict[str, Any]:
     return {"steps": [step_data]}
 
 
-class MethodFileFieldError(ValueError):
-    """What is wrong with a method file's fields. ``messages_with_paths`` holds each message and
-    path, its own first."""
-
-    def __init__(self, message: str, path: Location) -> None:
-        super().__init__(message)
-        self.messages_with_paths = [(message, path)]
-
-    @classmethod
-    def combined(cls, errors: Sequence[MethodFileFieldError]) -> MethodFileFieldError:
-        """One error for all of ``errors``."""
-        message, path = errors[0].messages_with_paths[0]
-        combined_error = cls(message, path)
-        combined_error.messages_with_paths = [
-            message_with_path for error in errors for message_with_path in error.messages_with_paths
-        ]
-        return combined_error
+def method_file_error(message: str, location: Location) -> InvalidError:
+    """What is wrong at ``location`` in a method file."""
+    return InvalidError([Problem(message, field=location)])
 
 
 def methods_used(yaml_data: Any) -> set[str]:

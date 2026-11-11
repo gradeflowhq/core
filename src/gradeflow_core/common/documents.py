@@ -13,9 +13,8 @@ from ruamel.yaml.error import YAMLError
 from ruamel.yaml.nodes import ScalarNode
 from ruamel.yaml.representer import RoundTripRepresenter
 
-from .exceptions import InvalidError
 from .paths import Location
-from .problems import Problem
+from .problems import InvalidError, Problem
 
 _MAX_DEPTH = 100
 """How deeply YAML may nest; the built-in methods nest 12 deep."""
@@ -60,8 +59,8 @@ def load_yaml_with_lines(text: str) -> tuple[Any, Any]:
         document = _new_yaml().load(text)
     except YAMLError as error:
         position = getattr(error, "problem_mark", None)
-        line_prefix = f"Line {position.line + 1}: " if position is not None else ""
-        raise InvalidError([Problem(f"{line_prefix}{_yaml_error_message(error)}.")]) from None
+        line = position.line + 1 if position is not None else None
+        raise InvalidError([Problem(f"{_yaml_error_message(error)}.", line=line)]) from None
     return document, _as_plain_data(document)
 
 
@@ -81,10 +80,8 @@ def _as_plain_data(value: Any) -> Any:
     if isinstance(value, CommentedMap):
         for key in value:
             if isinstance(key, Mapping):
-                line = value.lc.key(key)[0] + 1
-                raise InvalidError(
-                    [Problem(f'Line {line}: Quote {{{{ … }}}}, as in "{{{{ settings.name }}}}".')]
-                )
+                message = 'Quote {{ … }}, as in "{{ settings.name }}".'
+                raise InvalidError([Problem(message, line=value.lc.key(key)[0] + 1)])
         return {str(key): _as_plain_data(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_as_plain_data(item) for item in value]
@@ -104,7 +101,7 @@ def dump_yaml(data: Any) -> str:
     return buffer.getvalue()
 
 
-def _line_of(document: Any, location: Location) -> int | None:
+def line_of(document: Any, location: Location) -> int | None:
     """The line, from 1, of the deepest value along ``location`` that ``document`` has."""
     value, line = document, None
     for part in location:
@@ -115,9 +112,3 @@ def _line_of(document: Any, location: Location) -> int | None:
             line = value.lc.item(part)[0] + 1 if hasattr(value, "lc") else line
             value = value[part]
     return line
-
-
-def with_line(document: Any, location: Location, message: str) -> str:
-    """``message`` after the line of ``location`` in ``document``, if it has one."""
-    line = _line_of(document, location)
-    return f"Line {line}: {message}" if line is not None else message

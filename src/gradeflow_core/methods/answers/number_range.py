@@ -7,11 +7,10 @@ from pydantic import Field, model_validator
 from ...common.text import code_span, format_number
 from ...questions.base import Question
 from ...questions.types import Answer
-from ..example import examples_beside
-from ..method import AnswerMethod
-from ..outcome import CORRECT_FEEDBACK, Outcome
-from ..settings import Settings, check_limits_in_order
-from ..step import Step
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import CORRECT_FEEDBACK, Outcome
+from ...steps.settings import Settings, check_limits_in_order
 
 
 class NumberRangeSettings(Settings):
@@ -63,11 +62,11 @@ class NumberRange(AnswerMethod[NumberRangeSettings]):
     settings = NumberRangeSettings
     examples = examples_beside(__file__)
 
-    def describe(self, step: Step) -> str:
-        phrase = self._settings_of(step).range_phrase(code_span)
+    def describe(self, settings: NumberRangeSettings) -> str:
+        phrase = settings.range_phrase(code_span)
         return f"Is {phrase}." if phrase else "Any number."
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: NumberRangeSettings, answer: Answer, question: Question
     ) -> Outcome:
         assert isinstance(answer, int | float)  # number questions read numbers

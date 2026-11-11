@@ -1,5 +1,4 @@
-from collections.abc import Mapping
-from typing import Any, Literal, Self
+from typing import Literal, Self
 
 import regex
 from pydantic import Field, field_validator, model_validator
@@ -10,12 +9,10 @@ from ...questions.base import Question
 from ...questions.number import NumberQuestion, reads_as_number
 from ...questions.reading import Reading, TextReading
 from ...questions.types import Answer, Unreadable
-from ..example import examples_beside
-from ..method import Method, TransformMethod
-from ..outcome import TransformResult
-from ..position import Position
-from ..settings import Settings
-from ..step import Step
+from ...steps.example import examples_beside
+from ...steps.method import TransformMethod
+from ...steps.outcome import TransformResult
+from ...steps.settings import Settings
 from .regexes import PATTERN_TIMEOUT_MESSAGE, compile_pattern, pattern_captures
 
 _NUMBER = regex.compile(
@@ -79,25 +76,23 @@ class Extract(TransformMethod[ExtractSettings]):
     settings = ExtractSettings
     examples = examples_beside(__file__)
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: ExtractSettings) -> str:
         occurrence_phrase = {"only": "the", "first": "the first", "last": "the last"}[
             settings.occurrence
         ]
         pattern_phrase = f" matching {code_span(settings.pattern)}" if settings.pattern else ""
         return f"Finds {occurrence_phrase} {settings.type}{pattern_phrase}."
 
-    def output_question(
-        self,
-        settings: Mapping[str, Any],
-        position: Position,
-        methods: Mapping[str, Method[Any]],
-    ) -> Question:
-        source_question = position.question_model
-        assert source_question is not None  # a step reading no question gives no output
-        return _output_question(settings.get("type", "number"), source_question)
+    def output_question(self, settings: ExtractSettings, question: Question) -> Question:
+        """The question reading what is found in an answer to ``question``."""
+        if settings.type == "text":
+            return question
+        return NumberQuestion(
+            max_marks=question.max_marks,
+            reading=Reading(blank_marker=question.reading.blank_marker),
+        )
 
-    def _transform(
+    def transform(
         self, settings: ExtractSettings, answer: Answer, question: Question
     ) -> TransformResult:
         answer_text = str(answer)
@@ -110,17 +105,7 @@ class Extract(TransformMethod[ExtractSettings]):
         candidate = candidates[-1] if settings.occurrence == "last" else candidates[0]
         if _is_blank_marker(candidate, question):
             return None
-        return _output_question(settings.type, question).read(candidate)
-
-
-def _output_question(value_type: Literal["number", "text"], source_question: Question) -> Question:
-    """The question reading what is found of ``value_type`` in an answer to ``source_question``."""
-    if value_type == "text":
-        return source_question
-    return NumberQuestion(
-        max_marks=source_question.max_marks,
-        reading=Reading(blank_marker=source_question.reading.blank_marker),
-    )
+        return self.output_question(settings, question).read(candidate)
 
 
 def _is_blank_marker(text: str, question: Question) -> bool:

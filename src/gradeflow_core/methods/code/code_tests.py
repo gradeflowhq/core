@@ -1,5 +1,5 @@
 import textwrap
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import replace
 
 from pydantic import ConfigDict, Field
@@ -17,19 +17,12 @@ from ...common.text import (
 from ...questions.base import Question
 from ...questions.code_files import python_files, split_answer
 from ...questions.types import Answer
-from ..example import examples_beside
-from ..logic.workflow import (
-    MARKS_BY_LABELS,
-    MarksBy,
-    ignored_weight_problems,
-    proportion_and_parts,
-    weight_notes,
-)
-from ..method import AnswerMethod
-from ..outcome import CORRECT_FEEDBACK, Detail, Outcome
-from ..position import Position
-from ..settings import Settings
-from ..step import Step
+from ...steps.combining import COMBINATIONS, MARKS_BY_LABELS, MarksBy, Part
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import CORRECT_FEEDBACK, Detail, Outcome
+from ...steps.position import Position
+from ...steps.settings import Settings
 from . import runner
 from .code_fixes import FIXES_FIELD, CodeFixSettings, best_fixed_outcome
 from .custom_code import memory_limit_field, time_limit_field
@@ -137,8 +130,7 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
     settings = CodeTestsSettings
     examples = examples_beside(__file__)
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: CodeTestsSettings) -> str:
         tests, marks_by = settings.tests, settings.marks_by
         if len(tests) == 1:
             [test] = tests
@@ -151,12 +143,11 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
         )
         return f"Passes {_which_tests(marks_by, len(tests))}:\n{test_lines}"
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(step)
+    def problems(self, settings: CodeTestsSettings, position: Position) -> Iterator[Problem]:
         weights = [test.weight for test in settings.tests]
-        yield from ignored_weight_problems(weights, settings.marks_by, "tests")
+        yield from COMBINATIONS[settings.marks_by].weight_problems(weights, "tests")
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: CodeTestsSettings, answer: Answer, question: Question
     ) -> Outcome:
         assert isinstance(answer, str)  # a code question's answer
@@ -172,24 +163,33 @@ def _tests_outcome(settings: CodeTestsSettings, code: str, max_marks: float) -> 
     """The tests run on ``code``, combined."""
     (_, main_source), *module_file_items = python_files(split_answer(code)).items()
     module_files = dict(module_file_items)
-    weighted_outcomes = []
-    for test in settings.tests:
-        outcome = _outcome_of_test(main_source, module_files, test, settings.setup)
-        weighted_outcomes.append((test.weight, replace(outcome, title=_test_title(test))))
+    test_outcomes = [
+        replace(
+            _outcome_of_test(main_source, module_files, test, settings.setup),
+            title=_test_title(test),
+        )
+        for test in settings.tests
+    ]
     marks_by = settings.marks_by
-    proportion, test_outcomes = proportion_and_parts(marks_by, weighted_outcomes, max_marks)
+    proportion, parts = COMBINATIONS[marks_by].proportion_and_parts(
+        [
+            (Part(test.weight), outcome)
+            for test, outcome in zip(settings.tests, test_outcomes, strict=True)
+        ],
+        max_marks,
+    )
     feedback = _feedback(settings, test_outcomes, proportion)
     if marks_by == "none_correct" and (
         error := next(filter(None, (outcome.first_error() for outcome in test_outcomes)), None)
     ):
         proportion, feedback = 0.0, as_sentence(f"Couldn't test the code: {error}")
     if len(test_outcomes) == 1:  # one test is shown as the method itself
-        return Outcome(proportion, feedback, parts=test_outcomes, details=test_outcomes[0].details)
-    return Outcome(proportion, feedback, parts=test_outcomes, children=test_outcomes)
+        return Outcome(proportion, feedback, parts=parts, details=test_outcomes[0].details)
+    return Outcome(proportion, feedback, parts=parts, children=parts)
 
 
 def _feedback(
-    settings: CodeTestsSettings, test_outcomes: tuple[Outcome, ...], proportion: float
+    settings: CodeTestsSettings, test_outcomes: Sequence[Outcome], proportion: float
 ) -> str:
     """How many tests passed, and why the others failed. A test passes when it gives marks."""
     marks_by = settings.marks_by
@@ -254,7 +254,8 @@ def _test_title(test: Test, *, is_negated: bool = False) -> str:
 
 
 def _weight_prefix(test: Test, marks_by: MarksBy) -> str:
-    return "".join(f"**{capitalized(note)}:** " for note in weight_notes(test.weight, marks_by))
+    notes = COMBINATIONS[marks_by].weight_notes(test.weight)
+    return "".join(f"**{capitalized(note)}:** " for note in notes)
 
 
 def _which_tests(marks_by: MarksBy, test_count: int) -> str:

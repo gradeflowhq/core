@@ -84,8 +84,8 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
         },
         roots,
     ) == [
-        ("with.checks.0", (), "Accepted Answers can't be used on a multiple values question."),
-        ("with.checks.1", (), "Accepted Answers can't be used on a multiple values question."),
+        ("/with/checks/0", (), "Accepted Answers can't be used on a multiple values question."),
+        ("/with/checks/1", (), "Accepted Answers can't be used on a multiple values question."),
     ]
 
 
@@ -106,7 +106,7 @@ def test_multiple_values_needs_a_check_for_each_value(any_order: bool) -> None:
     assert problems_with(one_check) == [count_problem]
     assert problems_with(three_checks) == [
         count_problem,
-        ("with.checks.2", ("input",), "The answer has 2 values."),
+        ("/with/checks/2", ("input",), "The answer has 2 values."),
     ]
 
 

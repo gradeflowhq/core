@@ -1,8 +1,10 @@
 """The methods core ships: in Python, one file each, or composed in YAML beside them."""
 
 from pathlib import Path
-from typing import Any
 
+from ..steps.method import Method
+from ..steps.names import BUILTIN_NAMESPACE
+from ..steps.workflow import Workflow
 from .answers.accepted_answers import AcceptedAnswers
 from .answers.equivalent_expression import EquivalentExpression
 from .answers.formula_of_answers import FormulaOfAnswers
@@ -16,16 +18,13 @@ from .code.custom_code import CustomCode
 from .code.custom_code_for_a_group import CustomCodeForAGroup
 from .collection import Methods, load_files, raise_first_failure
 from .logic.full_marks import FullMarks
-from .logic.workflow import Workflow
-from .method import Method
-from .names import BUILTIN_NAMESPACE
 from .text.answer_criteria import AnswerCriteria
 from .text.extract import Extract
 from .text.key_point import KeyPoint
 from .text.length import Length
 from .text.pattern import Pattern
 
-PYTHON_METHODS: tuple[Method[Any], ...] = (
+PYTHON_METHODS: tuple[Method, ...] = (
     AcceptedAnswers(),
     EquivalentExpression(),
     NumberRange(),

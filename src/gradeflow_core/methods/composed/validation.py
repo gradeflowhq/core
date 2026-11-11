@@ -6,9 +6,9 @@ from typing import Annotated, Any, Literal, Union, get_args, get_origin
 from pydantic import BaseModel
 
 from ...common.paths import Location
-from ..settings import Settings
-from ..step import Step
-from ..templates import (
+from ...steps.settings import Settings
+from ...steps.step import Step
+from ...steps.templates import (
     FEEDBACK_SCOPE,
     STEP_RESULT_SHAPE,
     ListOf,
@@ -19,7 +19,7 @@ from ..templates import (
     template_errors,
     validate,
 )
-from .file import TEMPLATE_KEYS, MethodFile, MethodFileFieldError
+from .file import TEMPLATE_KEYS, MethodFile, method_file_error
 
 
 def _template_shape(annotation: Any) -> Shape:
@@ -61,7 +61,7 @@ def validate_templates(file: MethodFile, settings: type[Settings]) -> None:
             try:
                 validate(template, scope)
             except TemplateError as error:
-                raise MethodFileFieldError(str(error), (name,)) from None
+                raise method_file_error(str(error), (name,)) from None
     if isinstance(file.steps, list):
         _validate_entries(file.steps, ("steps",), {"settings": declared_shapes}, {})
 
@@ -100,7 +100,7 @@ def _validate_step_data(
             "index": "number",
         }
     for location, error in template_errors(step_data, {**step_scope, "steps": earlier_step_shapes}):
-        raise MethodFileFieldError(str(error), (*path, *location))
+        raise method_file_error(str(error), (*path, *location))
     for step_key, value in step_data.items():
         if step_key == "with" and isinstance(value, Mapping) and "output_step" in value:
             value = dict(value)
@@ -129,7 +129,7 @@ def _validate_value(
         try:
             validate(value, scope)
         except TemplateError as error:
-            raise MethodFileFieldError(str(error), path) from None
+            raise method_file_error(str(error), path) from None
     elif isinstance(value, Mapping) and "uses" in value:
         _validate_step_data(value, path, scope, earlier_step_shapes)
     elif isinstance(value, Mapping):

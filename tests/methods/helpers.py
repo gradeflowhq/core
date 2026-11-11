@@ -10,10 +10,13 @@ from gradeflow_core import (
     Question,
     QuestionResult,
     QuestionSet,
+    Step,
     Submission,
 )
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.text import TextQuestion
+from gradeflow_core.steps.places import marking_position
+from gradeflow_core.steps.problems import located_problems
 
 QUESTION_ID = "Q1"
 CODE_QUESTION = CodeQuestion()
@@ -104,7 +107,12 @@ def problems_of(
 ) -> list[tuple[str, tuple[str | int, ...], str]]:
     questions = QuestionSet({QUESTION_ID: question or TextQuestion()})
     [marking] = mark_scheme_of({"question": QUESTION_ID, **check}).markings
-    return located(marking.problems(questions))
+    return located(problems_in(marking, questions))
+
+
+def problems_in(marking: Step, questions: QuestionSet) -> list[Problem]:
+    """What stops ``marking`` marking ``questions``, each from the marking."""
+    return located_problems(marking, marking_position(questions, marking.question))
 
 
 def proportions(results: list[QuestionResult]) -> list[float]:

@@ -9,19 +9,19 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
-from ...common import model_service
 from ...common.hints import hint
-from ...common.model_service import ModelEndpoint, ReasoningEffort
 from ...common.text import as_sentence, escaped_markdown, format_number, markdown_list, plural
+from ...models import model_service
+from ...models.model_service import ModelEndpoint, ReasoningEffort
 from ...questions.base import Question
 from ...questions.types import QuestionId
-from ..example import examples_beside
-from ..logic.workflow import proportion_and_parts
+from ...steps.combining import COMBINATIONS, Part
+from ...steps.context import Context, Progress
+from ...steps.example import Example, examples_beside
+from ...steps.method import Method
+from ...steps.outcome import FULL_MARKS_PROPORTION, Outcome, QuestionOutcomes
+from ...steps.settings import NonBlankText, Settings
 from ..matching import model_context
-from ..method import Method, Progress
-from ..outcome import FULL_MARKS_PROPORTION, Outcome, QuestionOutcomes
-from ..settings import NonBlankText, Settings
-from ..step import Context, Step
 
 ModelRole = Literal["fast", "careful"]
 CONCURRENT_REQUESTS = 8
@@ -137,7 +137,7 @@ type Verdicts = dict[tuple[str, str], Verdict]
 NO_AI_SERVICE_VERDICT = Verdict(None, (), "no AI service is set up")
 
 
-class AnswerCriteria(Method[AnswerCriteriaSettings, QuestionOutcomes]):
+class AnswerCriteria(Method[AnswerCriteriaSettings]):
     name = "gradeflow/answer-criteria"
     version = 1
     label = "Answer Criteria"
@@ -162,8 +162,7 @@ class AnswerCriteria(Method[AnswerCriteriaSettings, QuestionOutcomes]):
     examples = examples_beside(__file__)
     needs_model_endpoint = True
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: AnswerCriteriaSettings) -> str:
         lines = [
             f"{escaped_markdown(criterion.text)} ({format_number(criterion.marks)} "
             f"{plural('mark', abs(criterion.marks))})"
@@ -175,61 +174,75 @@ class AnswerCriteria(Method[AnswerCriteriaSettings, QuestionOutcomes]):
             return f"AI checks the answer for {lines[0]}."
         return f"AI checks the answer for each of these:\n{markdown_list(lines)}"
 
-    def run(
-        self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
+    def mark_students(
+        self,
+        settings: AnswerCriteriaSettings,
+        contexts: Sequence[Context],
+        question_id: QuestionId | None,
     ) -> list[QuestionOutcomes]:
-        assert question_id is not None  # a check that marks an answer has a question
-        settings = self._settings_of(step)
-        answers = [str(context.answers[question_id]).strip() for context in contexts]
+        # A check that marks an answer reads one for every student.
+        step_inputs = [context.input for context in contexts if context.input is not None]
+        question = step_inputs[0].question
+        answers = [str(step_input.answer).strip() for step_input in step_inputs]
         verdicts: Verdicts = {}
         if (endpoint := contexts[0].model_endpoint) is not None:
             requests_class = (
                 _BestFitRequests if settings.marks_by == "best_fit" else _CriteriaRequests
             )
             verdicts = requests_class(
-                endpoint, settings, contexts[0].questions[question_id], contexts[0].report_progress
+                endpoint, settings, question, contexts[0].report_progress
             ).decide(sorted(set(answers)))
         return [
             {
-                question_id: _answer_outcome(
-                    settings, answer, verdicts, context.questions[question_id].max_marks
+                step_input.question_id: _answer_outcome(
+                    settings, answer, verdicts, step_input.question.max_marks
                 )
             }
-            for answer, context in zip(answers, contexts, strict=True)
+            for answer, step_input in zip(answers, step_inputs, strict=True)
         ]
+
+
+def examples_decided_with(role: ModelRole) -> tuple[Example, ...]:
+    """Answer Criteria's examples, decided with the ``role`` model alone."""
+    return tuple(
+        example.model_copy(update={"with_": {**example.with_, "decide_with": role}})
+        for example in AnswerCriteria.examples
+    )
 
 
 def _answer_outcome(
     settings: AnswerCriteriaSettings, answer: str, verdicts: Verdicts, max_marks: float
 ) -> Outcome:
-    proportion, parts = proportion_and_parts(
-        "total",
+    outcomes = [
+        _criterion_outcome(
+            criterion.text, verdicts.get((answer, criterion.text), NO_AI_SERVICE_VERDICT)
+        )
+        for criterion in settings.criteria
+    ]
+    proportion, parts = COMBINATIONS["total"].proportion_and_parts(
         [
-            (
-                criterion.marks,
-                _criterion_outcome(
-                    criterion.text, verdicts.get((answer, criterion.text), NO_AI_SERVICE_VERDICT)
-                ),
-            )
-            for criterion in settings.criteria
+            (Part(criterion.marks, criterion.text), outcome)
+            for criterion, outcome in zip(settings.criteria, outcomes, strict=True)
         ],
         max_marks,
     )
     if settings.marks_by == "best_fit":
         parts = tuple(
-            replace(part, effect="uncounted") if part.marked and not part.correct else part
+            replace(part, effect="uncounted")
+            if part.outcome.marked and not part.outcome.correct
+            else part
             for part in parts
         )
         feedback = next(
-            (part.feedback for part in parts if part.correct or not part.marked),
+            (outcome.feedback for outcome in outcomes if outcome.correct or not outcome.marked),
             "Fits no criterion.",
         )
     else:
-        feedback = _total_feedback(settings.criteria, parts, proportion)
+        feedback = _total_feedback(settings.criteria, outcomes, proportion)
     return Outcome(
         proportion,
         feedback,
-        marked=all(part.marked for part in parts),
+        marked=all(outcome.marked for outcome in outcomes),
         parts=parts,
         children=parts if len(parts) > 1 else (),
     )
@@ -244,25 +257,24 @@ def _criterion_outcome(criterion_text: str, verdict: Verdict) -> Outcome:
         1.0 if verdict.is_met else 0.0,
         feedback,
         marked=verdict.is_met is not None,
-        name=criterion_text,
         labels=(criterion_text,),
         model_names=verdict.models,
     )
 
 
 def _total_feedback(
-    criteria: Sequence[Criterion], parts: Sequence[Outcome], proportion: float
+    criteria: Sequence[Criterion], outcomes: Sequence[Outcome], proportion: float
 ) -> str:
     """Each feedback line once: marks given, penalties and, short of full marks, criteria not
     met."""
     lines = []
-    for criterion, part in zip(criteria, parts, strict=True):
-        if part.correct and criterion.marks > 0:
-            lines.append(part.feedback)
-        elif part.correct and criterion.marks < 0:
+    for criterion, outcome in zip(criteria, outcomes, strict=True):
+        if outcome.correct and criterion.marks > 0:
+            lines.append(outcome.feedback)
+        elif outcome.correct and criterion.marks < 0:
             lines.append(f"Penalty: {criterion.text}.")
-        elif not part.marked or (criterion.marks > 0 and proportion < FULL_MARKS_PROPORTION):
-            lines.append(f"{criterion.text}: {part.feedback}")
+        elif not outcome.marked or (criterion.marks > 0 and proportion < FULL_MARKS_PROPORTION):
+            lines.append(f"{criterion.text}: {outcome.feedback}")
     return "\n".join(dict.fromkeys(lines))
 
 

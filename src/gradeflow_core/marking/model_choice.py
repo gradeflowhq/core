@@ -6,13 +6,12 @@ from typing import get_args
 
 from pydantic import BaseModel
 
-from ..common import model_service
-from ..methods.catalogue import BUILTINS
-from ..methods.text.answer_criteria import ModelRole
+from ..methods.text.answer_criteria import AnswerCriteria, ModelRole, examples_decided_with
+from ..models import model_service
 from ..questions.question_set import QuestionSet
+from ..steps.names import method_ref
 from .examples import mark_rows
 
-ANSWER_CRITERIA = "gradeflow/answer-criteria@1"
 ROLES: tuple[ModelRole, ...] = get_args(ModelRole)
 PASSING_MODELS_PER_ROLE = 2
 """Models that must pass in a role before trying stops."""
@@ -94,15 +93,15 @@ def try_model(endpoint: model_service.ModelEndpoint, role: ModelRole, name: str)
             return make_trial(0, 0, probe_failure)
     except model_service.ServiceError as error:
         return make_trial(0, None, str(error))
-    method = BUILTINS.find(ANSWER_CRITERIA)
+    reference = method_ref(AnswerCriteria.name, AnswerCriteria.version)
     rows_matched = rows_tried = 0
-    for example in method.examples:
+    for example in examples_decided_with(role):
         questions = QuestionSet(example.questions)
         row_results = mark_rows(
-            ANSWER_CRITERIA,
+            reference,
             questions=questions,
             question=next(iter(questions)),
-            settings={**example.with_, "decide_with": role},
+            settings=example.with_,
             rows=example.rows,
             model_endpoint=trial_endpoint,
         )

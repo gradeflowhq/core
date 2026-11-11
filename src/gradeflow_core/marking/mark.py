@@ -2,64 +2,41 @@ import logging
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from itertools import batched
-from typing import overload
 
-from ..common.exceptions import GradeFlowError, InvalidError
-from ..common.model_service import ModelEndpoint
-from ..methods.method import Progress
-from ..methods.outcome import Outcome, clamped
-from ..methods.step import Check, Context
-from ..methods.templates import TemplateError
+from ..common.exceptions import GradeFlowError
+from ..models.model_service import ModelEndpoint
 from ..questions.base import Question
 from ..questions.question_set import QuestionSet
-from ..questions.submissions import AnswerSheet, Submission
+from ..questions.submissions import AnswerSheet
 from ..questions.types import QuestionId
+from ..steps import running
+from ..steps.context import Context, Progress
+from ..steps.outcome import Outcome, Skipped, clamped, outcome_of
+from ..steps.places import marking_position
+from ..steps.problems import located_problems
+from ..steps.step import Step
 from .breakdown import breakdown_of
 from .mark_scheme import MarkScheme
-from .results import MarkedSheet, MarkedSubmission, QuestionResult
+from .results import Marked, QuestionResult
 
 _logger = logging.getLogger(__name__)
 
-type _Results = dict[QuestionId, QuestionResult]
+type _QuestionResults = dict[QuestionId, QuestionResult]
 
 
-@overload
-def mark(
+def mark[S: AnswerSheet](
     questions: QuestionSet,
     scheme: MarkScheme,
-    sheets: Iterable[Submission],
+    sheets: Iterable[S],
     *,
     model_endpoint: ModelEndpoint | None = None,
     on_progress: Callable[[Progress], None] | None = None,
     chunk_size: int = 60,
-) -> Iterator[MarkedSubmission]: ...
-
-
-@overload
-def mark(
-    questions: QuestionSet,
-    scheme: MarkScheme,
-    sheets: Iterable[AnswerSheet],
-    *,
-    model_endpoint: ModelEndpoint | None = None,
-    on_progress: Callable[[Progress], None] | None = None,
-    chunk_size: int = 60,
-) -> Iterator[MarkedSheet]: ...
-
-
-def mark(
-    questions: QuestionSet,
-    scheme: MarkScheme,
-    sheets: Iterable[AnswerSheet],
-    *,
-    model_endpoint: ModelEndpoint | None = None,
-    on_progress: Callable[[Progress], None] | None = None,
-    chunk_size: int = 60,
-) -> Iterator[MarkedSheet]:
-    """Each sheet marked, as soon as it is; a ``Submission`` gives a ``MarkedSubmission``. Results
-    follow the questions' order. A question marked twice, which the mark scheme's problems
-    report, gets its first marking's result; one no marking marks keeps the marks the sheet was
-    given, if any; one not in ``questions`` gets none.
+) -> Iterator[Marked[S]]:
+    """Each sheet with its results, as soon as it is marked. Results follow the questions' order.
+    A question marked twice, which the mark scheme's problems report, gets its first marking's
+    result; one no marking marks keeps the marks the sheet was given, if any; one not in
+    ``questions`` gets none.
 
     A marking sees only the answers it reads, so sheets with the same answers to those are
     marked once. A marking that asks a language model at ``model_endpoint`` takes ``chunk_size``
@@ -98,24 +75,21 @@ def mark(
                 results_by_context = _marking_results(cache.marking, list(contexts_by_key.values()))
                 cache.results.update(zip(contexts_by_key, results_by_context, strict=True))
         for sheet in chunk:
-            results: _Results = {}
+            results: _QuestionResults = {}
             for cache in caches:
                 results = {
                     question_id: result.model_copy()
                     for question_id, result in cache.results[cache.key(sheet)].items()
                 } | results
             results = _given_results(sheet, questions) | results
-            result_class = MarkedSubmission if isinstance(sheet, Submission) else MarkedSheet
-            yield result_class(
-                **sheet.model_dump()
-                | {
-                    "results": {
-                        question_id: results[question_id]
-                        for question_id in questions
-                        if question_id in results
-                    },
-                    "max_marks": max_marks,
-                }
+            yield Marked(
+                sheet=sheet,
+                results={
+                    question_id: results[question_id]
+                    for question_id in questions
+                    if question_id in results
+                },
+                max_marks=max_marks,
             )
 
 
@@ -123,41 +97,37 @@ def mark(
 class _MarkingCache:
     """A marking, the questions it reads and its results by the answers to them."""
 
-    marking: Check
+    marking: Step
     questions_read: tuple[QuestionId, ...]
-    results: dict[tuple[str | None, ...], _Results]
+    results: dict[tuple[str | None, ...], _QuestionResults]
 
     def key(self, sheet: AnswerSheet) -> tuple[str | None, ...]:
         """The sheet's answers to the questions it reads."""
         return tuple(sheet.answers.get(question_id) for question_id in self.questions_read)
 
 
-def _problem_results(marking: Check, questions: QuestionSet) -> _Results | None:
+def _problem_results(marking: Step, questions: QuestionSet) -> _QuestionResults | None:
     """The unmarked results of a marking with problems, which say what they are; None if it has
     none."""
-    problems = marking.problems(questions)
+    problems = located_problems(marking, marking_position(questions, marking.question))
     if not problems:
         return None
-    try:
-        question_ids = marking.questions_marked()
-    except InvalidError, TemplateError:
-        question_ids = set()
     # An empty workflow marks no question, so its marking's question gets the problem.
-    question_ids = question_ids or ({marking.question} if marking.question else set())
+    question_ids = marking.questions_marked() or ({marking.question} if marking.question else set())
     feedback = " ".join(map(str, problems))
     return {
-        question_id: _unmarked_result(questions[question_id], feedback, marking.method.label)
+        question_id: _unmarked_result(questions[question_id], feedback, marking.method_label)
         for question_id in question_ids & questions.keys()
     }
 
 
-def _marking_results(marking: Check, contexts: list[Context]) -> list[_Results]:
+def _marking_results(marking: Step, contexts: list[Context]) -> list[_QuestionResults]:
     """The results of each student in ``contexts``. A failure leaves only that student's answers
     unmarked."""
-    label, questions = marking.method.label, contexts[0].questions
+    label, questions = marking.method_label, contexts[0].questions
     question_ids = marking.questions_marked() & questions.keys()
     try:
-        outcomes_by_context = marking.mark(contexts)
+        outcomes_by_context = running.mark(marking, contexts)
     except Exception as error:
         if len(contexts) > 1:
             return [_marking_results(marking, [context])[0] for context in contexts]
@@ -175,7 +145,7 @@ def _marking_results(marking: Check, contexts: list[Context]) -> list[_Results]:
     return [
         {
             question_id: _question_result(
-                outcomes.get(question_id) or Outcome(0.0), questions[question_id], label
+                outcome_of(outcomes.get(question_id, Skipped())), questions[question_id], label
             )
             for question_id in question_ids
         }
@@ -199,7 +169,7 @@ def _unmarked_result(question: Question, feedback: str, label: str) -> QuestionR
     return _question_result(Outcome(0.0, feedback, marked=False), question, label)
 
 
-def _given_results(sheet: AnswerSheet, questions: QuestionSet) -> _Results:
+def _given_results(sheet: AnswerSheet, questions: QuestionSet) -> _QuestionResults:
     """The marks the sheet was given, as results with no method, within each question's."""
     return {
         question_id: QuestionResult(

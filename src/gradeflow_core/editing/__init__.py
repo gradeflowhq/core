@@ -4,17 +4,15 @@
 from ..common.documents import dump_yaml, load_yaml
 from ..common.exceptions import EditingError
 from ..common.hints import HINT_KEY
-from ..common.model_service import list_models
 from ..marking.examples import RowResult, mark_rows
-from ..marking.model_choice import try_model
-from ..methods.collection import FailedFile, LoadedFiles, load_method_files, rewrite_references
+from ..methods.collection import LoadedFiles, load_method_files, rewrite_references
 from ..methods.composed.file import methods_used
-from ..methods.example import Example, ExampleRow
-from ..methods.names import method_name, method_ref, split_ref
-from ..methods.position import Position
 from ..questions import QUESTION_CLASSES, new_question
 from ..questions.inference import converted_question
 from ..questions.types import QuestionType
+from ..steps.example import Example, ExampleRow
+from ..steps.names import method_name, method_ref, split_ref
+from ..steps.position import Position
 from .by_example import DECISIONS, Decision, can_mark_by_example
 from .conditions import Condition, ConditionRow
 from .drafts import MarkingDraft, StepsSetting, compatible_methods
@@ -30,7 +28,6 @@ __all__ = [
     "EditingError",
     "Example",
     "ExampleRow",
-    "FailedFile",
     "LoadedFiles",
     "MarkingDraft",
     "MethodDraft",
@@ -42,7 +39,6 @@ __all__ = [
     "compatible_methods",
     "converted_question",
     "dump_yaml",
-    "list_models",
     "load_method_files",
     "load_yaml",
     "mark_rows",
@@ -52,5 +48,4 @@ __all__ = [
     "new_question",
     "rewrite_references",
     "split_ref",
-    "try_model",
 ]

@@ -10,9 +10,16 @@ from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
 from ..methods.helpers import accepted_answer
-from .helpers import ACCEPTS_9_81, answer_proportions, decisions_of, marked_by_example
+from .helpers import (
+    ACCEPTS_9_81,
+    answer_proportions,
+    check_of,
+    decisions_of,
+    marked_by_example,
+)
 
 ACCEPTS_X = accepted_answer("x")
+UNKNOWN_MARKS_BY: tuple[object, ...] = (None, "nonsense", [])
 
 
 @pytest.mark.parametrize("action", ["full_marks", "partial_marks", "not_allowed"])
@@ -207,3 +214,41 @@ def test_new_checks_use_the_latest_version_and_decisions_read_every_version() ->
 def test_deciding_needs_the_methods_decisions_are_written_with() -> None:
     with pytest.raises(EditingError, match="There's no method gradeflow/accepted-answers"):
         decisions_of(ACCEPTS_9_81, methods=Methods())
+
+
+@pytest.mark.parametrize(
+    "marking",
+    [
+        {"question": "Q1", "uses": "gradeflow/not-allowed@1", "with": {"check": "nonsense"}},
+        *(
+            {
+                "question": "Q1",
+                "uses": "gradeflow/workflow@1",
+                "with": {"marks_by": marks_by, "steps": [check_of(ACCEPTS_9_81)]},
+            }
+            for marks_by in UNKNOWN_MARKS_BY
+        ),
+        {
+            "question": "Q1",
+            "uses": "gradeflow/workflow@1",
+            "with": {"steps": ["nonsense", {**check_of(ACCEPTS_9_81), "weight": "heavy"}]},
+        },
+    ],
+)
+def test_a_check_written_so_it_cant_be_read_decides_nothing(marking: dict[str, Any]) -> None:
+    assert decisions_of(marking) == {}
+
+
+def test_the_readable_checks_of_a_marking_still_decide() -> None:
+    marking = {
+        "question": "Q1",
+        "uses": "gradeflow/workflow@1",
+        "with": {
+            "marks_by": "any_correct",
+            "steps": [
+                {"uses": "gradeflow/not-allowed@1", "with": {"check": 5}},
+                check_of(ACCEPTS_9_81),
+            ],
+        },
+    }
+    assert decisions_of(marking) == {"9.81": "full_marks"}

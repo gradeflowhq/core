@@ -13,7 +13,7 @@ import pytest
 from pydantic import SecretStr
 
 from gradeflow_core import ModelEndpoint
-from gradeflow_core.common import model_service
+from gradeflow_core.models import model_service
 
 ENDPOINT = ModelEndpoint(url="https://models.test/v1", api_key=SecretStr("key"))
 FAST_MODEL_ENDPOINT = ENDPOINT.model_copy(update={"fast_model": "decider"})

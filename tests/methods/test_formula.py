@@ -5,9 +5,9 @@ from gradeflow_core.editing import Position
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
-from .helpers import located, mark_group, mark_scheme_of
+from .helpers import located, mark_group, mark_scheme_of, problems_in
 
-FORMULA_OF_ANSWERS = BUILTINS.find("gradeflow/formula-of-answers@1")
+FORMULA_OF_ANSWERS = BUILTINS.by_ref["gradeflow/formula-of-answers@1"]
 QUESTIONS: dict[str, Question] = {
     "Q1": NumberQuestion(),
     "Q2": NumberQuestion(),
@@ -99,7 +99,7 @@ def test_describes_the_formula() -> None:
 
 def group_problems(marking: dict[str, Any]) -> list[tuple[str, tuple[Any, ...], str]]:
     [check] = mark_scheme_of(marking).markings
-    return located(check.problems(QuestionSet(QUESTIONS)))
+    return located(problems_in(check, QuestionSet(QUESTIONS)))
 
 
 def test_problems_with_its_question_and_formula() -> None:

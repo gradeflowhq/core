@@ -4,7 +4,6 @@ import pytest
 
 from gradeflow_core import (
     BUILTINS,
-    Check,
     GradeFlowError,
     InvalidError,
     MarkScheme,
@@ -17,10 +16,12 @@ from gradeflow_core import (
 )
 from gradeflow_core.editing import dump_yaml, methods_used, rewrite_references
 from gradeflow_core.methods.logic.full_marks import FullMarks
-from gradeflow_core.methods.outcome import Outcome
-from gradeflow_core.methods.settings import Settings
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.types import Answer
+from gradeflow_core.steps.method import AnswerMethod
+from gradeflow_core.steps.outcome import Outcome
+from gradeflow_core.steps.settings import Settings
+from gradeflow_core.steps.step import valid_step
 
 
 def method_file(uses: str, version: int = 1) -> str:
@@ -45,7 +46,7 @@ def test_methods_find_a_method_by_its_ref() -> None:
 
 def test_a_check_uses_the_built_in_methods_unless_given_others() -> None:
     full_marks = BUILTINS.find("gradeflow/full-marks@1")
-    assert Check.load({"uses": full_marks.ref}).method is full_marks
+    assert valid_step({"uses": full_marks.ref}, BUILTINS.by_ref).resolution.method is full_marks
 
 
 def test_loading_preserves_setting_order_and_does_not_modify_supplied_collections() -> None:
@@ -79,20 +80,43 @@ def test_versions_of_a_method_are_distinct_and_latest_keeps_the_highest() -> Non
         "sample/wrapper@1",
     ]
     assert {method.name for method in loaded} == {"sample/wrapper", "sample/other"}
-    assert Check.load({"uses": "sample/wrapper@1"}, methods=methods).method is loaded[2]
-    assert Check.load({"uses": "sample/wrapper@2"}, methods=methods).method is loaded[0]
+    assert valid_step({"uses": "sample/wrapper@1"}, methods.by_ref).resolution.method is loaded[2]
+    assert valid_step({"uses": "sample/wrapper@2"}, methods.by_ref).resolution.method is loaded[0]
     with pytest.raises(InvalidError, match="There's no method sample/wrapper"):
-        Check.load({"uses": "sample/wrapper"}, methods=methods)
+        valid_step({"uses": "sample/wrapper"}, methods.by_ref)
     assert [method.ref for method in loaded.latest()] == ["sample/wrapper@2", "sample/other@1"]
     assert list(BUILTINS.latest()) == list(BUILTINS)
 
 
 def test_duplicate_references_are_rejected() -> None:
-    with pytest.raises(MethodFileError, match=f"Duplicate method {BUILTINS[0].ref}."):
+    with pytest.raises(InvalidError, match=f"Duplicate method {BUILTINS[0].ref}."):
         Methods([*BUILTINS, BUILTINS[0]])
     files = [("sample/same", method_file("gradeflow/full-marks@1"))] * 2
     with pytest.raises(MethodFileError, match=re.escape("sample/same@1: Duplicate method.")):
         BUILTINS.with_files(files)
+
+
+def test_a_method_whose_settings_share_a_steps_property_is_refused() -> None:
+    class NamedSettings(Settings):
+        name: str = ""
+        weight: float = 1
+
+    class Named(AnswerMethod[NamedSettings]):
+        name, version, label, summary = "sample/named", 1, "Named", "Named."
+        settings = NamedSettings
+
+        def describe(self, settings: NamedSettings) -> str:
+            return ""
+
+        def mark_answer(
+            self, settings: NamedSettings, answer: Answer, question: Question
+        ) -> Outcome:
+            return Outcome(1, "")
+
+    with pytest.raises(
+        TypeError, match=re.escape("Named's settings share a step's properties: ['name', 'weight']")
+    ):
+        Methods([*BUILTINS, Named()])
 
 
 def test_missing_dependencies_and_cycles_are_reported() -> None:
@@ -116,12 +140,12 @@ def test_missing_dependencies_and_cycles_are_reported() -> None:
                 ("sample/inner", method_file("sample/outer@1")),
             ]
         )
-    with pytest.raises(MethodFileError, match="no method missing@1"):
+    with pytest.raises(InvalidError, match="no method missing@1"):
         BUILTINS.dependencies("missing@1")
 
 
 class ZeroFullMarks(FullMarks):
-    def _mark_answer(self, settings: Settings, answer: Answer, question: Question) -> Outcome:
+    def mark_answer(self, settings: Settings, answer: Answer, question: Question) -> Outcome:
         return Outcome(0, "Replacement.")
 
 
@@ -146,7 +170,7 @@ def test_composed_checks_use_the_current_collection_through_every_dependency() -
     assert proportion_with(loaded, marking) == 1
     assert proportion_with(with_replaced_full_marks, marking) == 0
     # Existing checks are also rebound when included in a new operation.
-    check = Check.load(marking, methods=loaded)
+    check = valid_step(marking, loaded.by_ref)
     assert proportion_with(with_replaced_full_marks, check) == 0
     without_full_marks = Methods(
         method for method in loaded if method.name != "gradeflow/full-marks"
@@ -154,10 +178,10 @@ def test_composed_checks_use_the_current_collection_through_every_dependency() -
     assert MarkScheme.load([marking], methods=without_full_marks).problems(
         QuestionSet({"Q1": TextQuestion()})
     )
-    with pytest.raises(MethodFileError, match="no method gradeflow/full-marks@1"):
+    with pytest.raises(InvalidError, match="no method gradeflow/full-marks@1"):
         without_full_marks.dependencies("sample/outer@1")
     with pytest.raises(InvalidError, match="no method gradeflow/full-marks@1"):
-        Check.load({"uses": "gradeflow/full-marks@1"}, methods=Methods())
+        valid_step({"uses": "gradeflow/full-marks@1"}, Methods().by_ref)
 
 
 def test_reference_rewriting_only_changes_named_references_and_copies_content() -> None:

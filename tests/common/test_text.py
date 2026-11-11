@@ -1,7 +1,6 @@
 """Feedback students read and descriptions markers read are plain and tidy."""
 
 import re
-from typing import Any
 
 import pytest
 
@@ -26,7 +25,7 @@ METHODS_WITH_EXAMPLES = [method for method in BUILTINS if method.examples]
 
 
 @pytest.mark.parametrize("method", METHODS_WITH_EXAMPLES, ids=lambda method: method.name)
-def test_feedback_and_descriptions_are_tidy(method: Method[Any]) -> None:
+def test_feedback_and_descriptions_are_tidy(method: Method) -> None:
     for example in method.examples:
         assert not UNTIDY_TEXT.search(example.description), example.description
         for row in example.rows:

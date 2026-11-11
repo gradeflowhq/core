@@ -17,7 +17,7 @@ jobs:
       - run: uv sync --all-extras
       # The ml tests' models, downloaded again only when a pinned model changes.
       - id: models
-        run: echo "key=models-$(grep -hE '^(REPOSITORY|REVISION|DOWNLOADED_MODEL|EMBEDDING_MODEL) =' src/gradeflow_core/ml/*.py | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        run: echo "key=models-$(grep -hE '^(REPOSITORY|REVISION|DOWNLOADED_MODEL|EMBEDDING_MODEL) =' src/gradeflow_core/models/*.py | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v5
         with:
           path: ~/.cache/gradeflow/models

@@ -14,9 +14,9 @@ def test_marking_and_editing_without_the_llm_extra() -> None:
 
             from gradeflow_core import (
                 GradeFlowError, MarkScheme, ModelEndpoint, QuestionSet, Submission,
-                mark, try_models,
+                list_models, mark, try_model, try_models,
             )
-            from gradeflow_core.editing import MarkingDraft, list_models, try_model
+            from gradeflow_core.editing import MarkingDraft
 
             questions = QuestionSet.load({"Q1": {"type": "text"}})
             submissions = [Submission(student_id="1", answers={"Q1": "hello"})]

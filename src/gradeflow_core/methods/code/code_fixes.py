@@ -16,17 +16,17 @@ from pydantic import ConfigDict, Field
 from rapidfuzz.distance import OSA
 
 from ...common.hints import ADVANCED_HINT, hint
-from ...common.text import capitalized, format_number, quoted
-from ...questions.code_files import join_answer, python_files, split_answer
-from ...questions.layouts import (
+from ...common.python_layouts import (
     BRACKETS,
     CLOSING_BRACKETS,
     COMPOUND_KEYWORDS,
     OPENING_BRACKETS,
     guess_layouts,
 )
-from ..outcome import Detail, Outcome
-from ..settings import Settings
+from ...common.text import capitalized, format_number, quoted
+from ...questions.code_files import join_answer, python_files, split_answer
+from ...steps.outcome import Detail, Outcome
+from ...steps.settings import Settings
 
 type LineColumn = tuple[int, int]
 FixKind = Literal["indentation", "colons", "brackets", "equals", "keywords", "names"]

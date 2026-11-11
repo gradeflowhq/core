@@ -11,8 +11,8 @@ from fractions import Fraction
 from natsort import natsorted, ns
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..common.exceptions import InvalidError
 from ..common.hints import ADVANCED_HINT
+from ..common.problems import InvalidError
 from ..common.text import as_text, quoted
 from .code_files import join_answer, split_answer
 from .types import Answer

@@ -48,7 +48,7 @@ BY_NAME = {method.name: method for method in BUILTINS}
 
 
 @pytest.mark.parametrize("method", PUBLIC_METHODS, ids=lambda method: method.name)
-def test_every_method_explains_itself_plainly(method: Method[Any]) -> None:
+def test_every_method_explains_itself_plainly(method: Method) -> None:
     assert method.summary.endswith(".")
     assert ". " not in method.summary
     assert len(method.summary.split()) <= 10, method.summary
@@ -152,8 +152,8 @@ def test_a_row_matches_only_when_it_declares_every_question_marked() -> None:
     ("reference", "settings", "message"),
     [
         ("gradeflow/nope@1", {}, "There's no method gradeflow/nope@1."),
-        ("gradeflow/accepted-answers@1", {"answers": 5}, "markings.0.answers: Must be a list."),
-        ("gradeflow/extract@1", {"bogus": 1}, "bogus: Unknown setting."),
+        ("gradeflow/accepted-answers@1", {"answers": 5}, "/markings/0/answers: Must be a list."),
+        ("gradeflow/extract@1", {"bogus": 1}, "/bogus: Unknown setting."),
     ],
 )
 def test_marking_rows_refuses_unknown_methods_and_bad_settings(
@@ -286,7 +286,7 @@ def test_actual_rows_are_independent_from_declared_rows() -> None:
     declared = [example.model_dump() for example in method.examples]
     actual = mark_examples(method.ref)
     actual[0].rows[0].results.clear()
-    actual[0].rows[0].answers["Q1"] = "Changed"
+    actual[0].rows[0].sheet.answers["Q1"] = "Changed"
     assert [example.model_dump() for example in method.examples] == declared
 
 
@@ -306,7 +306,7 @@ MEANING_MODEL_METHODS = {"gradeflow/accepted-answers", "gradeflow/key-points"}
     ],
 )
 def test_built_in_examples_declare_what_evaluating_them_gives(
-    method: Method[Any], fake_models: InstallFakeModels
+    method: Method, fake_models: InstallFakeModels
 ) -> None:
     fake_models(example_verdicts)
     actual = mark_examples(method.ref, model_endpoint=FAST_AND_CAREFUL_ENDPOINT)

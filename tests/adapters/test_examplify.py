@@ -266,7 +266,7 @@ def test_a_weight_that_isnt_marks_is_left_out(weight: str) -> None:
 
 def test_a_question_that_cant_be_set_up_says_why() -> None:
     item = _item(1, r"\pard\plain Pick one\par" + _choice("A", "x") + _choice("B", "y") * 2)
-    with pytest.raises(InvalidError, match=r"^Q1\.options: .*“b” appears twice\.$"):
+    with pytest.raises(InvalidError, match=r"^/Q1/options: .*“b” appears twice\.$"):
         read_question_document(_document(item), QUESTIONS)
 
 

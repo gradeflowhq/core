@@ -3,7 +3,8 @@
 import argparse
 from collections.abc import Sequence
 
-from .ml import cache_directory, embeddings, nli
+from .models import embeddings, nli
+from .models.local import cache_directory
 
 
 def main(argv: Sequence[str] | None = None) -> int:

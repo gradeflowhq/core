@@ -1,10 +1,9 @@
 from ...questions.base import Question
 from ...questions.types import ALL_QUESTION_TYPES, Answer
-from ..example import examples_beside
-from ..method import AnswerMethod
-from ..outcome import Outcome
-from ..settings import Settings
-from ..step import Step
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import Outcome
+from ...steps.settings import Settings
 
 
 class FullMarksSettings(Settings):
@@ -28,10 +27,10 @@ class FullMarks(AnswerMethod[FullMarksSettings]):
     settings = FullMarksSettings
     examples = examples_beside(__file__)
 
-    def describe(self, step: Step) -> str:
+    def describe(self, settings: FullMarksSettings) -> str:
         return "Full marks for every answer."
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: FullMarksSettings, answer: Answer, question: Question
     ) -> Outcome:
         return Outcome(1.0, "Full marks.")

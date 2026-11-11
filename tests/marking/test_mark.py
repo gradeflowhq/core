@@ -16,14 +16,14 @@ from gradeflow_core import (
     mark,
 )
 from gradeflow_core.methods.code import runner as code_runner
-from gradeflow_core.methods.method import MarkingMethod
-from gradeflow_core.methods.outcome import Outcome, QuestionOutcomes
-from gradeflow_core.methods.settings import Settings
-from gradeflow_core.methods.step import Context, Step
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.types import QuestionId
 from gradeflow_core.questions.values import ValuesQuestion
+from gradeflow_core.steps.context import Context
+from gradeflow_core.steps.method import MarkingMethod
+from gradeflow_core.steps.outcome import Outcome, QuestionOutcomes
+from gradeflow_core.steps.settings import Settings
 from tests.methods.helpers import accepted_answer, mark_all, with_value_inputs
 
 QUESTIONS = QuestionSet(
@@ -174,11 +174,7 @@ def test_a_marked_submission_is_the_submission_with_its_results() -> None:
     [submission] = mark(
         QUESTIONS, MarkScheme.load([accepted_answer("a", question="Q1")]), [with_given_marks]
     )
-    assert (submission.student_id, submission.answers, submission.marks) == (
-        "s1",
-        {"Q1": "a"},
-        {"Q2": 1},
-    )
+    assert submission.sheet is with_given_marks
     assert set(submission.results) == {"Q1", "Q2"}
     row = ResultsCsv().write(QUESTIONS, [submission]).splitlines()[1]
     assert row.startswith("s1,a,1,Correct.")
@@ -196,17 +192,17 @@ class BatchRecordingMethod(MarkingMethod[Settings]):
     def __init__(self) -> None:
         self.batches: list[list[str]] = []
 
-    def describe(self, step: Step) -> str:
+    def describe(self, settings: Settings) -> str:
         return self.summary
 
-    def run(
-        self, step: Step, contexts: Sequence[Context], question_id: QuestionId | None
+    def mark_students(
+        self, settings: Settings, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> list[QuestionOutcomes]:
         assert question_id is not None
         self.batches.append([context.written_answers[question_id] for context in contexts])
-        return super().run(step, contexts, question_id)
+        return super().mark_students(settings, contexts, question_id)
 
-    def _mark_student(
+    def mark_student(
         self, settings: Settings, context: Context, question_id: QuestionId | None
     ) -> dict[QuestionId, Outcome]:
         assert question_id is not None

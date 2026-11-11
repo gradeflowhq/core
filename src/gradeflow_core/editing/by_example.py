@@ -7,21 +7,16 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ..common.exceptions import EditingError
-from ..methods.answers.accepted_answers import AcceptedAnswers
+from ..methods.answers.accepted_answers import AcceptedAnswers, AcceptedAnswersSettings
 from ..methods.collection import Methods
 from ..methods.logic.full_marks import FullMarks
-from ..methods.logic.workflow import (
-    MarksBy,
-    Workflow,
-    WorkflowSettings,
-    combined_proportion,
-    proportion_denominator,
-)
-from ..methods.method import Method
-from ..methods.outcome import FULL_MARKS_PROPORTION
-from ..methods.step import Check, settings_of
 from ..questions.base import Question
 from ..questions.types import QuestionId
+from ..steps.combining import COMBINATIONS, MarksBy
+from ..steps.method import Method
+from ..steps.outcome import FULL_MARKS_PROPORTION
+from ..steps.step import Step, load_step, settings_of
+from ..steps.workflow import Workflow, WorkflowSettings
 
 type Decision = Literal["full_marks", "partial_marks", "not_allowed"]
 DECISIONS: dict[Decision, str] = {
@@ -34,8 +29,6 @@ DECISIONS: dict[Decision, str] = {
 NOT_ALLOWED_METHOD_NAME = "gradeflow/not-allowed"
 """The composed method that reverses a check."""
 
-_DEFAULT_MARKS_BY: MarksBy = WorkflowSettings.model_fields["marks_by"].default
-_DEFAULT_WEIGHT = Check.model_fields["weight"].default
 _METHOD_KEYS = frozenset({"uses", "with"})
 """What a check has of its method."""
 _LIMIT_KEYS = frozenset({"if", "question", "input"})
@@ -46,7 +39,7 @@ _LIMIT_KEYS = frozenset({"if", "question", "input"})
 class _ExampleMethods:
     """How the supplied methods write the checks that decide particular answers."""
 
-    methods_by_reference: Mapping[str, Method[Any]]
+    methods_by_reference: Mapping[str, Method]
     normalize: Callable[[str], str]
     accepted_answers_reference: str
     workflow_reference: str
@@ -100,14 +93,12 @@ def _answers(check: Mapping[str, Any]) -> list[Any]:
     return settings_of(check).get("answers") or []
 
 
-def _marks_by(check: Mapping[str, Any]) -> MarksBy:
-    marks_by: MarksBy = settings_of(check).get("marks_by", _DEFAULT_MARKS_BY)
-    return marks_by
+def _marks_by(check: Mapping[str, Any]) -> object:
+    return settings_of(check).get("marks_by", WorkflowSettings.model_fields["marks_by"].default)
 
 
-def _weight(check: Mapping[str, Any]) -> float:
-    weight: float = check.get("weight", _DEFAULT_WEIGHT)
-    return weight
+def _weight(check: Mapping[str, Any]) -> object:
+    return check.get("weight", Step.model_fields["weight"].default)
 
 
 def can_mark_by_example(question: Question) -> bool:
@@ -133,46 +124,61 @@ def answer_decisions(
     return {answer: _decision_for(proportion) for answer, proportion in proportions.items()}
 
 
-def _marks_same_question(check: Mapping[str, Any], example_methods: _ExampleMethods) -> bool:
-    return (
-        check.get("question") in (None, example_methods.question_id)
-        and check.get("input") is None
-        and _weight(check) != 0
-    )
-
-
 def _decided_proportions(
-    check: Mapping[str, Any], example_methods: _ExampleMethods
+    marking: Mapping[str, Any], example_methods: _ExampleMethods
 ) -> dict[str, float]:
-    if not _marks_same_question(check, example_methods):
+    """The proportion of the marks ``marking`` gives each answer it decides; none until it names
+    a method."""
+    if "uses" not in marking:
         return {}
-    if example_methods.uses_method(check, AcceptedAnswers.name):
-        return {example_methods.normalize(str(answer)): 1.0 for answer in _answers(check)}
-    if example_methods.uses_method(check, NOT_ALLOWED_METHOD_NAME):
-        reversed_check = settings_of(check).get("check") or {}
+    step = load_step(marking, example_methods.methods_by_reference)
+    return _proportions_decided_by(step, example_methods)
+
+
+def _proportions_decided_by(
+    step: Step | None, example_methods: _ExampleMethods
+) -> dict[str, float]:
+    """The proportion of the marks ``step`` gives each answer it decides. A step that isn't
+    there, or whose settings aren't valid, as while it is being written, decides none."""
+    if step is None or not _marks_same_question(step, example_methods):
+        return {}
+    method = step.resolution.method
+    if method is not None and method.name == NOT_ALLOWED_METHOD_NAME:
+        reversed_check = step.resolution.inner_steps.get(("check",))
         return {
             answer: 1 - proportion
-            for answer, proportion in _decided_proportions(reversed_check, example_methods).items()
+            for answer, proportion in _proportions_decided_by(
+                reversed_check, example_methods
+            ).items()
         }
-    if not example_methods.uses_method(check, Workflow.name):
-        return {}
-    step_checks = [
-        step_check
-        for step_check in _steps(check)
-        if _marks_same_question(step_check, example_methods)
-    ]
-    marks_by = _marks_by(check)
-    weighted_proportions: defaultdict[str, list[tuple[float, float]]] = defaultdict(list)
-    for step_check in step_checks:
-        for answer, proportion in _decided_proportions(step_check, example_methods).items():
-            weighted_proportions[answer].append((_weight(step_check), proportion))
-    denominator = proportion_denominator(
-        marks_by, list(map(_weight, step_checks)), example_methods.max_marks
+    match step.settings:
+        case AcceptedAnswersSettings(answers=answers):
+            return {example_methods.normalize(answer): 1.0 for answer in answers}
+        case WorkflowSettings(marks_by=marks_by, steps=steps):
+            checks = [check for check in steps if _marks_same_question(check, example_methods)]
+            combination = COMBINATIONS[marks_by]
+            weighted_proportions: defaultdict[str, list[tuple[float, float]]] = defaultdict(list)
+            for check in checks:
+                decided_proportions = _proportions_decided_by(check, example_methods)
+                for answer, proportion in decided_proportions.items():
+                    weighted_proportions[answer].append((check.weight, proportion))
+            denominator = combination.denominator(
+                [check.weight for check in checks], example_methods.max_marks
+            )
+            return {
+                answer: combination.proportion(weight_proportion_pairs, denominator)
+                for answer, weight_proportion_pairs in weighted_proportions.items()
+            }
+    return {}
+
+
+def _marks_same_question(step: Step, example_methods: _ExampleMethods) -> bool:
+    """Whether ``step`` gives marks for the marking's own answer."""
+    return (
+        step.question in (None, example_methods.question_id)
+        and step.input is None
+        and step.weight != 0
     )
-    return {
-        answer: combined_proportion(marks_by, weight_proportion_pairs, denominator)
-        for answer, weight_proportion_pairs in weighted_proportions.items()
-    }
 
 
 def mark_by_example(
@@ -287,7 +293,11 @@ def _without_answers(
     Replacement leaves fuzzy matches intact so an exact override affects only these answers.
     Cancellation also removes explicitly listed fuzzy examples, retaining check settings.
     """
-    if cancel and not _marks_same_question(check, example_methods):
+    if cancel and not (
+        check.get("question") in (None, example_methods.question_id)
+        and check.get("input") is None
+        and _weight(check) != 0
+    ):
         return check
     settings = settings_of(check)
     if example_methods.uses_method(check, AcceptedAnswers.name) and (
@@ -325,7 +335,10 @@ def _without_answers(
         if not step_checks:
             return {**check, **deepcopy(example_methods.no_marks_check)}
         if _is_plain_all_or_any_workflow(check, example_methods):
-            return _combined_check(_marks_by(check), step_checks, example_methods)
+            marks_by: MarksBy = (
+                "any_correct" if _marks_by(check) == "any_correct" else "all_correct"
+            )
+            return _combined_check(marks_by, step_checks, example_methods)
         return {**check, "with": {**settings, "steps": step_checks}}
     return check
 

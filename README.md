@@ -49,18 +49,18 @@ assert scheme.problems(questions) == []
 
 marked = list(mark(questions, scheme, students))
 for student in marked:
-    print(student.student_id, student.total_marks, "/", student.max_marks)
+    print(student.sheet.student_id, student.total_marks, "/", student.max_marks)
     print("\n".join(map(str, student.report())))
 
 print(ResultsCsv().write(questions, marked))
 ```
 
-`mark()` yields each sheet as it is marked. A `Submission` gives a `MarkedSubmission`, and any other
-`AnswerSheet` a `MarkedSheet`. Each holds a `QuestionResult` per question, and `report()` gives a
-printable `ReportLine` per question.
+`mark()` yields each sheet as it is marked, as a `Marked`: the `sheet`, a `QuestionResult` per
+question in `results`, and `max_marks`. `total_marks` adds the results up, and `report()` gives a
+printable `ReportLine` per question. A `Submission` is an `AnswerSheet` with a `student_id`.
 
-When a marking combines checks, a result's `breakdown` shows how each one marked the answer, such
-as what each code test's expression gave.
+When a marking combines checks, a result's `breakdown` is a `CheckResult` that shows how each one
+marked the answer, such as what each code test's expression gave.
 
 A blank answer gets nothing, except from Full Marks. An answer the question can't read, a check that
 fails to run, or a marking with problems leaves the answer unmarked, with the reason as feedback. A
@@ -91,7 +91,9 @@ from gradeflow_core import (
     QuestionSet,
     Submission,
     best_models,
+    list_models,
     mark,
+    try_model,
     try_models,
 )
 
@@ -109,6 +111,9 @@ endpoint = endpoint.model_copy(update={"fast_model": fast_model, "careful_model"
 students = [Submission(student_id="1", answers={"Q1": "Because ice is less dense than water."})]
 for marked in mark(questions, scheme, students, model_endpoint=endpoint):
     assert marked.results["Q1"].proportion == 0.5
+
+for model in list_models(endpoint):
+    print(try_model(endpoint, "careful", model))
 ```
 
 `try_models` tries the endpoint's newest models on Answer Criteria's own examples, as the fast model
@@ -116,9 +121,10 @@ and then as the careful one, until two in each role mark them all correctly. It 
 `ModelTrial` as it ends, skips those passed as `tried` unless the service failed on them, and calls
 `on_start` as each starts.
 `best_models` picks, in each role, the one with the most answers right, then the fastest.
+`list_models` lists the endpoint's models, and `try_model` tries one of them in one role.
 
 Answers go 12 to a request (`answers_per_request`) and sheets 60 at a time (`chunk_size`), with
-progress reported to `on_progress`. Without an endpoint, these answers are left unmarked.
+each `Progress` reported to `on_progress`. Without an endpoint, these answers are left unmarked.
 `MarkScheme.needs_model_endpoint()` tells you whether a scheme needs one.
 
 ## Questions
@@ -197,9 +203,21 @@ A step can also have an `if` condition, such as `{{ steps.id.output.correct }}`,
 template. A `weight` of 0 gives no marks. A marking without a `question` marks a question group, and
 its steps name the questions they mark.
 
-A `MarkScheme` is a list of markings. `problems(questions)` on a `MarkScheme` or a `Check` lists
-what would stop it marking. Each `Problem` points at the check and field at fault, such as
-`markings.0.with.steps.1`.
+A `MarkScheme` is a list of markings, each a `Step`: what its YAML holds, with `settings` for its
+`with`. `problems(questions)` lists what would stop it marking. Each `Problem` points at the check
+and field at fault with a JSON Pointer, such as `/markings/0/with/steps/1`.
+
+```python
+from gradeflow_core import MarkScheme
+
+scheme = MarkScheme.load(
+    [{"question": "Q3", "uses": "gradeflow/accepted-answers@1", "with": {"answers": ["9.81"]}}]
+)
+[check] = scheme.markings
+print(check.question, check.uses, check.settings, check.weight)
+print(check.describe(), check.questions_marked(), check.questions_read())
+assert scheme.dump() == [check.dump()]
+```
 
 ## Method collections
 
@@ -235,7 +253,13 @@ for method in methods.latest():
     print(method.ref, method.label, sorted(method.question_types))
 ```
 
-Files can use each other. A bad file raises `MethodFileError` with the line at fault.
+A `Method` has a `name`, `version`, `ref`, `label`, `summary`, `guide`, `level` and `examples`.
+It marks the `question_types` it lists, and a question group if it `marks_question_group`.
+`needs_model_endpoint` says whether it asks a language model, and `gives_marks(settings)` whether a
+step with those settings is a check.
+
+Files can use each other. A file that doesn't load raises `MethodFileError`, with its `ref` and its
+`problems`, each on its `line`.
 
 A shorter version of the built-in Key Points, which is composed:
 
@@ -266,10 +290,141 @@ the marks. With `marks_by: total`, each weight is a number of marks, capped at f
 `output_step: "{{ steps.id.output }}"` is a transform. Templates are sandboxed Jinja, and `{{ … }}`
 on its own keeps its value's type.
 
+## Writing a method in Python
+
+An `AnswerMethod` marks one answer. Its `settings` are a `Settings` model, which is what a check's
+`with` holds. `describe` says what a check with those settings does, and `mark_answer` gives an
+`Outcome`: the proportion of the marks the answer earns, from 0 to 1, and feedback.
+
+```python
+from pydantic import Field
+
+from gradeflow_core import (
+    BUILTINS,
+    Answer,
+    AnswerMethod,
+    MarkScheme,
+    Methods,
+    Outcome,
+    Question,
+    QuestionSet,
+    Settings,
+    Submission,
+    mark,
+)
+
+
+class StartsWithSettings(Settings):
+    prefix: str = Field(title="Starts with")
+
+
+class StartsWith(AnswerMethod[StartsWithSettings]):
+    name = "examples/starts-with"
+    version = 1
+    label = "Starts With"
+    summary = "Full marks if the answer starts with the text."
+    question_types = frozenset({"text"})
+    settings = StartsWithSettings
+
+    def describe(self, settings: StartsWithSettings) -> str:
+        return f"Starts with `{settings.prefix}`."
+
+    def mark_answer(
+        self, settings: StartsWithSettings, answer: Answer, question: Question
+    ) -> Outcome:
+        if str(answer).startswith(settings.prefix):
+            return Outcome(1.0, "Correct.")
+        return Outcome(0.0, f"Expected it to start with {settings.prefix}.")
+
+
+methods = Methods([*BUILTINS, StartsWith()])
+questions = QuestionSet.load({"Q1": {"type": "text"}})
+scheme = MarkScheme.load(
+    [{"question": "Q1", "uses": "examples/starts-with@1", "with": {"prefix": "photo"}}],
+    methods=methods,
+)
+students = [Submission(student_id="1", answers={"Q1": "Photosynthesis"})]
+[marked] = mark(questions, scheme, students)
+assert marked.results["Q1"].feedback == "Correct."
+```
+
+The answer is an `Answer`, as the question reads it: text, lowercased unless the question keeps
+case, a number, a set of options or a list of values. Blank and unreadable answers never reach
+`mark_answer`, unless the method sets `marks_blank_answers = True` to mark blank ones.
+`Outcome(0.0, reason, marked=False)` leaves an answer for a person to mark, and `details` holds
+each `Detail` a breakdown shows for the check. `guide`, `level` and `examples` are optional.
+
+A `TransformMethod` gives no marks. `transform` gives another answer, or `Unreadable` with the
+reason there is none, and `output_question` gives the question that reads it:
+
+```python
+from pydantic import Field
+
+from gradeflow_core import (
+    BUILTINS,
+    Answer,
+    MarkScheme,
+    Methods,
+    Question,
+    QuestionSet,
+    Settings,
+    Submission,
+    TransformMethod,
+    Unreadable,
+    mark,
+)
+
+
+class AfterSettings(Settings):
+    marker: str = Field(title="After")
+
+
+class After(TransformMethod[AfterSettings]):
+    name = "examples/after"
+    version = 1
+    label = "After"
+    summary = "Finds what comes after the text."
+    question_types = frozenset({"text"})
+    settings = AfterSettings
+
+    def describe(self, settings: AfterSettings) -> str:
+        return f"Finds what comes after `{settings.marker}`."
+
+    def output_question(self, settings: AfterSettings, question: Question) -> Question:
+        return question
+
+    def transform(
+        self, settings: AfterSettings, answer: Answer, question: Question
+    ) -> Answer | Unreadable:
+        _, marker, rest = str(answer).partition(settings.marker)
+        return rest.strip() if marker else Unreadable(f"Couldn't find {settings.marker}.")
+
+
+scheme = MarkScheme.from_yaml(
+    """
+- question: Q1
+  uses: gradeflow/workflow@1
+  with:
+    steps:
+      - id: final
+        uses: examples/after@1
+        with: {marker: "answer:"}
+      - input: "{{ steps.final.output }}"
+        uses: gradeflow/accepted-answers@1
+        with: {answers: ["12"]}
+""",
+    methods=Methods([*BUILTINS, After()]),
+)
+questions = QuestionSet.load({"Q1": {"type": "text"}})
+students = [Submission(student_id="1", answers={"Q1": "3 × 4. Answer: 12"})]
+[marked] = mark(questions, scheme, students)
+assert marked.results["Q1"].proportion == 1
+```
+
 ## Examples
 
 Each method declares examples: questions, settings, and answers with the marks and feedback they
-should get. `mark_examples` marks them and says whether each row matches:
+should get. `mark_examples` marks them, and each `MarkedExample` says whether each row matches:
 
 ```python
 from gradeflow_core import mark_examples
@@ -301,14 +456,17 @@ assert AnswerComparison.model_validate_json(stored).groups(threshold=0.85) == [[
 ## Errors
 
 The library raises `GradeFlowError`, with messages fit to show people. `InvalidError` carries the
-`problems` with invalid data, and `MethodFileError` is for method files.
+`problems` with invalid data: each `Problem` has a `message`, the `step_path` and `field` at
+fault and, if it was read from YAML, its `line`. `MethodFileError` is the `InvalidError` of a method
+file, which its `ref` names.
 
 ## Editing
 
 `gradeflow_core.editing` is for tools that edit markings and methods field by field.
 
-`MarkingDraft` edits a marking by check path. It gives each check's schema, values, fitting methods
-and problems, and can add, update, change the method of, move and remove checks:
+`MarkingDraft` edits a marking by the JSON Pointer of each check: `""` is the marking itself,
+`/with/steps/0` its first step. It gives each check's schema, values, fitting methods and problems,
+and can add, update, change the method of, move and remove checks:
 
 ```python
 from gradeflow_core import QuestionSet
@@ -317,18 +475,19 @@ from gradeflow_core.editing import Condition, ConditionRow, MarkingDraft
 questions = QuestionSet.load({"Q1": {"type": "text"}})
 draft = MarkingDraft.new("gradeflow/workflow@1", questions, "Q1")
 draft.update("", {"marks_by": "any_correct"})
-draft.add("with.steps.0", "gradeflow/accepted-answers@1")
-draft.update("with.steps.0", {"answers": ["Paris"]})
-draft.add("with.steps.1", "gradeflow/key-points@1")
-incorrect = Condition((ConditionRow("with.steps.0", "incorrect"),))
-draft.update("with.steps.1", {"points": ["capital"], "weight": 0.5, "if": incorrect})
+draft.add("/with/steps/0", "gradeflow/accepted-answers@1")
+draft.update("/with/steps/0", {"answers": ["Paris"]})
+draft.add("/with/steps/1", "gradeflow/key-points@1")
+incorrect = Condition((ConditionRow("/with/steps/0", "incorrect"),))
+draft.update("/with/steps/1", {"points": ["capital"], "weight": 0.5, "if": incorrect})
 assert draft.problems == []
-print(draft.notes("with.steps.1"))
+print(draft.notes("/with/steps/1"))
 print(draft.finalized().dump())
 ```
 
 `MethodDraft` writes a composed method from example questions. `bind_new_setting` turns a field of
-a step into a declared setting, and `bind` and `unbind` connect or disconnect them:
+a step into a declared setting, and `bind` and `unbind` connect or disconnect them. `tested_step`
+gives the method with its test values as a `Step`:
 
 ```python
 from gradeflow_core import QuestionSet
@@ -341,16 +500,16 @@ draft = MethodDraft.new(
     label="Within range",
     summary="A number in a range.",
 )
-draft.steps_draft.add("with.steps.0", "gradeflow/number-range@1")
-draft.steps_draft.update("with.steps.0", {"min_value": 10, "max_value": 20})
-draft.bind_new_setting("with.steps.0.with.min_value")
+draft.steps_draft.add("/with/steps/0", "gradeflow/number-range@1")
+draft.steps_draft.update("/with/steps/0", {"min_value": 10, "max_value": 20})
+draft.bind_new_setting("/with/steps/0/with/min_value")
 assert draft.problems == []
 print(draft.to_yaml())
 ```
 
 `load_method_files` loads saved method files as far as it can. A file that no longer loads, such
-as one written for an earlier version, stops only the files that use it, and `failed` lists its
-problems:
+as one written for an earlier version, stops only the files that use it, and `failed` holds its
+`MethodFileError`:
 
 ```python
 from gradeflow_core import BUILTINS
@@ -366,7 +525,7 @@ steps:
     with: {points: [light], unknown_setting: true}
 """
 loaded = load_method_files([("intro-biology/old", old)], BUILTINS)
-print(loaded.failed["intro-biology/old@1"].messages)
+print(*loaded.failed["intro-biology/old@1"].problems, sep="\n")
 ```
 
 `compatible_methods` lists the methods that fit at a `Position`, and `settings_schema` gives a
@@ -382,8 +541,8 @@ number_range = BUILTINS.find("gradeflow/number-range@1")
 print(list(number_range.settings_schema(Position(questions, "Q1"))["properties"]))
 ```
 
-`mark_rows` marks example rows with given settings, and `as_example()` records the result as a
-row:
+`mark_rows` marks example rows with given settings. Each `RowResult` is a marked `ExampleRow`, and
+`as_example()` records its results as what the row declares:
 
 ```python
 from gradeflow_core import QuestionSet
@@ -398,6 +557,7 @@ results = mark_rows(
     settings={"min_value": 10, "max_value": 20},
     rows=rows,
 )
+assert [result.sheet for result in results] == rows
 recorded = [result.as_example() for result in results]
 ```
 
@@ -415,8 +575,7 @@ assert draft.answer_decisions() == {"paris": "full_marks", "lyon": "not_allowed"
 ```
 
 The module also has functions for question types (`new_question`, `converted_question`), method
-references (`method_ref`, `split_ref`, `rewrite_references`), models (`list_models`, `try_model`)
-and YAML (`load_yaml`, `dump_yaml`).
+references (`method_ref`, `split_ref`, `rewrite_references`) and YAML (`load_yaml`, `dump_yaml`).
 
 ## Running code
 
@@ -431,8 +590,8 @@ Built-in methods are in `src/gradeflow_core/methods/`, in `answers/`, `text/`, `
 
 - **Composed method:** a YAML file named after the method, and its name in `CATALOGUE_ORDER` in
   `methods/catalogue.py`.
-- **Coded method:** a subclass of `AnswerMethod`, `MarkingMethod` or `TransformMethod`, an instance
-  in `PYTHON_METHODS`, its name in `CATALOGUE_ORDER`, and its examples in
+- **Coded method:** a method [written in Python](#writing-a-method-in-python), an instance in
+  `PYTHON_METHODS`, its name in `CATALOGUE_ORDER`, and its examples in
   `<method-name>.examples.yaml` beside it.
 - **Question type:** a subclass of `Question` implementing `read` and `python_type`, added to
   `AnyQuestion` in `questions/__init__.py` and to `QuestionType` in `questions/types.py`.

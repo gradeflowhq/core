@@ -18,13 +18,12 @@ from ...common.text import (
 from ...questions.base import Question
 from ...questions.text import TextQuestion
 from ...questions.types import Answer
-from ..example import examples_beside
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import CORRECT_FEEDBACK, Outcome
+from ...steps.position import Position
+from ...steps.settings import NonBlankText, Settings
 from ..matching import read_or_none
-from ..method import AnswerMethod
-from ..outcome import CORRECT_FEEDBACK, Outcome
-from ..position import Position
-from ..settings import NonBlankText, Settings
-from ..step import Step
 from . import expressions
 from .expressions import Expression
 
@@ -63,13 +62,13 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
     settings = EquivalentExpressionSettings
     examples = examples_beside(__file__)
 
-    def describe(self, step: Step) -> str:
-        answers = self._settings_of(step).answers
+    def describe(self, settings: EquivalentExpressionSettings) -> str:
+        answers = settings.answers
         if reads_better_listed(answers):
             return f"Equals any of these:\n{markdown_code_list(answers)}"
         return f"Equals {code_join(answers, conjunction='or')}."
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: EquivalentExpressionSettings, answer: Answer, question: Question
     ) -> Outcome:
         accepted_expressions = [
@@ -95,7 +94,9 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
             return Outcome(1.0, CORRECT_FEEDBACK)
         return Outcome(0.0, expected_sentence)
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
+    def problems(
+        self, settings: EquivalentExpressionSettings, position: Position
+    ) -> Iterator[Problem]:
         question = position.question_model
         assert isinstance(question, TextQuestion)  # it marks only text questions
         if question.reading.ignore_punctuation:
@@ -105,7 +106,7 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
             )
             return
         accepted_expressions_by_index: dict[int, Expression] = {}
-        for index, expression_text in enumerate(self._settings_of(step).answers):
+        for index, expression_text in enumerate(settings.answers):
             try:
                 accepted_expressions_by_index[index] = _accepted_expression(
                     expression_text, question

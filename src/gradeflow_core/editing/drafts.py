@@ -2,67 +2,67 @@
 
 import re
 from collections import Counter
-from collections.abc import Container, Iterable, Iterator, Mapping, Sequence
-from contextlib import suppress
-from copy import copy, deepcopy
-from dataclasses import dataclass, replace
+from collections.abc import Container, Iterable, Mapping, Sequence
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
+from functools import cached_property
 from itertools import chain, count
-from typing import Any, Literal, TypeGuard
+from typing import Any, Literal
 
-from pydantic import ConfigDict, Field, TypeAdapter, ValidationError, create_model
-from pydantic_core import PydanticUndefined
+from pydantic import TypeAdapter, ValidationError
 
-from ..common.documents import load_yaml_with_lines, with_line
-from ..common.exceptions import EditingError, InvalidError
+from ..common.documents import line_of, load_yaml_with_lines
+from ..common.exceptions import EditingError
 from ..common.hints import HINT_KEY, hint, hint_of
-from ..common.paths import Location, get_at, join_path, path_parts, set_at
-from ..common.problems import Problem, validation_problems
+from ..common.paths import (
+    Location,
+    is_within,
+    json_pointer,
+    location_of,
+    patched,
+    value_at,
+)
+from ..common.problems import InvalidError, Problem
 from ..common.schemas import JsonDict, json_schema
 from ..common.text import format_fraction, plain_markdown
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
-from ..methods.input_sources import (
-    ANSWER_INPUT,
-    AnswerValueSource,
-    OtherAnswerSource,
-    OutputQuestions,
-    StepOutputSource,
-    input_source,
-)
-from ..methods.method import Method
-from ..methods.position import Position
-from ..methods.problems import (
-    located_problems,
-    output_question,
-    step_input_position,
-    unusable_reason,
-    written_steps,
-)
-from ..methods.settings import annotated, literal_type
-from ..methods.step import (
-    STEP_KEYS,
-    STEP_OWN_FIELDS,
-    Check,
-    Step,
-    Transform,
-    load_check,
-    load_step,
-    settings_of,
-    step_cardinality,
-)
-from ..methods.templates import Shape, is_template, names_read, unknown_step_message
 from ..questions.base import Question
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
+from ..steps.input_sources import (
+    ANSWER_INPUT,
+    AnswerValueSource,
+    OtherAnswerSource,
+    StepOutputSource,
+    input_text,
+)
+from ..steps.method import Method
+from ..steps.places import StepPlace, marking_position, places
+from ..steps.position import Position
+from ..steps.problems import located_problems
+from ..steps.settings import literal_type, step_cardinality
+from ..steps.step import (
+    CHECK_PROPERTIES,
+    STEP_OWN_PROPERTIES,
+    STEP_PROPERTIES,
+    OutcomeFeedback,
+    Step,
+    load_step,
+    needs_workflow_problem,
+    settings_of,
+)
+from ..steps.templates import Shape, names_read
 from .by_example import Decision, answer_decisions, mark_by_example
 from .conditions import Condition, condition_template, read_condition
 
 POSITION_KEYS = ("id", "question", "input", "name", "weight", "if")
-"""The keys of a step that stay when its method changes."""
+"""The properties of a step that stay when its method changes."""
 type _ReadableInput = AnswerValueSource | OtherAnswerSource | StepOutputSource
 """An input a step can read besides the answer."""
 EMPTY_VALUES = (None, "")
 """What a field left empty holds."""
+_STEP_SCHEMA = json_schema(Step)
 
 
 def compatible_methods(position: Position, *, methods: Methods = BUILTINS) -> Methods:
@@ -87,7 +87,7 @@ class StepsSetting:
     @property
     def new_step_path(self) -> str:
         """The path a step added to it gets."""
-        return join_path(self.path, len(self.step_paths)) if self.is_list else self.path
+        return f"{self.path}/{len(self.step_paths)}" if self.is_list else self.path
 
     @property
     def is_full(self) -> bool:
@@ -97,27 +97,86 @@ class StepsSetting:
 
 
 @dataclass(frozen=True)
-class _Place:
-    """Where a step of a marking is, or would go."""
+class DraftSnapshot:
+    """A draft's marking as it stands, and what is worked out from it once. A change to the draft
+    makes another."""
 
-    path: str
-    method: Method[Any] | None
+    data: JsonDict
+    """The marking as YAML holds it, as written."""
+    written_data: JsonDict
+    """The marking as its steps are found in it."""
+    marking_data: JsonDict
+    """The marking as it marks."""
+    methods: Methods
     position: Position
-    enclosing_position: Position
-    """Where it is before its own question and input: what the steps holding it chose."""
-    earlier_paths: tuple[str, ...]
-    """The paths of the steps before it in its list, when they run in order."""
-    output_questions: OutputQuestions
-    """What it can read of the steps before it."""
-    is_written: bool = True
-    """Whether a step is there, rather than a place a new one can go."""
+    """Where the marking is."""
+    template_names: Mapping[str, Shape]
+    """What its templates may name besides earlier checks."""
+    document: Any = None
+    """The YAML it was read from, if it hasn't changed since."""
+    schemas: dict[str, JsonDict] = field(default_factory=dict)
+    """The JSON schema of the fields of each step asked for, by path."""
+
+    @cached_property
+    def places(self) -> dict[str, StepPlace]:
+        """The places of the steps as written."""
+        return self._places_of(self.written_data)
+
+    @cached_property
+    def marking_places(self) -> dict[str, StepPlace]:
+        """The places of the steps as they mark, which say what is wrong with them."""
+        if self.marking_data is self.written_data:
+            return self.places
+        return self._places_of(self.marking_data)
+
+    @cached_property
+    def problems(self) -> list[Problem]:
+        """What is wrong with the marking, each at the innermost step it writes."""
+        marking = self.marking_places[""].step
+        if marking is None:
+            return [Problem("Choose a method.", field=("uses",))]
+        problems = located_problems(marking, self.position, scope=self.template_names)
+        return list(map(self._at_written_step, problems))
+
+    def is_step(self, path: str) -> bool:
+        return (place := self.places.get(path)) is not None and place.step is not None
+
+    def _places_of(self, data: JsonDict) -> dict[str, StepPlace]:
+        """Each step of the marking ``data`` holds by path, each before those it holds and the
+        places left for more. Until it names a method, its only place is for one."""
+        marking = load_step(data, self.methods.by_ref) if "uses" in data else None
+        return {json_pointer(place.location): place for place in places(marking, self.position)}
+
+    def _at_written_step(self, problem: Problem) -> Problem:
+        """``problem`` at the innermost step the marking writes: one in a step that only a setting
+        fills in is a problem of the field holding it."""
+        parts = location_of(problem.step_path)
+        written_length = next(
+            (
+                length
+                for length in range(len(parts), 0, -1)
+                if self.is_step(json_pointer(parts[:length]))
+            ),
+            0,
+        )
+        if written_length == len(parts):
+            return problem
+        is_setting = bool(problem.field) and problem.field[0] not in STEP_PROPERTIES
+        location = (*parts[written_length:], *(("with",) if is_setting else ()), *problem.field)
+        return replace(
+            problem,
+            step_path=json_pointer(parts[:written_length]),
+            field=location[1:] if location[0] == "with" else location,
+        )
 
 
 class MarkingDraft:
     """A marking of ``question``, or of a question group without one, as it is being edited. Its
-    steps are at paths such as ``with.steps.0``; ``""`` is the marking itself. A step's fields are
-    its method's settings and its own keys, as one object. A change to a step or setting that
-    isn't there raises ``EditingError``."""
+    steps are at JSON Pointers such as ``/with/steps/0``; ``""`` is the marking itself. A step's
+    fields are its method's settings and its own properties, as one object. A change to a step or
+    setting that isn't there raises ``EditingError``."""
+
+    _must_give_marks = True
 
     def __init__(
         self,
@@ -129,12 +188,7 @@ class MarkingDraft:
     ) -> None:
         self.questions, self.question = questions, question
         self._methods = methods
-        self._data: JsonDict = deepcopy(dict(data))
-        self._schemas: dict[str, JsonDict] = {}
-        self._cached_places: dict[str, _Place] | None = None
-        self._cached_validation: tuple[dict[str, Step], list[Problem]] | None = None
-        self._document: Any = None
-        """The YAML it was read from, until it changes."""
+        self._set_data(deepcopy(dict(data)))
 
     @classmethod
     def from_yaml(
@@ -159,14 +213,14 @@ class MarkingDraft:
             else {key: value for key, value in data.items() if key != "question"}
         )
         draft = cls(data, questions, question, methods=methods)
-        draft._document = document
+        draft._snapshot = replace(draft._snapshot, document=document)
         if names_other_question:
             fix_message = (
                 f"Set question to {question}."
                 if question
                 else "Remove question; a question group's checks name their own."
             )
-            question_problem = Problem(with_line(document, ("question",), fix_message))
+            question_problem = Problem(fix_message, line=line_of(document, ("question",)))
             raise InvalidError(list(dict.fromkeys([question_problem, *draft.problems])))
         return draft
 
@@ -190,23 +244,34 @@ class MarkingDraft:
         """The marking as YAML holds it, as written."""
         return deepcopy(self._data)
 
-    def replace(self, data: Mapping[str, Any]) -> None:
-        self._put("", deepcopy(dict(data)))
+    @property
+    def _data(self) -> JsonDict:
+        return self._snapshot.data
 
-    def _clear_caches(self) -> None:
-        self._schemas.clear()
-        self._cached_places = self._cached_validation = self._document = None
+    def replace(self, data: Mapping[str, Any]) -> None:
+        self._set_data(deepcopy(dict(data)))
+
+    def _set_data(self, data: JsonDict) -> None:
+        """Makes ``data``, which nothing changes after, the marking."""
+        self._snapshot = DraftSnapshot(
+            data,
+            self._written_data(data),
+            self._marking_data(data),
+            self._methods,
+            self._root_position,
+            self._template_names,
+        )
 
     def paths(self) -> list[str]:
         """The paths of its steps, each before those it holds."""
-        return [path for path, place in self._places().items() if place.is_written]
+        return [path for path, place in self._snapshot.places.items() if place.step is not None]
 
     def is_step(self, path: str) -> bool:
-        return (place := self._places().get(path)) is not None and place.is_written
+        return self._snapshot.is_step(path)
 
-    def method(self, path: str) -> Method[Any] | None:
-        place = self._places().get(path)
-        return place.method if place else None
+    def method(self, path: str) -> Method | None:
+        place = self._snapshot.places.get(path)
+        return place.step.resolution.method if place and place.step else None
 
     def position(self, path: str, question: QuestionId | None = None) -> Position:
         """Where the step at ``path`` is, or would be; reading ``question`` if given. Raises
@@ -216,113 +281,28 @@ class MarkingDraft:
 
     @property
     def _root_position(self) -> Position:
-        return Position(self.questions, self.question, is_in_group=self.question is None)
+        return marking_position(self.questions, self.question)
 
-    def _places(self) -> dict[str, _Place]:
-        """Each step of the marking by path, each before those it holds and the places left for
-        more."""
-        if self._cached_places is None:
-            places = self._places_within(self._data, "", self._root_position, (), {})
-            self._cached_places = {place.path: place for place in places}
-        return self._cached_places
+    def _written_data(self, data: JsonDict) -> JsonDict:
+        """The marking ``data`` holds as its steps are found in it."""
+        return data
 
-    def _places_within(
-        self,
-        yaml_value: Any,
-        path: str,
-        enclosing_position: Position,
-        earlier_paths: tuple[str, ...],
-        output_questions: OutputQuestions,
-    ) -> Iterator[_Place]:
-        """The place at ``path``, holding ``yaml_value``, and each place inside it."""
-        if not _is_step(yaml_value):
-            yield _Place(
-                path,
-                None,
-                enclosing_position,
-                enclosing_position,
-                earlier_paths,
-                output_questions,
-                is_written=False,
-            )
-            return
-        method = self._methods.by_ref.get(str(yaml_value["uses"]))
-        position = self._step_position(yaml_value, enclosing_position, output_questions)
-        yield _Place(path, method, position, enclosing_position, earlier_paths, output_questions)
-        if method is None:
-            return
-        settings = settings_of(yaml_value)
-        reads_earlier_results = method.reads_earlier_results(settings)
-        for name, field in method.settings.model_fields.items():
-            cardinality = step_cardinality(field)
-            value = settings.get(name)
-            location = ("with", name)
-            if cardinality == "one":
-                inner_position = method.inner_position(position, location)
-                yield from self._places_within(
-                    value, join_path(path, *location), inner_position, (), output_questions
-                )
-            elif cardinality == "many":
-                earlier_paths_in_list: tuple[str, ...] = ()
-                available_output_questions = dict(output_questions)
-                for index, step_data in enumerate([*_list_or_empty(value), None]):
-                    item_location = (*location, index)
-                    item_path = join_path(path, *item_location)
-                    inner_position = method.inner_position(position, item_location)
-                    yield from self._places_within(
-                        step_data,
-                        item_path,
-                        inner_position,
-                        earlier_paths_in_list,
-                        dict(available_output_questions),
-                    )
-                    if not _is_step(step_data) or not reads_earlier_results:
-                        continue
-                    earlier_paths_in_list = (*earlier_paths_in_list, item_path)
-                    if step_data.get("id"):
-                        available_output_questions[str(step_data["id"])] = self._output_question_of(
-                            step_data, inner_position, available_output_questions
-                        )
+    def _marking_data(self, data: JsonDict) -> JsonDict:
+        """The marking ``data`` holds as it marks."""
+        return data
 
-    def _step_position(
-        self,
-        step_data: Mapping[str, Any],
-        enclosing_position: Position,
-        output_questions: OutputQuestions,
-    ) -> Position:
-        """Where the step ``step_data`` reads, inside ``enclosing_position``."""
-        return step_input_position(
-            self._question_id_of(step_data),
-            step_data.get("input"),
-            enclosing_position,
-            output_questions,
-        )
-
-    def _output_question_of(
-        self,
-        step_data: Mapping[str, Any],
-        enclosing_position: Position,
-        output_questions: OutputQuestions,
-    ) -> Question | None:
-        """A question reading what the transform ``step_data`` gives; None for a check."""
-        method = self._methods.by_ref.get(str(step_data["uses"]))
-        if method is None:
-            return None
-        position = self._step_position(step_data, enclosing_position, output_questions)
-        return output_question(method, settings_of(step_data), position, self._methods.by_ref)
-
-    def _place(self, path: str) -> _Place:
-        place = self._places().get(path)
+    def _place(self, path: str) -> StepPlace:
+        place = self._snapshot.places.get(path)
         if place is None:
             raise _not_a_step_error(path)
         return place
 
-    def _question_id_of(self, step_data: Mapping[str, Any]) -> str | None:
-        """The question a step names for itself."""
-        question_id = self._resolved_value(step_data.get("question"))
-        return (
-            question_id if isinstance(question_id, str) and not is_template(question_id) else None
-        )
+    def _step(self, path: str) -> Step:
+        """The step written at ``path``."""
+        step = self._place(path).step
+        if step is None:
+            raise _not_a_step_error(path)
+        return step
 
     def methods(self, path: str, question: QuestionId | None = None) -> Methods:
         """The methods a step at ``path`` can use, reading the answer as it is or another input
@@ -340,16 +320,19 @@ class MarkingDraft:
 
     def schema(self, path: str) -> JsonDict:
         """The JSON schema of the fields of the step at ``path``."""
-        if path not in self._schemas:
-            self._schemas[path] = self._built_schema(path)
-        return self._schemas[path]
+        schemas = self._snapshot.schemas
+        if path not in schemas:
+            schemas[path] = self._built_schema(path)
+        return schemas[path]
 
     def _built_schema(self, path: str) -> JsonDict:
         """The JSON schema of the fields of the step at ``path``: where it sits in a question
-        group's list, then its method's settings, then the step's other keys."""
+        group's list, then its method's settings, then the step's other properties."""
         step_data, place = self._step_data(path), self._place(path)
         method, position = self._method(str(step_data["uses"])), place.position
-        field_definitions: dict[str, Any] = {}
+        settings_schema = method.settings_schema(position)
+        properties: JsonDict = {}
+        required: list[str] = []
         # A method of several questions names its questions in its own steps.
         if (
             position.is_in_group
@@ -357,61 +340,60 @@ class MarkingDraft:
             and not method.marks_question_group
             and place.enclosing_position.question is None
         ):
-            question_field = copy(Check.model_fields["question"])
+            properties["question"] = _step_property("question", position.questions or None)
             if position.questions:
-                # A copy without its default: merging field infos would keep the default.
-                question_field.default = PydanticUndefined
-                question_field.annotation = literal_type(position.questions)
-            field_definitions["question"] = (question_field.annotation, question_field)
+                required.append("question")
         if input_choices := self._input_choices(path, method):
             labels = {ANSWER_INPUT: "The answer", **input_choices}
-            input_field = Field(default=ANSWER_INPUT, json_schema_extra=hint(labels=labels))
-            field_definitions["input"] = annotated(
-                literal_type(labels), Check.model_fields["input"], input_field
-            )
-        settings = method.settings_model_at(position).model_fields
-        field_definitions |= {name: (field.annotation, field) for name, field in settings.items()}
-        step_model_fields = (Transform if self._is_transform(path) else Check).model_fields
+            properties["input"] = {
+                **_step_property("input", labels),
+                "default": ANSWER_INPUT,
+                **hint(labels=labels),
+            }
+        properties |= settings_schema["properties"]
+        required += settings_schema.get("required", [])
         shows_condition = (
             "if" in step_data
             or bool(self.earlier_checks(path))
             or any(self._template_names.values())
         )
-        fields_after_settings = [
-            *(("name", "weight") if position.is_in_list else ()),
-            *(("if_",) if shows_condition else ()),
-            "feedback",
-        ]
-        field_definitions |= {
-            key: (step_model_fields[key].annotation, step_model_fields[key])
-            for key in fields_after_settings
-            if key in step_model_fields
-        }
-        schema = json_schema(
-            create_model(
-                f"{method.label} step",
-                __config__=ConfigDict(title=method.label),
-                **field_definitions,
+        is_transform = self._is_transform(path)
+        properties |= {
+            key: _step_property(key)
+            for key in (
+                *(("name", "weight") if position.is_in_list else ()),
+                *(("if",) if shows_condition else ()),
+                "feedback",
             )
-        )
-        for property_schema in schema["properties"].values():
+            if not (is_transform and key in CHECK_PROPERTIES)
+        }
+        for property_schema in properties.values():
             if property_schema.get(HINT_KEY, {}).get("kind") == "output_step":
-                steps_path = join_path(path, "with", "steps")
+                steps_location = (*self._place(path).location, "with", "steps")
                 transform_paths = [
                     step_path
                     for step_path in self.paths()
-                    if step_path
-                    and _parent_of(step_path)[0] == steps_path
+                    if location_of(step_path)[:-1] == steps_location
                     and self._is_transform(step_path)
                     and self._step_id(step_path)
                 ]
                 choices = {
-                    StepOutputSource(step_id).input_text: label
+                    input_text(StepOutputSource(step_id)): label
                     for step_id, label in self._output_labels(transform_paths).items()
                 }
                 property_schema["enum"] = list(choices)
                 property_schema[HINT_KEY] = {**property_schema[HINT_KEY], "labels": choices}
-        return schema
+        definitions = settings_schema.get("$defs", {})
+        if "feedback" in properties:
+            feedback_definition = OutcomeFeedback.__name__
+            definitions[feedback_definition] = deepcopy(_STEP_SCHEMA["$defs"][feedback_definition])
+        return {
+            **({"$defs": definitions} if definitions else {}),
+            "properties": properties,
+            **({"required": required} if required else {}),
+            "title": method.label,
+            "type": "object",
+        }
 
     def _output_labels(self, paths: Sequence[str]) -> dict[str, str]:
         """By ID, the label of each step at ``paths``, telling it from the others."""
@@ -423,10 +405,9 @@ class MarkingDraft:
         }
 
     def _is_transform(self, path: str) -> bool:
-        method = self.method(path)
-        return method is not None and not method.gives_marks(settings_of(self._step_data(path)))
+        return not self._step(path).resolution.gives_marks
 
-    def _input_choices(self, path: str, method: Method[Any]) -> dict[str, str]:
+    def _input_choices(self, path: str, method: Method) -> dict[str, str]:
         """Each input the step at ``path`` can read besides the answer, with its label."""
         readable_inputs = self._readable_inputs(path)
         if not readable_inputs:
@@ -440,7 +421,7 @@ class MarkingDraft:
             ]
         )
         choices = {
-            source.input_text: _input_choice_label(source, output_labels)
+            input_text(source): _input_choice_label(source, output_labels)
             for source, position in readable_inputs.items()
             if method.can_run_at(position)
         }
@@ -475,7 +456,7 @@ class MarkingDraft:
                 if output is not None
             ),
         ]
-        return {source: source.input_position(position, output_questions)[0] for source in sources}
+        return {source: position.reading(source, output_questions)[0] for source in sources}
 
     def numbered_labels(self, paths: Iterable[str]) -> list[str]:
         """The labels of the steps at ``paths``, those labelled alike numbered in order."""
@@ -492,9 +473,7 @@ class MarkingDraft:
     def _enclosing_position(self, path: str, question_id: QuestionId | None = None) -> Position:
         """Where a step at ``path`` is before reading its input."""
         place = self._place(path)
-        named_question_id = question_id or (
-            self._question_id_of(get_at(self._data, path)) if place.is_written else None
-        )
+        named_question_id = question_id or (place.step.question if place.step else None)
         return place.enclosing_position.for_question(named_question_id)
 
     def values(self, path: str) -> JsonDict:
@@ -517,8 +496,8 @@ class MarkingDraft:
 
     def update(self, path: str, values: Mapping[str, Any]) -> None:
         """Sets fields of the step at ``path``; those not given stay. An optional setting left
-        empty is unset, and a step key left empty or at its default is left out. A ``Condition``
-        names the checks it reads by their paths, which get IDs."""
+        empty is unset, and a step's own property left empty or at its default is left out. A
+        ``Condition`` names the checks it reads by their paths, which get IDs."""
         step_data = self._step_data(path)
         schema = self.schema(path)
         merged_values = {**self.values(path), **values}
@@ -541,16 +520,18 @@ class MarkingDraft:
                 )
             )
 
-        extra_fields = {key: value for key, value in step_data.items() if key not in STEP_KEYS}
+        extra_fields = {
+            key: value for key, value in step_data.items() if key not in STEP_PROPERTIES
+        }
         settings = {
             key: value
             for key, value in merged_values.items()
-            if key not in (*STEP_OWN_FIELDS, *extra_fields) and not is_unset(key, value)
+            if key not in (*STEP_OWN_PROPERTIES, *extra_fields) and not is_unset(key, value)
         }
         step_own_values = {
             key: value
             for key, value in merged_values.items()
-            if key in STEP_OWN_FIELDS and value not in (*EMPTY_VALUES, defaults.get(key))
+            if key in STEP_OWN_PROPERTIES and value not in (*EMPTY_VALUES, defaults.get(key))
         }
         self._put_step(
             path, {**extra_fields, "uses": step_data["uses"], "with": settings, **step_own_values}
@@ -566,11 +547,8 @@ class MarkingDraft:
         )
         can_keep_input = _is_available_at(self._method(reference), self.position(path))
         position_keys_kept = [key for key in POSITION_KEYS if can_keep_input or key != "input"]
-        self._put(
-            path,
-            {key: old_step_data[key] for key in position_keys_kept if key in old_step_data}
-            | new_step_data,
-        )
+        kept_data = {key: old_step_data[key] for key in position_keys_kept if key in old_step_data}
+        self._patch({"op": "replace", "path": path, "value": kept_data | new_step_data})
         old_inner_step_data = {
             key: value for key, value in old_step_data.items() if key not in POSITION_KEYS
         }
@@ -578,28 +556,29 @@ class MarkingDraft:
             if not setting.step_paths and old_inner_step_data["uses"] in {
                 method.ref for method in self.methods(setting.new_step_path)
             }:
-                self._put(
-                    setting.path, [old_inner_step_data] if setting.is_list else old_inner_step_data
-                )
+                inner_steps = [old_inner_step_data] if setting.is_list else old_inner_step_data
+                self._patch({"op": "add", "path": setting.path, "value": inner_steps})
                 break
         self._give_id_if_transform(path)
 
     def add(self, path: str, reference: str, question: QuestionId | None = None) -> None:
         """Adds a step of the method ``reference`` names at ``path``, a setting's
         ``new_step_path``, reading ``question`` if given."""
-        settings = self.settings_holding_steps(_enclosing_step_path(path))
+        place = self._snapshot.places.get(path)
+        step_path = _enclosing_step_path(place.location if place else ())
+        settings = self.settings_holding_steps(step_path)
         setting = next((setting for setting in settings if setting.new_step_path == path), None)
         if setting is None or setting.is_full:
             raise EditingError(f"{path} isn't a place for another step.")
         new_step_data = self._new_step_at(
             path, self._method(reference), question, names_question=question is not None
         )
-        self._put(
-            setting.path,
-            [*_list_or_empty(get_at(self._data, setting.path)), new_step_data]
+        steps = (
+            [*_list_or_empty(value_at(self._data, setting.path)), new_step_data]
             if setting.is_list
-            else new_step_data,
+            else new_step_data
         )
+        self._patch(field_operation(step_path, self._step_data(step_path), setting.name, steps))
         self._give_id_if_transform(path)
 
     def _give_id_if_transform(self, path: str) -> None:
@@ -609,7 +588,7 @@ class MarkingDraft:
     def _new_step_at(
         self,
         path: str,
-        method: Method[Any],
+        method: Method,
         question_id: QuestionId | None,
         *,
         names_question: bool,
@@ -625,7 +604,7 @@ class MarkingDraft:
         for source, position in inputs:
             if _is_available_at(method, position):
                 return {
-                    **({"input": source.input_text} if source else {}),
+                    **({"input": input_text(source)} if source else {}),
                     **(
                         {"question": position.question}
                         if names_question and position.question
@@ -640,60 +619,59 @@ class MarkingDraft:
         """Removes the step at ``path``; the path of the step that held it."""
         if not path or not self.is_step(path):
             raise EditingError(f"{path} isn't a step inside this marking.")
-        parent_path, last_part = _parent_of(path)
-        get_at(self._data, parent_path).pop(last_part)
-        self._clear_caches()
-        return _enclosing_step_path(path)
+        step_path = _enclosing_step_path(self._place(path).location)
+        self._patch({"op": "remove", "path": path})
+        return step_path
 
     def move(self, path: str, offset: int) -> None:
         """Moves the step at ``path`` within its list; at either end, no further."""
-        parent_path, index = _parent_of(path) if path else ("", None)
-        siblings = get_at(self._data, parent_path)
-        if not self.is_step(path) or not isinstance(index, int) or not isinstance(siblings, list):
+        location = self._place(path).location if self.is_step(path) else ()
+        if not location or not isinstance(index := location[-1], int):
             raise EditingError(f"{path} isn't a step in a list.")
-        siblings.insert(max(0, min(index + offset, len(siblings) - 1)), siblings.pop(index))
-        self._clear_caches()
+        last_index = len(value_at(self._data, json_pointer(location[:-1]))) - 1
+        new_location = (*location[:-1], max(0, min(index + offset, last_index)))
+        self._patch({"op": "move", "from": path, "path": json_pointer(new_location)})
 
-    def _put(self, path: str, value: Any) -> None:
-        set_at(self._data, path, value)
-        self._clear_caches()
+    def _patch(self, *operations: JsonDict) -> None:
+        """Applies the JSON Patch ``operations`` to the marking."""
+        self._set_data(patched(self._data, operations))
 
     def _put_step(self, path: str, step_data: Mapping[str, Any]) -> None:
-        """Puts ``step_data`` at ``path``, its keys in ``STEP_KEYS`` order after any others."""
-        extra_fields = {key: value for key, value in step_data.items() if key not in STEP_KEYS}
-        self._put(
-            path, extra_fields | {key: step_data[key] for key in STEP_KEYS if key in step_data}
-        )
+        """Puts ``step_data`` at ``path``, its properties in their order after anything else."""
+        extra_fields = {
+            key: value for key, value in step_data.items() if key not in STEP_PROPERTIES
+        }
+        properties = {key: step_data[key] for key in STEP_PROPERTIES if key in step_data}
+        self._patch({"op": "replace", "path": path, "value": extra_fields | properties})
 
     def settings_holding_steps(self, path: str) -> list[StepsSetting]:
-        method = self.method(path)
-        if method is None:
+        if not self.is_step(path) or (method := self.method(path)) is None:
             return []
         properties = self.schema(path)["properties"]
+        inner_steps = self._step(path).resolution.inner_steps
         settings = []
-        for name, field in method.settings_model_at(self.position(path)).model_fields.items():
-            cardinality = step_cardinality(field)
+        for name, field_info in method.settings_model_at(self.position(path)).model_fields.items():
+            cardinality = step_cardinality(field_info)
             if cardinality is None:
                 continue
-            setting_path = join_path(path, "with", name)
+            setting_path = field_path(path, name)
             property_schema = properties.get(name, {})
-            value = get_at(self._data, setting_path)
             if cardinality == "many":
-                step_paths = tuple(
-                    join_path(setting_path, index) for index in range(len(_list_or_empty(value)))
-                )
+                # The last place of a list is where another step can be added.
+                step_count = sum(location[0] == name for location in inner_steps) - 1
+                step_paths = tuple(f"{setting_path}/{index}" for index in range(step_count))
             else:
-                step_paths = (setting_path,) if value else ()
+                step_paths = (setting_path,) if inner_steps[name,] is not None else ()
             settings.append(
                 StepsSetting(
                     name=name,
                     path=setting_path,
-                    title=field.title or name,
+                    title=field_info.title or name,
                     is_list=cardinality == "many",
                     minimum=property_schema.get("minItems", 0),
                     maximum=property_schema.get("maxItems"),
                     step_paths=step_paths,
-                    item_label=hint_of(field).item_label or "check",
+                    item_label=hint_of(field_info).item_label or "check",
                 )
             )
         return settings
@@ -703,19 +681,18 @@ class MarkingDraft:
         step_data = self._step_data(path)
         if name := self._resolved_value(step_data.get("name")):
             return str(name)
-        with suppress(ValueError):
-            if default_label := input_source(step_data.get("input")).default_step_label():
-                return default_label
-        method = self.method(path)
-        return method.label if method else str(step_data["uses"])
+        step = self._step(path)
+        if isinstance(step.source, AnswerValueSource):
+            return f"Value {step.source.value_number}"
+        return step.method_label
 
     def notes(self, path: str) -> list[str]:
         """Notes beside the step's label: its question, input, weight and condition."""
         values = self.values(path)
         notes = [str(values["question"])] if values.get("question") else []
-        if input_label := self._input_label(path, values.get("input")):
+        if input_label := self._input_label(path):
             notes.append(f"Reads {input_label}")
-        weight = values.get("weight", Check.model_fields["weight"].default)
+        weight = values.get("weight", STEP_PROPERTIES["weight"].default)
         if weight == 0:
             notes.append("Gives no marks")
         elif isinstance(weight, int | float) and weight != 1:
@@ -732,28 +709,29 @@ class MarkingDraft:
             )
         return notes
 
-    def _input_label(self, path: str, input_text: Any) -> str | None:
+    def _input_label(self, path: str) -> str | None:
         """What the step at ``path`` reads, in words, if it isn't the answer as it is."""
-        try:
-            source = input_source(input_text)
-        except ValueError:
-            return None
-        earlier_step_paths = self._earlier_step_paths(path)
-        labels = _numbered(
-            [self._identifying_label(earlier_step_path) for earlier_step_path in earlier_step_paths]
-        )
-        labels_by_id = dict(zip(map(self._step_id, earlier_step_paths), labels, strict=True))
-        return source.input_label(lambda step_id: labels_by_id.get(step_id, step_id))
+        match self._step(path).source:
+            case AnswerValueSource(value_number=value_number):
+                return f"value {value_number}"
+            case OtherAnswerSource(question_id=question_id):
+                return question_id
+            case StepOutputSource(step_id=step_id):
+                earlier_step_paths = self._earlier_step_paths(path)
+                labels = _numbered(list(map(self._identifying_label, earlier_step_paths)))
+                labels_by_id = dict(
+                    zip(map(self._step_id, earlier_step_paths), labels, strict=True)
+                )
+                return f"the output of {labels_by_id.get(step_id, step_id)}"
+        return None
 
     def describe(self, path: str) -> str:
         """What the step at ``path`` does; ``""`` until it is valid."""
-        step = self._validation()[0].get(path)
-        if step is None and self.is_step(path):
-            try:
-                step = load_step(self._step_data(path), self._methods.by_ref)
-            except ValidationError:
-                return ""
-        return step.describe() if step else ""
+        if not self.is_step(path):
+            raise _not_a_step_error(path)
+        place = self._snapshot.marking_places.get(path)
+        step = place.step if place else None
+        return "" if step is None or step.resolution.data_problems else step.describe()
 
     def earlier_checks(self, path: str) -> list[str]:
         """Paths of checks whose results the condition at ``path`` may read: those before it
@@ -767,11 +745,12 @@ class MarkingDraft:
     def _earlier_step_paths(self, path: str) -> list[str]:
         """Paths of the steps before the one at ``path`` in its list, and in the lists holding
         it."""
+        location = self._place(path).location
         return [
-            sibling
-            for place in self._places().values()
-            if place.is_written and _is_within(path, place.path)
-            for sibling in place.earlier_paths
+            json_pointer(sibling)
+            for place in self._snapshot.places.values()
+            if place.step is not None and is_within(location, place.location)
+            for sibling in place.earlier_locations
         ]
 
     def _paths_by_id(self, paths: Iterable[str]) -> dict[str, str]:
@@ -812,28 +791,27 @@ class MarkingDraft:
     def _question(self) -> Question | None:
         return self.questions[self.question] if self.question else None
 
-    def finalized(self) -> Check:
+    def finalized(self) -> Step:
         """The marking, once nothing is wrong with it. Raises ``EditingError`` with its first
         problem."""
-        steps, problems = self._validation()
-        if problems:
+        marking, problems = self._snapshot.marking_places[""].step, self._found_problems()
+        if problems or marking is None:
             raise EditingError(str(problems[0]))
-        marking = steps[""]
-        assert isinstance(marking, Check)  # a method's steps may give a value instead
         return marking
 
     @property
     def problems(self) -> list[Problem]:
         """What is wrong with the marking, each at the step and field at fault; as read from
-        YAML, each after its line instead."""
-        problems = self._validation()[1]
-        if self._document is None:
+        YAML, each on its line too, and one of those reading alike."""
+        problems, document = self._found_problems(), self._snapshot.document
+        if document is None:
             return problems
-        problems_with_lines = (
-            Problem(with_line(self._document, _yaml_location(problem, self._data), str(problem)))
-            for problem in problems
-        )
-        return list(dict.fromkeys(problems_with_lines))
+        problems_by_text: dict[str, Problem] = {}
+        for problem in problems:
+            line = line_of(document, _yaml_location(problem, self._data))
+            problem_with_line = replace(problem, line=line)
+            problems_by_text.setdefault(str(problem_with_line), problem_with_line)
+        return list(problems_by_text.values())
 
     @property
     def _template_names(self) -> Mapping[str, Shape]:
@@ -844,82 +822,31 @@ class MarkingDraft:
         """``value`` as the marking reads it."""
         return value
 
-    def _validation(self) -> tuple[dict[str, Step], list[Problem]]:
-        """The marking's steps by path, none until it is valid, and its problems."""
-        if self._cached_validation is None:
-            marking, problems = self._validation_of(self._data)
-            steps = (
-                {join_path(*location): step for location, step in written_steps(marking)}
-                if marking
-                else {}
-            )
-            self._cached_validation = steps, problems
-        return self._cached_validation
-
-    def _load_root(self, data: JsonDict) -> Step:
-        """The root step ``data`` holds."""
-        return load_check(data, self._methods.by_ref)
-
-    def _validation_of(self, data: JsonDict) -> tuple[Step | None, list[Problem]]:
-        try:
-            step = self._load_root(data)
-        except ValidationError as error:
-            position_problems = self._position_problems()
-            problems = validation_problems(error, data, self._is_step_at)
-            return None, [
-                *position_problems,
-                *(
-                    problem
-                    for problem in problems
-                    if not any(
-                        _is_within(problem.step_path, position_problem.step_path)
-                        for position_problem in position_problems
-                    )
-                ),
-                *map(self._condition_order_problem, self._unknown_step_problems()),
-            ]
-        return step, [
-            self._condition_order_problem(problem)
-            for problem in located_problems(
-                step, self.questions, scope=self._template_names, is_step_at=self._is_step_at
-            )
-        ]
-
-    def _unknown_step_problems(self) -> Iterator[Problem]:
-        """A problem at each condition naming a check that isn't before it."""
-        for place in self._places().values():
-            condition = (
-                get_at(self._data, join_path(place.path, "if")) if place.is_written else None
-            )
-            if not isinstance(condition, str):
-                continue
-            earlier_ids = self._paths_by_id(self.earlier_checks(place.path)).keys()
-            for step_id in sorted(names_read(condition, "steps") - earlier_ids):
-                yield Problem(unknown_step_message(step_id), place.path, ("if",))
-
-    def _position_problems(self) -> list[Problem]:
-        """A problem at each step whose method can't run where it is."""
-        return [
-            Problem(message, place.path)
-            for place in self._places().values()
-            if place.method and (message := unusable_reason(place.method, place.position))
-        ]
+    def _found_problems(self) -> list[Problem]:
+        marking = self._snapshot.marking_places[""].step
+        if (
+            self._must_give_marks
+            and marking is not None
+            and not marking.resolution.gives_marks
+            and not marking.resolution.data_problems
+        ):
+            return [needs_workflow_problem(marking)]
+        return list(map(self._condition_order_problem, self._snapshot.problems))
 
     def _condition_order_problem(self, problem: Problem) -> Problem:
         """``problem``, naming the check to move if its condition reads a later one."""
         condition = (
-            get_at(self._data, join_path(problem.step_path, "if"))
-            if problem.field == ("if",)
-            else None
+            value_at(self._data, f"{problem.step_path}/if") if problem.field == ("if",) else None
         )
         if not isinstance(condition, str):
             return problem
+        location = location_of(problem.step_path)
         later_paths_by_id = {
-            step_id: place.path
-            for place in self._places().values()
-            if place.is_written
-            and any(_is_within(problem.step_path, sibling) for sibling in place.earlier_paths)
-            and (step_id := self._step_id(place.path))
+            step_id: path
+            for path, place in self._snapshot.places.items()
+            if place.step is not None
+            and any(is_within(location, sibling) for sibling in place.earlier_locations)
+            and (step_id := self._step_id(path))
         }
         later_checks_read = [
             later_paths_by_id[step_id]
@@ -931,24 +858,21 @@ class MarkingDraft:
         label = self.label(later_checks_read[0])
         return replace(problem, message=f"{label} must come before this step.")
 
-    def _is_step_at(self, location: Location) -> bool:
-        return self.is_step(join_path(*location))
-
     def _step_data(self, path: str) -> JsonDict:
         """The step at ``path`` as YAML holds it."""
         if not self.is_step(path):
             raise _not_a_step_error(path)
-        step_data: JsonDict = get_at(self._data, path)
+        step_data: JsonDict = value_at(self._data, path)
         return step_data
 
-    def _method(self, reference: str) -> Method[Any]:
+    def _method(self, reference: str) -> Method:
         method = self._methods.by_ref.get(reference)
         if method is None:
             raise EditingError(f"There's no method {reference}.")
         return method
 
     def _step_id(self, path: str) -> str | None:
-        step_id = get_at(self._data, path).get("id")
+        step_id = value_at(self._data, path).get("id")
         return str(step_id) if step_id else None
 
     def _condition_template(self, path: str, condition: Condition) -> str:
@@ -971,15 +895,29 @@ class MarkingDraft:
         return new_step_id
 
 
+def _step_property(key: str, choices: Iterable[str] | None = None) -> JsonDict:
+    """The JSON schema of a step's own property ``key``; with ``choices``, required to be one of
+    them."""
+    property_schema = _STEP_SCHEMA["properties"][key]
+    if choices is None:
+        return deepcopy(property_schema)
+    return {
+        "title": property_schema["title"],
+        "description": property_schema["description"],
+        **json_schema(literal_type(choices)),
+    }
+
+
 def _yaml_location(problem: Problem, data: JsonDict) -> Location:
     """Where the problem is in the YAML."""
-    step_data, field = get_at(data, problem.step_path), problem.field
+    step_data, field = value_at(data, problem.step_path), problem.field
+    step_location = location_of(problem.step_path)
     if not field:
-        return (*path_parts(problem.step_path), "uses")
-    is_step_key = field[0] in STEP_KEYS or (
+        return (*step_location, "uses")
+    is_property = field[0] in STEP_PROPERTIES or (
         isinstance(step_data, Mapping) and field[0] in step_data
     )
-    return (*path_parts(problem.step_path), *(field if is_step_key else ("with", *field)))
+    return (*step_location, *(field if is_property else ("with", *field)))
 
 
 def _type_accepts(annotation: Any, value: Any) -> bool:
@@ -996,7 +934,7 @@ def _not_a_step_error(path: str) -> EditingError:
 
 
 def fields_of(step_data: Mapping[str, Any]) -> JsonDict:
-    """A step's settings and keys as one."""
+    """A step's settings and its own properties as one."""
     return {
         **settings_of(step_data),
         **{key: value for key, value in step_data.items() if key not in ("uses", "with")},
@@ -1005,16 +943,18 @@ def fields_of(step_data: Mapping[str, Any]) -> JsonDict:
 
 def field_path(step_path: str, key: str) -> str:
     """The path of the field ``key`` of the step at ``step_path``."""
-    return (
-        join_path(step_path, key) if key in STEP_OWN_FIELDS else join_path(step_path, "with", key)
-    )
+    return step_path + json_pointer((key,) if key in STEP_OWN_PROPERTIES else ("with", key))
 
 
-def _is_step(yaml_value: Any) -> TypeGuard[Mapping[str, Any]]:
-    return isinstance(yaml_value, Mapping) and "uses" in yaml_value
+def field_operation(step_path: str, step_data: Mapping[str, Any], key: str, value: Any) -> JsonDict:
+    """The JSON Patch operation setting the field ``key`` of the step ``step_data`` at
+    ``step_path``; a setting of a step without settings gives it them."""
+    if key in STEP_OWN_PROPERTIES or isinstance(step_data.get("with"), Mapping):
+        return {"op": "add", "path": field_path(step_path, key), "value": value}
+    return {"op": "add", "path": f"{step_path}/with", "value": {key: value}}
 
 
-def _is_available_at(method: Method[Any], position: Position) -> bool:
+def _is_available_at(method: Method, position: Position) -> bool:
     return (
         method.level != "internal"
         and method.can_run_at(position)
@@ -1028,25 +968,15 @@ def first_unused_name(stem: str, taken: Container[object], separator: str = "_")
     return next(name for name in chain([stem], numbered_names) if name not in taken)
 
 
-def _parent_of(path: str) -> tuple[str, str | int]:
-    *parent_parts, last_part = path_parts(path)
-    return join_path(*parent_parts), last_part
-
-
 def _list_or_empty(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
-def _enclosing_step_path(path: str) -> str:
-    """The path of the step holding the step at ``path``, as ``with.steps.0`` holds
-    ``with.steps.0.with.steps.1`` and ``with.steps.0.with.check``."""
-    parts = path_parts(path)
-    is_in_list = bool(parts) and isinstance(parts[-1], int)
-    return join_path(*parts[: -3 if is_in_list else -2])
-
-
-def _is_within(path: str, ancestor_path: str) -> bool:
-    return not ancestor_path or path == ancestor_path or path.startswith(f"{ancestor_path}.")
+def _enclosing_step_path(location: Location) -> str:
+    """The path of the step holding the step at ``location``, as ``/with/steps/0`` holds
+    ``/with/steps/0/with/steps/1`` and ``/with/steps/0/with/check``."""
+    is_in_list = bool(location) and isinstance(location[-1], int)
+    return json_pointer(location[: -3 if is_in_list else -2])
 
 
 def _numbered(labels: Sequence[str]) -> list[str]:

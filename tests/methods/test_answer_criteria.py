@@ -17,6 +17,7 @@ from gradeflow_core.methods.text.answer_criteria import CONCURRENT_REQUESTS
 from gradeflow_core.questions.reading import TextReading
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
+from gradeflow_core.steps.input_sources import AnswerValueSource
 from tests.fake_models import (
     ENDPOINT,
     FAST_AND_CAREFUL_ENDPOINT,
@@ -388,7 +389,7 @@ def test_a_value_of_an_answer_can_be_marked_by_criteria() -> None:
     assert problems_of(multiple_values, question) == []
     value_question = question.value_question(1)
     assert value_question is not None
-    position = Position(questions, "Q1").with_input(value_question, "value", 1)
+    position = Position(questions, "Q1", source=AnswerValueSource(1), input_question=value_question)
     assert "gradeflow/answer-criteria" in [method.name for method in compatible_methods(position)]
 
 

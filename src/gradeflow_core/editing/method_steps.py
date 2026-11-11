@@ -9,22 +9,25 @@ from typing import Any
 from pydantic.fields import FieldInfo
 
 from ..common.exceptions import EditingError
-from ..common.paths import get_at, set_at
+from ..common.paths import value_at
 from ..common.problems import Problem
 from ..common.schemas import JsonDict
 from ..methods.collection import Methods
 from ..methods.composed.file import TEMPLATE_KEYS, WORKFLOW_REF
-from ..methods.position import Position
-from ..methods.step import STEP_OWN_FIELDS, Step, load_step, step_cardinality
-from ..methods.templates import Shape, reference_expression
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
-from .drafts import MarkingDraft, field_path, fields_of
+from ..steps.position import Position
+from ..steps.settings import step_cardinality
+from ..steps.step import STEP_OWN_PROPERTIES
+from ..steps.templates import Shape, is_template, reference_expression
+from .drafts import MarkingDraft, field_operation, field_path, fields_of
 
 
 class MethodStepsDraft(MarkingDraft):
     """A method's steps, edited as one Workflow. ``declared_settings`` is shared with the
     ``MethodDraft`` that owns it."""
+
+    _must_give_marks = False
 
     def __init__(
         self,
@@ -35,9 +38,9 @@ class MethodStepsDraft(MarkingDraft):
         declared_settings: dict[str, dict[str, Any]],
         test_values: Mapping[str, Any],
     ) -> None:
-        super().__init__(data, questions, question, methods=methods)
         self._declared_settings = declared_settings
-        self.test_values = test_values
+        self._test_values = dict(test_values)
+        super().__init__(data, questions, question, methods=methods)
 
     @property
     def test_values(self) -> dict[str, Any]:
@@ -46,17 +49,17 @@ class MethodStepsDraft(MarkingDraft):
     @test_values.setter
     def test_values(self, values: Mapping[str, Any]) -> None:
         self._test_values = dict(values)
-        self._clear_caches()
+        self._set_data(self._data)
 
     def set_declared_setting(self, name: str, declaration: dict[str, Any]) -> None:
         """Declare the setting ``name``, or replace its declaration."""
         self._declared_settings[name] = declaration
-        self._clear_caches()
+        self._set_data(self._data)
 
     def remove_declared_setting(self, name: str) -> None:
         self._declared_settings.pop(name, None)
         self._test_values.pop(name, None)
-        self._clear_caches()
+        self._set_data(self._data)
 
     @property
     def _root_position(self) -> Position:
@@ -74,7 +77,9 @@ class MethodStepsDraft(MarkingDraft):
         properties = schema["properties"].items()
         return {
             **schema,
-            "properties": {key: value for key, value in properties if key not in STEP_OWN_FIELDS},
+            "properties": {
+                key: value for key, value in properties if key not in STEP_OWN_PROPERTIES
+            },
         }
 
     def values(self, path: str) -> dict[str, Any]:
@@ -114,13 +119,13 @@ class MethodStepsDraft(MarkingDraft):
             defaults[name] = values[key]
         super().update(path, values)
         step_data = self._step_data(path)
-        for key in bound_settings_by_key:
-            set_at(step_data, field_path("", key), fields[key])
         for name, value in defaults.items():
             self._declared_settings[name].pop("default", None)
             if not is_empty(value):
                 self._declared_settings[name]["default"] = deepcopy(value)
-        self._clear_caches()
+        self._patch(
+            *(field_operation(path, step_data, key, fields[key]) for key in bound_settings_by_key)
+        )
 
     @property
     def _template_names(self) -> Mapping[str, Shape]:
@@ -131,11 +136,27 @@ class MethodStepsDraft(MarkingDraft):
         """What is wrong with the steps, leaving out fields a declared setting fills."""
         return [problem for problem in super().problems if not self._is_filled_by_setting(problem)]
 
-    def _load_root(self, data: JsonDict) -> Step:
-        return load_step(data, self._methods.by_ref)
+    def _written_data(self, data: JsonDict) -> JsonDict:
+        written_data: JsonDict = self._with_resolved_questions(data)
+        return written_data
 
-    def _validation_of(self, data: JsonDict) -> tuple[Step | None, list[Problem]]:
-        return super()._validation_of(self._resolved_data(data))
+    def _marking_data(self, data: JsonDict) -> JsonDict:
+        marking_data: JsonDict = self._resolved_data(data)
+        return marking_data
+
+    def _with_resolved_questions(self, value: Any) -> Any:
+        """``value`` with the question each step names filled in from its setting's default, and
+        left out while a template says it."""
+        if isinstance(value, list):
+            return [self._with_resolved_questions(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        data = {key: self._with_resolved_questions(item) for key, item in value.items()}
+        if "uses" in value and "question" in value:
+            question_id = self._resolved_value(value["question"])
+            is_known = isinstance(question_id, str) and not is_template(question_id)
+            data["question"] = question_id if is_known else None
+        return data
 
     def _is_filled_by_setting(self, problem: Problem) -> bool:
         if not problem.field or not self.is_step(problem.step_path):
@@ -144,7 +165,7 @@ class MethodStepsDraft(MarkingDraft):
         if not can_setting_fill(key, method.settings.model_fields if method else {}):
             return False
         return (
-            self.bound_setting(get_at(self._data, field_path(problem.step_path, key))) is not None
+            self.bound_setting(value_at(self._data, field_path(problem.step_path, key))) is not None
         )
 
     def _resolved_data(self, value: Any) -> Any:

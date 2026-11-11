@@ -6,12 +6,12 @@ from ...common.hints import hint
 from ...common.problems import Problem
 from ...common.text import code_block, code_join
 from ...questions.types import QuestionId, Unreadable
-from ..example import examples_beside
-from ..method import MarkingMethod
-from ..outcome import Outcome
-from ..position import Position
-from ..settings import Settings, literal_type, specialized
-from ..step import Context, Step
+from ...steps.context import Context
+from ...steps.example import examples_beside
+from ...steps.method import MarkingMethod
+from ...steps.outcome import Outcome
+from ...steps.position import Position
+from ...steps.settings import Settings, literal_type, specialized
 from . import runner
 from .custom_code import (
     MEMORY_LIMIT_FIELD,
@@ -92,14 +92,13 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
             code={"description": group_code_description(answers_description)},
         )
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: CustomCodeForAGroupSettings) -> str:
         questions_phrase = code_join(settings.questions, conjunction="and")
         return (
             f"Python code decides the marks for {questions_phrase}:\n\n{code_block(settings.code)}"
         )
 
-    def _mark_student(
+    def mark_student(
         self,
         settings: CustomCodeForAGroupSettings,
         context: Context,
@@ -135,11 +134,14 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
             for question_id in settings.questions
         }
 
-    def questions_marked(self, step: Step, question_id: QuestionId | None) -> set[QuestionId]:
-        return set(self._settings_of(step).questions)
+    def questions_marked(
+        self, settings: CustomCodeForAGroupSettings, question_id: QuestionId | None
+    ) -> set[QuestionId]:
+        return set(settings.questions)
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(step)
+    def problems(
+        self, settings: CustomCodeForAGroupSettings, position: Position
+    ) -> Iterator[Problem]:
         yield from code_problems(settings.code)
         questions = settings.questions
         for index, question_id in enumerate(questions):

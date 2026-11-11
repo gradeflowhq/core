@@ -2,13 +2,14 @@ from collections.abc import Callable
 
 import pytest
 
-from gradeflow_core import Check, InvalidError, Problem, QuestionSet
+from gradeflow_core import BUILTINS, InvalidError, Problem, QuestionSet
 from gradeflow_core.editing import HINT_KEY, Condition, ConditionRow, EditingError, MarkingDraft
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
+from gradeflow_core.steps.step import valid_step
 
 from ..methods.helpers import located
 
@@ -20,7 +21,7 @@ QUESTIONS = QuestionSet(
 def workflow_draft() -> MarkingDraft:
     draft = MarkingDraft.new("gradeflow/accepted-answers@1", QUESTIONS, "Q1")
     draft.change_method("", "gradeflow/workflow@1")
-    draft.add("with.steps.1", "gradeflow/key-points@1")
+    draft.add("/with/steps/1", "gradeflow/key-points@1")
     return draft
 
 
@@ -49,37 +50,68 @@ def test_another_method_keeps_the_steps_own_keys_in_one_order() -> None:
     uses = data["with"]["steps"][0]["uses"]
     data["with"]["steps"][0] = {"with": {}, "weight": 2, "uses": uses, "name": "Capital"}
     draft.replace(data)
-    draft.change_method("with.steps.0", "gradeflow/pattern@1")
+    draft.change_method("/with/steps/0", "gradeflow/pattern@1")
     assert list(draft.data["with"]["steps"][0]) == ["name", "weight", "uses", "with"]
 
 
 def test_checks_are_added_moved_and_removed() -> None:
     draft = workflow_draft()
     assert [setting.step_paths for setting in draft.settings_holding_steps("")] == [
-        ("with.steps.0", "with.steps.1")
+        ("/with/steps/0", "/with/steps/1")
     ]
-    draft.move("with.steps.1", -1)
+    draft.move("/with/steps/1", -1)
     assert [check["uses"] for check in draft.data["with"]["steps"]] == [
         "gradeflow/key-points@1",
         "gradeflow/accepted-answers@1",
     ]
-    assert draft.remove("with.steps.0") == ""
+    assert draft.remove("/with/steps/0") == ""
     assert [check["uses"] for check in draft.data["with"]["steps"]] == [
         "gradeflow/accepted-answers@1"
     ]
 
 
+def test_a_check_added_to_a_marking_written_without_settings_gives_it_them() -> None:
+    draft = MarkingDraft({"question": "Q1", "uses": "gradeflow/workflow@1"}, QUESTIONS, "Q1")
+    draft.add("/with/steps/0", "gradeflow/key-points@1")
+    assert draft.data["with"] == {"steps": [{"uses": "gradeflow/key-points@1", "with": {}}]}
+
+
 def test_a_check_moves_past_the_others_and_stops_at_either_end() -> None:
     draft = workflow_draft()
-    draft.add("with.steps.2", "gradeflow/full-marks@1")
-    draft.move("with.steps.0", 2)
+    draft.add("/with/steps/2", "gradeflow/full-marks@1")
+    draft.move("/with/steps/0", 2)
     assert [check["uses"] for check in draft.data["with"]["steps"]] == [
         "gradeflow/key-points@1",
         "gradeflow/full-marks@1",
         "gradeflow/accepted-answers@1",
     ]
-    draft.move("with.steps.2", -5)
+    draft.move("/with/steps/2", -5)
     assert draft.data["with"]["steps"][0]["uses"] == "gradeflow/accepted-answers@1"
+
+
+def test_a_step_whose_settings_arent_valid_keeps_the_steps_it_holds_and_their_problems() -> None:
+    marking = {
+        "question": "Q1",
+        "uses": "gradeflow/workflow@1",
+        "with": {
+            "marks_by": "nonsense",
+            "steps": [
+                {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["Paris"]}},
+                {"uses": "gradeflow/equivalent-expression@1", "with": {"answers": ["x2"]}},
+            ],
+        },
+    }
+    draft = MarkingDraft(marking, QUESTIONS, "Q1")
+    assert draft.paths() == ["", "/with/steps/0", "/with/steps/1"]
+    assert draft.earlier_checks("/with/steps/1") == ["/with/steps/0"]
+    assert (draft.describe(""), draft.describe("/with/steps/0")) == ("", "Matches `Paris`.")
+    assert [(problem.where, problem.message) for problem in draft.problems] == [
+        (
+            "/marks_by",
+            "Choose 'all_correct', 'any_correct', 'none_correct', 'total' or 'proportional'.",
+        ),
+        ("/with/steps/1/answers/0", "Unknown name “x2”."),
+    ]
 
 
 def test_a_key_no_check_has_is_kept_and_is_a_problem() -> None:
@@ -87,22 +119,22 @@ def test_a_key_no_check_has_is_kept_and_is_a_problem() -> None:
     data = draft.data
     data["with"]["steps"][0]["nmae"] = "Typo"
     draft = MarkingDraft(data, QUESTIONS, "Q1")
-    draft.update("with.steps.0", {"weight": 2})
+    draft.update("/with/steps/0", {"weight": 2})
     assert list(draft.data["with"]["steps"][0]) == ["nmae", "weight", "uses", "with"]
-    assert ("with.steps.0", ("nmae",), "Unknown setting.") in located(draft.problems)
+    assert ("/with/steps/0", ("nmae",), "Unknown setting.") in located(draft.problems)
 
 
 @pytest.mark.parametrize(
     "change",
     [
-        lambda draft: draft.update("with.steps.5", {"points": ["x"]}),
-        lambda draft: draft.change_method("with.steps.5", "gradeflow/not-allowed@1"),
-        lambda draft: draft.move("with.steps.5", 1),
+        lambda draft: draft.update("/with/steps/5", {"points": ["x"]}),
+        lambda draft: draft.change_method("/with/steps/5", "gradeflow/not-allowed@1"),
+        lambda draft: draft.move("/with/steps/5", 1),
         lambda draft: draft.move("", 1),
-        lambda draft: draft.remove("with.steps.5"),
+        lambda draft: draft.remove("/with/steps/5"),
         lambda draft: draft.remove(""),
-        lambda draft: draft.add("with.steps.5", "gradeflow/key-points@1"),
-        lambda draft: draft.add("with.nowhere.0", "gradeflow/key-points@1"),
+        lambda draft: draft.add("/with/steps/5", "gradeflow/key-points@1"),
+        lambda draft: draft.add("/with/nowhere/0", "gradeflow/key-points@1"),
     ],
     ids=[
         "update a missing check",
@@ -129,25 +161,25 @@ def test_a_check_for_each_value_is_fixed_and_reads_the_value_in_its_place() -> N
     draft = MarkingDraft.new("gradeflow/multiple-values@1", QUESTIONS, "Q2")
     (setting,) = draft.settings_holding_steps("")
     assert (setting.minimum, setting.maximum, setting.is_full) == (2, 2, True)
-    assert setting.step_paths == ("with.checks.0", "with.checks.1")
+    assert setting.step_paths == ("/with/checks/0", "/with/checks/1")
     with pytest.raises(EditingError):
         draft.add(setting.new_step_path, "gradeflow/accepted-answers@1")
-    assert (draft.position("with.checks.1").value, draft.label("with.checks.1")) == (2, "Value 2")
-    assert "input" not in draft.schema("with.checks.1")["properties"]
+    assert (draft.position("/with/checks/1").value, draft.label("/with/checks/1")) == (2, "Value 2")
+    assert "input" not in draft.schema("/with/checks/1")["properties"]
 
 
 def test_fields_are_settings_and_keys_together_and_defaults_are_left_out() -> None:
     draft = workflow_draft()
-    draft.update("with.steps.1", {"points": ["capital"]})
-    draft.update("with.steps.0", {"answers": ["Paris"], "weight": 1, "name": "", "match": "exact"})
+    draft.update("/with/steps/1", {"points": ["capital"]})
+    draft.update("/with/steps/0", {"answers": ["Paris"], "weight": 1, "name": "", "match": "exact"})
     assert draft.finalized().dump()["with"]["steps"][0] == {
         "uses": "gradeflow/accepted-answers@1",
         "with": {"answers": ["Paris"]},
     }
-    draft.update("with.steps.0", {"weight": 0.5})
-    assert draft.values("with.steps.0")["weight"] == 0.5
-    assert draft.values("with.steps.0")["answers"] == ["Paris"]
-    assert list(draft.schema("with.steps.0")["properties"])[:2] == ["answers", "match"]
+    draft.update("/with/steps/0", {"weight": 0.5})
+    assert draft.values("/with/steps/0")["weight"] == 0.5
+    assert draft.values("/with/steps/0")["answers"] == ["Paris"]
+    assert list(draft.schema("/with/steps/0")["properties"])[:2] == ["answers", "match"]
 
 
 def test_optional_settings_left_empty_are_not_written() -> None:
@@ -167,7 +199,7 @@ def test_optional_settings_left_empty_are_not_written() -> None:
     assert code_uses_draft.problems == []
     defaulted_draft = workflow_draft()
     defaulted_draft.update("", {"marks_by": ""})
-    defaulted_draft.update("with.steps.0", {"answers": ["x"], "match": None, "tolerance": None})
+    defaulted_draft.update("/with/steps/0", {"answers": ["x"], "match": None, "tolerance": None})
     assert defaulted_draft.data["with"]["steps"][0]["with"] == {"answers": ["x"]}
     assert "marks_by" not in defaulted_draft.data["with"]
     custom_code_draft = MarkingDraft.new("gradeflow/custom-code@1", code_questions, "Q1")
@@ -177,28 +209,28 @@ def test_optional_settings_left_empty_are_not_written() -> None:
 
 def test_a_condition_names_the_checks_it_reads_by_path_and_gives_them_ids() -> None:
     draft = workflow_draft()
-    draft.update("with.steps.1", {"if": Condition((ConditionRow("with.steps.0", "incorrect"),))})
+    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "incorrect"),))})
     first, second = draft.data["with"]["steps"]
     assert first["id"] == "accepted_answers"
     assert second["if"] == "{{ not steps.accepted_answers.output.correct }}"
-    assert draft.values("with.steps.1")["if"] == Condition(
-        (ConditionRow("with.steps.0", "incorrect"),)
+    assert draft.values("/with/steps/1")["if"] == Condition(
+        (ConditionRow("/with/steps/0", "incorrect"),)
     )
-    assert draft.earlier_checks("with.steps.1") == ["with.steps.0"]
+    assert draft.earlier_checks("/with/steps/1") == ["/with/steps/0"]
 
 
 def test_a_condition_is_offered_where_it_has_an_earlier_check_to_read() -> None:
     draft = workflow_draft()
-    draft.update("with.steps.0", {"answers": ["Paris"]})
-    draft.update("with.steps.1", {"points": ["capital"]})
+    draft.update("/with/steps/0", {"answers": ["Paris"]})
+    draft.update("/with/steps/1", {"points": ["capital"]})
     assert "if" not in draft.schema("")["properties"]
-    assert "if" not in draft.schema("with.steps.0")["properties"]
-    assert "if" in draft.schema("with.steps.1")["properties"]
-    draft.update("with.steps.1", {"if": Condition((ConditionRow("with.steps.0", "correct"),))})
-    draft.move("with.steps.1", -1)
-    assert "if" in draft.schema("with.steps.0")["properties"]
+    assert "if" not in draft.schema("/with/steps/0")["properties"]
+    assert "if" in draft.schema("/with/steps/1")["properties"]
+    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
+    draft.move("/with/steps/1", -1)
+    assert "if" in draft.schema("/with/steps/0")["properties"]
     assert located(draft.problems) == [
-        ("with.steps.0", ("if",), "Accepted Answers must come before this step.")
+        ("/with/steps/0", ("if",), "Accepted Answers must come before this step.")
     ]
 
 
@@ -218,8 +250,8 @@ def test_checks_inside_a_check_that_chose_the_question_or_value_dont_choose_agai
         },
     }
     draft = MarkingDraft(group_marking, QUESTIONS, None)
-    assert "question" in draft.schema("with.steps.0")["properties"]
-    assert "question" not in draft.schema("with.steps.1.with.steps.0")["properties"]
+    assert "question" in draft.schema("/with/steps/0")["properties"]
+    assert "question" not in draft.schema("/with/steps/1/with/steps/0")["properties"]
     number_range = {"uses": "gradeflow/number-range@1", "with": {"min_value": 1}}
     values_workflow = {
         "uses": "gradeflow/workflow@1",
@@ -234,28 +266,28 @@ def test_checks_inside_a_check_that_chose_the_question_or_value_dont_choose_agai
         QUESTIONS,
         "Q2",
     )
-    assert "input" in draft.schema("with.steps.0")["properties"]
-    assert "input" not in draft.schema("with.steps.1.with.steps.0")["properties"]
+    assert "input" in draft.schema("/with/steps/0")["properties"]
+    assert "input" not in draft.schema("/with/steps/1/with/steps/0")["properties"]
 
 
 def test_a_condition_reading_a_later_check_is_reported_while_another_check_is_unfinished() -> None:
     draft = workflow_draft()
-    draft.update("with.steps.0", {"answers": ["Paris"]})
-    draft.update("with.steps.1", {"if": Condition((ConditionRow("with.steps.0", "correct"),))})
-    draft.move("with.steps.1", -1)
-    assert ("with.steps.0", ("if",), "Accepted Answers must come before this step.") in located(
+    draft.update("/with/steps/0", {"answers": ["Paris"]})
+    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
+    draft.move("/with/steps/1", -1)
+    assert ("/with/steps/0", ("if",), "Accepted Answers must come before this step.") in located(
         draft.problems
     )
 
 
 def test_a_condition_reading_a_removed_check_says_no_check_before_it_has_that_name() -> None:
     draft = workflow_draft()
-    draft.update("with.steps.0", {"answers": ["Paris"], "name": "Capital"})
-    draft.update("with.steps.1", {"points": ["capital"]})
-    draft.update("with.steps.1", {"if": Condition((ConditionRow("with.steps.0", "correct"),))})
-    draft.remove("with.steps.0")
+    draft.update("/with/steps/0", {"answers": ["Paris"], "name": "Capital"})
+    draft.update("/with/steps/1", {"points": ["capital"]})
+    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
+    draft.remove("/with/steps/0")
     assert located(draft.problems) == [
-        ("with.steps.0", ("if",), "No step before this one is called capital.")
+        ("/with/steps/0", ("if",), "No step before this one is called capital.")
     ]
 
 
@@ -281,20 +313,21 @@ def test_checks_in_nested_lists_read_those_before_them_at_every_level() -> None:
         },
     }
     draft = MarkingDraft(marking, QUESTIONS, "Q1")
-    assert draft.earlier_checks("with.steps.1.with.steps.1") == [
-        "with.steps.0",
-        "with.steps.1.with.steps.0",
+    assert draft.earlier_checks("/with/steps/1/with/steps/1") == [
+        "/with/steps/0",
+        "/with/steps/1/with/steps/0",
     ]
     assert [(problem.step_path, problem.message) for problem in draft.problems] == [
-        ("with.steps.1.with.steps.1", "Full Marks must come before this step.")
+        ("/with/steps/1/with/steps/1", "Full Marks must come before this step.")
     ]
 
 
 def test_a_condition_other_than_rows_stays_text() -> None:
     draft = workflow_draft()
-    draft.update("with.steps.1", {"if": "{{ steps.accepted_answers.output.proportion > 0.2 }}"})
+    draft.update("/with/steps/1", {"if": "{{ steps.accepted_answers.output.proportion > 0.2 }}"})
     assert (
-        draft.values("with.steps.1")["if"] == "{{ steps.accepted_answers.output.proportion > 0.2 }}"
+        draft.values("/with/steps/1")["if"]
+        == "{{ steps.accepted_answers.output.proportion > 0.2 }}"
     )
 
 
@@ -303,16 +336,16 @@ def test_problems_are_on_the_check_and_field_at_fault() -> None:
     assert [
         (problem.step_path, problem.field, problem.is_incomplete) for problem in draft.problems
     ] == [
-        ("with.steps.0", ("answers",), True),
-        ("with.steps.1", ("points",), True),
+        ("/with/steps/0", ("answers",), True),
+        ("/with/steps/1", ("points",), True),
     ]
     with pytest.raises(EditingError, match=r"^answers: "):
         draft.finalized()
-    draft.update("with.steps.0", {"answers": ["Paris"]})
-    draft.update("with.steps.1", {"points": ["capital"]})
+    draft.update("/with/steps/0", {"answers": ["Paris"]})
+    draft.update("/with/steps/1", {"points": ["capital"]})
     assert draft.problems == []
     assert draft.finalized().questions_marked() == {"Q1"}
-    assert draft.describe("with.steps.0") == "Matches `Paris`."
+    assert draft.describe("/with/steps/0") == "Matches `Paris`."
 
 
 def test_problems_are_where_validating_the_check_puts_them() -> None:
@@ -322,7 +355,7 @@ def test_problems_are_where_validating_the_check_puts_them() -> None:
         {"code": "proportion = 1", "parameters": {"n": {"type": "integer", "value": "x"}}},
     )
     with pytest.raises(InvalidError) as exc_info:
-        Check.load(draft.data)
+        valid_step(draft.data, BUILTINS.by_ref)
     assert (
         draft.problems
         == exc_info.value.problems
@@ -332,25 +365,25 @@ def test_problems_are_where_validating_the_check_puts_them() -> None:
 
 def test_a_check_is_labelled_by_its_name_or_else_its_method() -> None:
     draft = workflow_draft()
-    draft.update("with.steps.0", {"name": "Capital"})
-    assert draft.label("with.steps.0") == "Capital"
-    method = draft.method("with.steps.1")
+    draft.update("/with/steps/0", {"name": "Capital"})
+    assert draft.label("/with/steps/0") == "Capital"
+    method = draft.method("/with/steps/1")
     assert method is not None
-    assert draft.label("with.steps.1") == method.label
+    assert draft.label("/with/steps/1") == method.label
     with pytest.raises(EditingError):
         draft.position("marks_by")
 
 
 def test_notes_say_what_a_checks_place_does_to_it() -> None:
     draft = workflow_draft()
-    assert draft.notes("with.steps.1") == []
-    draft.update("with.steps.0", {"name": "Capital", "weight": 0.5})
-    incorrect = Condition((ConditionRow("with.steps.0", "incorrect"),))
-    draft.update("with.steps.1", {"weight": -1, "if": incorrect})
-    assert draft.notes("with.steps.0") == ["Worth ½"]
-    assert draft.notes("with.steps.1") == ["Penalty 1", "Only when Capital isn't correct"]
-    draft.update("with.steps.1", {"if": "{{ steps.capital.output.proportion > 0.2 }}"})
-    assert draft.notes("with.steps.1")[-1] == "Only when its condition holds"
+    assert draft.notes("/with/steps/1") == []
+    draft.update("/with/steps/0", {"name": "Capital", "weight": 0.5})
+    incorrect = Condition((ConditionRow("/with/steps/0", "incorrect"),))
+    draft.update("/with/steps/1", {"weight": -1, "if": incorrect})
+    assert draft.notes("/with/steps/0") == ["Worth ½"]
+    assert draft.notes("/with/steps/1") == ["Penalty 1", "Only when Capital isn't correct"]
+    draft.update("/with/steps/1", {"if": "{{ steps.capital.output.proportion > 0.2 }}"})
+    assert draft.notes("/with/steps/1")[-1] == "Only when its condition holds"
 
 
 def test_a_weight_zero_check_notes_that_it_gives_no_marks() -> None:
@@ -371,14 +404,14 @@ def test_a_weight_zero_check_notes_that_it_gives_no_marks() -> None:
         QUESTIONS,
         None,
     )
-    assert draft.notes("with.steps.0") == ["Q1", "Gives no marks"]
+    assert draft.notes("/with/steps/0") == ["Q1", "Gives no marks"]
 
 
 def test_a_weight_that_isnt_a_number_has_no_note() -> None:
     data = workflow_draft().data
     data["with"]["steps"][1] |= {"weight": "heavy", "if": "{{ steps.x.output.correct }}"}
     draft = MarkingDraft(data, QUESTIONS, "Q1")
-    assert draft.notes("with.steps.1") == ["Only when its condition holds"]
+    assert draft.notes("/with/steps/1") == ["Only when its condition holds"]
 
 
 def test_a_step_reads_the_output_of_the_step_of_that_id_in_its_own_workflow() -> None:
@@ -392,7 +425,7 @@ def test_a_step_reads_the_output_of_the_step_of_that_id_in_its_own_workflow() ->
     marking = {"question": "Q1", "uses": "gradeflow/workflow@1", "with": {"steps": [number, unit]}}
     draft = MarkingDraft(marking, QUESTIONS, "Q1")
     for index, name in enumerate(["Number", "Unit"]):
-        input_labels = draft.schema(f"with.steps.{index}.with.steps.1")["properties"]["input"][
+        input_labels = draft.schema(f"/with/steps/{index}/with/steps/1")["properties"]["input"][
             HINT_KEY
         ]["labels"]
         assert input_labels["{{ steps.part.output }}"] == f"Output of {name}"
@@ -407,7 +440,7 @@ def test_settings_that_arent_a_mapping_are_a_problem(settings: object) -> None:
     ]
     marking = {"question": "Q1", "uses": "gradeflow/workflow@1", "with": {"steps": steps}}
     draft = MarkingDraft(marking, QUESTIONS, "Q1")
-    assert draft.paths() == ["", "with.steps.0", "with.steps.1", "with.steps.2"]
+    assert draft.paths() == ["", "/with/steps/0", "/with/steps/1", "/with/steps/2"]
     for path in draft.paths():
         assert draft.schema(path)
         assert draft.methods(path)
@@ -420,11 +453,11 @@ def test_settings_that_arent_a_mapping_are_a_problem(settings: object) -> None:
 
 def test_a_condition_that_cant_be_read_says_so() -> None:
     draft = workflow_draft()
-    draft.update("with.steps.0", {"answers": ["Paris"]})
+    draft.update("/with/steps/0", {"answers": ["Paris"]})
     draft.update(
-        "with.steps.1", {"points": ["capital"], "if": "{{ steps.x.output.correct garbage(( }}"}
+        "/with/steps/1", {"points": ["capital"], "if": "{{ steps.x.output.correct garbage(( }}"}
     )
-    assert located(draft.problems) == [("with.steps.1", ("if",), "Can't read this condition.")]
+    assert located(draft.problems) == [("/with/steps/1", ("if",), "Can't read this condition.")]
 
 
 def test_a_method_that_cant_mark_the_question_says_so_before_its_finished() -> None:
@@ -447,13 +480,13 @@ def test_a_checks_values_are_read_as_its_question_reads_them() -> None:
 
 def test_a_value_named_uses_isnt_a_check() -> None:
     draft = workflow_draft()
-    draft.add("with.steps.2", "gradeflow/custom-code@1")
-    draft.update("with.steps.2", {"parameters": {"uses": {"type": "text", "value": "x"}}})
-    assert draft.paths() == ["", "with.steps.0", "with.steps.1", "with.steps.2"]
-    assert not draft.is_step("with.steps.2.with.parameters")
+    draft.add("/with/steps/2", "gradeflow/custom-code@1")
+    draft.update("/with/steps/2", {"parameters": {"uses": {"type": "text", "value": "x"}}})
+    assert draft.paths() == ["", "/with/steps/0", "/with/steps/1", "/with/steps/2"]
+    assert not draft.is_step("/with/steps/2/with/parameters")
     with pytest.raises(EditingError):
-        draft.remove("with.steps.2.with.parameters")
-    assert draft.values("with.steps.2")["parameters"] == {"uses": {"type": "text", "value": "x"}}
+        draft.remove("/with/steps/2/with/parameters")
+    assert draft.values("/with/steps/2")["parameters"] == {"uses": {"type": "text", "value": "x"}}
 
 
 def draft_from_yaml(text: str, question_id: str | None = "Q1") -> MarkingDraft:
@@ -512,10 +545,21 @@ def test_every_problem_is_on_its_line_even_with_the_wrong_question() -> None:
     assert messages[1].startswith("Line 3: ")
 
 
+def test_a_problem_read_from_yaml_keeps_its_place_beside_its_line() -> None:
+    draft = draft_from_yaml(
+        "uses: gradeflow/workflow@1\nwith:\n  steps:\n    - uses: gradeflow/key-points@1\n"
+        "      with: {points: []}\n"
+    )
+    assert draft.problems == [
+        Problem("Add at least one.", "/with/steps/0", ("points",), line=5, is_incomplete=True)
+    ]
+    assert str(draft.problems[0]) == "Line 5: points: Add at least one."
+
+
 def test_a_changed_marking_says_its_problems_as_any_draft_does() -> None:
     draft = draft_from_yaml("question: Q1\nuses: gradeflow/workflow@1\nwith: {steps: []}\n")
     assert [str(problem) for problem in draft.problems] == ["Line 3: steps: Add at least one step."]
-    draft.add("with.steps.0", "gradeflow/key-points@1")
+    draft.add("/with/steps/0", "gradeflow/key-points@1")
     assert draft.problems == MarkingDraft(draft.data, QUESTIONS, "Q1").problems
     assert draft.problems
 
@@ -523,12 +567,12 @@ def test_a_changed_marking_says_its_problems_as_any_draft_does() -> None:
 def test_editing_a_new_step_leaves_its_methods_starting_settings_alone() -> None:
     def answer_sets_draft() -> MarkingDraft:
         draft = MarkingDraft.new("gradeflow/workflow@1", QUESTIONS, None)
-        draft.add("with.steps.0", "gradeflow/answer-sets@1")
+        draft.add("/with/steps/0", "gradeflow/answer-sets@1")
         return draft
 
     draft = answer_sets_draft()
     starting_settings = draft.data["with"]["steps"][0]["with"]
-    draft.add("with.steps.0.with.sets.0.with.steps.0", "gradeflow/accepted-answers@1")
+    draft.add("/with/steps/0/with/sets/0/with/steps/0", "gradeflow/accepted-answers@1")
     assert answer_sets_draft().data["with"]["steps"][0]["with"] == starting_settings
 
 

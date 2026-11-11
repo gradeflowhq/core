@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from ..common.text import format_marks
-from ..methods.outcome import FULL_MARKS_PROPORTION, Detail, Effect
-from ..questions.submissions import AnswerSheet, Submission
+from ..questions.submissions import AnswerSheet
 from ..questions.types import QuestionId
+from ..steps.outcome import FULL_MARKS_PROPORTION, Detail, Effect
 
 
 class CheckResult(BaseModel):
@@ -61,9 +61,10 @@ class ReportLine:
         return f"{self.heading}\n{self.feedback}" if self.feedback else self.heading
 
 
-class MarkedSheet(AnswerSheet):
+class Marked[S: AnswerSheet](BaseModel):
     """An answer sheet with what marking gave it: a result for each question it was marked for."""
 
+    sheet: S
     results: dict[QuestionId, QuestionResult]
     max_marks: float = Field(ge=0, description="The maximum marks of all the questions")
 
@@ -82,7 +83,3 @@ class MarkedSheet(AnswerSheet):
             )
             for question_id, result in self.results.items()
         ]
-
-
-class MarkedSubmission(Submission, MarkedSheet):
-    """A student's marked answer sheet."""

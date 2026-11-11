@@ -15,13 +15,12 @@ from ...common.text import (
 from ...questions.base import Question
 from ...questions.choice import ChoiceQuestion
 from ...questions.types import Answer
-from ..example import examples_beside
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import CORRECT_FEEDBACK, Outcome
+from ...steps.position import Position
+from ...steps.settings import Settings, literal_type, specialized
 from ..matching import duplicate_problems
-from ..method import AnswerMethod
-from ..outcome import CORRECT_FEEDBACK, Outcome
-from ..position import Position
-from ..settings import Settings, literal_type, specialized
-from ..step import Step
 
 Comparison = Literal["exactly", "all", "none", "any", "share_each"]
 COMPARISON_LABELS = {
@@ -96,14 +95,13 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         )
         return {**settings, "correct": list(normalized_options)}
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: MultipleChoiceSettings) -> str:
         inline_template, list_opening, conjunction = _DESCRIPTION_WORDING[settings.compare]
         if reads_better_listed(settings.correct):
             return f"{list_opening}:\n{markdown_code_list(settings.correct)}"
         return inline_template.format(code_join(settings.correct, conjunction=conjunction))
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: MultipleChoiceSettings, answer: Answer, question: Question
     ) -> Outcome:
         assert isinstance(question, ChoiceQuestion)
@@ -132,11 +130,11 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         none_of_prefix = "none of " if settings.compare == "none" else ""
         return Outcome(proportion, as_sentence(f"Expected {none_of_prefix}{expected_options}"))
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
+    def problems(self, settings: MultipleChoiceSettings, position: Position) -> Iterator[Problem]:
         question = position.question_model
         if not isinstance(question, ChoiceQuestion):
             return
-        correct_options = self._settings_of(step).correct
+        correct_options = settings.correct
         for index, option in enumerate(correct_options):
             if question.reading.normalized(option) not in question.options:
                 yield Problem(f"{option} isn't one of the options.", field=("correct", index))

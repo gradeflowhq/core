@@ -8,12 +8,11 @@ from ...common.problems import Problem
 from ...common.text import as_sentence, as_text, code_block, quoted
 from ...questions.base import Question
 from ...questions.types import ALL_QUESTION_TYPES, Answer, QuestionId
-from ..example import examples_beside
-from ..method import AnswerMethod
-from ..outcome import Outcome
-from ..position import Position
-from ..settings import Settings, specialized
-from ..step import Step
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import Outcome
+from ...steps.position import Position
+from ...steps.settings import Settings, specialized
 from . import runner
 from .parameters import PARAMETERS_FIELD, Parameter, ParameterName, parameter_values
 
@@ -136,13 +135,13 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
             self.settings, code={"description": code_description(answer_description)}
         )
 
-    def describe(self, step: Step) -> str:
-        return f"Python code decides the marks:\n\n{code_block(self._settings_of(step).code)}"
+    def describe(self, settings: CustomCodeSettings) -> str:
+        return f"Python code decides the marks:\n\n{code_block(settings.code)}"
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
-        return code_problems(self._settings_of(step).code)
+    def problems(self, settings: CustomCodeSettings, position: Position) -> Iterator[Problem]:
+        return code_problems(settings.code)
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: CustomCodeSettings, answer: Answer, question: Question
     ) -> Outcome:
         try:

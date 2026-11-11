@@ -69,7 +69,7 @@ def test_full_marks_gives_everyone_full_marks_blank_answers_too() -> None:
 
 
 def test_only_full_marks_marks_blank_answers() -> None:
-    assert [method.name for method in BUILTINS if method.marks_blank_answers] == [
+    assert [method.name for method in BUILTINS.by_ref.values() if method.marks_blank_answers] == [
         "gradeflow/full-marks"
     ]
 

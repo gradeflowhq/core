@@ -6,29 +6,28 @@ import pytest
 from gradeflow_core import (
     GradeFlowError,
     InvalidError,
-    MarkedSubmission,
+    Marked,
     Problem,
     QuestionResult,
     QuestionSet,
     ResultsCsv,
+    Submission,
 )
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
 QUESTIONS = QuestionSet({"Q1": TextQuestion(), "Q2": NumberQuestion(max_marks=3)})
 MARKED_SUBMISSIONS = [
-    MarkedSubmission(
-        student_id="10",
-        answers={"Q1": "a", "Q2": "1"},
+    Marked(
+        sheet=Submission(student_id="10", answers={"Q1": "a", "Q2": "1"}),
         results={
             "Q1": QuestionResult(proportion=1, max_marks=1, feedback="Correct."),
             "Q2": QuestionResult(proportion=1 / 3, max_marks=3),
         },
         max_marks=4,
     ),
-    MarkedSubmission(
-        student_id="9",
-        answers={"Q1": "b"},
+    Marked(
+        sheet=Submission(student_id="9", answers={"Q1": "b"}),
         results={"Q1": QuestionResult(proportion=0, max_marks=1, feedback="Expected a.")},
         max_marks=4,
     ),

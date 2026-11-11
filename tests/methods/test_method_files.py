@@ -5,11 +5,12 @@ import pytest
 
 from gradeflow_core import (
     BUILTINS,
+    InvalidError,
     MethodFileError,
     Methods,
-    Step,
 )
 from gradeflow_core.common.hints import hint_of
+from gradeflow_core.steps.step import valid_step
 
 from .helpers import describe, mark, mark_all, proportions
 
@@ -108,16 +109,15 @@ def test_a_repeated_check_is_named_by_its_index() -> None:
 
 
 def test_settings_are_typed_by_the_fields_they_fill() -> None:
-    method = BUILTINS.with_files([("sample/terms", TERMS_METHOD_FILE)])[-1]
-    assert method.ref == "sample/terms@1"
+    method = BUILTINS.with_files([("sample/terms", TERMS_METHOD_FILE)]).by_ref["sample/terms@1"]
     fields = method.settings.model_fields
     assert (fields["terms"].title, fields["terms"].is_required()) == ("Terms", True)
     assert (fields["limit_to_three_words"].annotation, fields["limit_to_three_words"].default) == (
         bool,
         False,
     )
-    with pytest.raises(ValueError, match=re.escape("terms")):
-        method.check_model.model_validate({"uses": "sample/terms@1", "with": {"terms": [1]}})
+    with pytest.raises(InvalidError, match=re.escape("terms")):
+        valid_step({"uses": "sample/terms@1", "with": {"terms": [1]}}, Methods([method]).by_ref)
 
 
 def test_a_setting_applies_when_the_field_it_fills_applies() -> None:
@@ -132,9 +132,11 @@ def test_a_setting_applies_when_the_field_it_fills_applies() -> None:
         '    with: {point: a, match: "{{ settings.how_to_match }}",'
         ' whole_words: "{{ settings.only_whole_words }}"}\n'
     )
-    [fixed_strictness, renamed_settings] = with_sample_files(
+    methods_by_ref = with_sample_files(
         **{"fixed-strictness": fixed_strictness_file, "renamed-settings": renamed_settings_file}
-    )[-2:]
+    ).by_ref
+    fixed_strictness = methods_by_ref["sample/fixed-strictness@1"]
+    renamed_settings = methods_by_ref["sample/renamed-settings@1"]
     assert hint_of(fixed_strictness.settings.model_fields["strictness"]).applies_when is None
     assert hint_of(renamed_settings.settings.model_fields["only_whole_words"]).applies_when == {
         "how_to_match": ["exact"]
@@ -148,7 +150,7 @@ def test_a_setting_titles_the_fields_of_its_items() -> None:
         'steps:\n  - for_each: "{{ settings.terms }}"\n    weight: "{{ item.marks }}"\n'
         '    uses: gradeflow/key-point@1\n    with: {point: "{{ item.text }}"}\n'
     )
-    [method] = with_sample_files(weights=weighted_items_file)[-1:]
+    method = with_sample_files(weights=weighted_items_file).by_ref["sample/weights@1"]
     [item_model] = get_args(method.settings.model_fields["terms"].annotation)
     marks, text_field = item_model.model_fields["marks"], item_model.model_fields["text"]
     assert (marks.title, marks.description, marks.examples) == ("Marks", "Its marks.", [2, 1])
@@ -161,7 +163,7 @@ def test_a_setting_without_a_default_must_be_filled_in() -> None:
         "steps:\n  - uses: gradeflow/number-range@1\n"
         '    with: {min_value: "{{ settings.minimum }}"}\n'
     )
-    method = BUILTINS.with_files([("sample/minimum", method_file)])[-1]
+    method = BUILTINS.with_files([("sample/minimum", method_file)]).by_ref["sample/minimum@1"]
     assert method.settings.model_fields["minimum"].is_required()
 
 
@@ -326,6 +328,19 @@ def test_a_setting_may_be_used_inside_a_field_template() -> None:
             '    with: {point: a, match: spelling, whole_words: "{{ settings.whole }}"}\n',
             "Line 9: Whole words only applies when Match is “Exactly”.",
         ),
+        (
+            "steps:\n  - uses: gradeflow/workflow@1\n    with: {steps: 5}\n",
+            "Line 7: Must be a list.",
+        ),
+        *(
+            (
+                f"settings:\n  {name}: {{default: [a]}}\n"
+                "steps:\n  - uses: gradeflow/accepted-answers@1\n"
+                f'    with: {{answers: "{{{{ settings.{name} }}}}"}}\n',
+                f"Line 6: A setting can't be called {name}. Choose another name.",
+            )
+            for name in ("expansion", "model_dump", "_hidden")
+        ),
     ],
 )
 def test_a_method_file_that_cant_work_is_refused_at_its_line(
@@ -392,7 +407,7 @@ steps:
       max_value: "{{ settings.high }}"
 """
     )
-    step = Step.load({"uses": "sample/between@1", "with": {"low": 2, "high": 1}}, methods=methods)
+    step = valid_step({"uses": "sample/between@1", "with": {"low": 2, "high": 1}}, methods.by_ref)
     assert not step.needs_model_endpoint()
 
 
@@ -402,7 +417,8 @@ def test_a_setting_used_only_in_a_step_name_is_used() -> None:
         "steps:\n  - uses: gradeflow/key-point@1\n"
         '    name: "{{ settings.topic }} check"\n    with: {point: a}\n'
     )
-    assert "topic" in with_sample_files(topic=method_file)[-1].settings.model_fields
+    method = with_sample_files(topic=method_file).by_ref["sample/topic@1"]
+    assert "topic" in method.settings.model_fields
 
 
 def test_a_nested_workflow_may_give_one_of_its_steps_output() -> None:

@@ -3,11 +3,10 @@ from pydantic import Field, field_validator
 from ...common.text import code_span
 from ...questions.base import Question
 from ...questions.types import Answer
-from ..example import examples_beside
-from ..method import AnswerMethod
-from ..outcome import Outcome
-from ..settings import Settings
-from ..step import Step
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import Outcome
+from ...steps.settings import Settings
 from .regexes import PATTERN_TIMEOUT_MESSAGE, compile_pattern, pattern_matches
 
 
@@ -48,12 +47,10 @@ class Pattern(AnswerMethod[PatternSettings]):
     settings = PatternSettings
     examples = examples_beside(__file__)
 
-    def describe(self, step: Step) -> str:
-        return f"Matches the pattern {code_span(self._settings_of(step).pattern)}."
+    def describe(self, settings: PatternSettings) -> str:
+        return f"Matches the pattern {code_span(settings.pattern)}."
 
-    def _mark_answer(
-        self, settings: PatternSettings, answer: Answer, question: Question
-    ) -> Outcome:
+    def mark_answer(self, settings: PatternSettings, answer: Answer, question: Question) -> Outcome:
         try:
             is_match = pattern_matches(settings.pattern, str(answer), question)
         except TimeoutError:

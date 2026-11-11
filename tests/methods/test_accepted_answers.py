@@ -4,7 +4,8 @@ import pytest
 
 from gradeflow_core import BUILTINS, QuestionSet
 from gradeflow_core.editing import Position
-from gradeflow_core.ml import MISSING_MODEL_MESSAGE, nli
+from gradeflow_core.models import nli
+from gradeflow_core.models.local import MISSING_MODEL_MESSAGE
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.reading import TextReading
 from gradeflow_core.questions.text import TextQuestion

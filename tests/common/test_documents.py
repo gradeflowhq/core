@@ -1,6 +1,6 @@
 import pytest
 
-from gradeflow_core import InvalidError
+from gradeflow_core import InvalidError, Problem
 from gradeflow_core.editing import dump_yaml, load_yaml
 
 
@@ -51,6 +51,7 @@ def test_text_that_isnt_yaml_is_refused_at_its_line(text: str, message: str) -> 
 def test_aliases_are_refused_at_their_line(text: str, line: int) -> None:
     with pytest.raises(InvalidError) as exc_info:
         load_yaml(text)
+    assert exc_info.value.problems == [Problem("Anchors and aliases aren't supported.", line=line)]
     assert str(exc_info.value) == f"Line {line}: Anchors and aliases aren't supported."
 
 

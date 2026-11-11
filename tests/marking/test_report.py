@@ -1,8 +1,7 @@
-from gradeflow_core import MarkedSubmission, QuestionResult, ReportLine
+from gradeflow_core import Marked, QuestionResult, ReportLine, Submission
 
-MARKED_SUBMISSION = MarkedSubmission(
-    student_id="s1",
-    answers={},
+MARKED_SUBMISSION = Marked(
+    sheet=Submission(student_id="s1", answers={}),
     results={
         "Q10": QuestionResult(proportion=1, max_marks=1, feedback="Correct."),
         "Q2": QuestionResult(proportion=0.5, max_marks=3, feedback="  "),

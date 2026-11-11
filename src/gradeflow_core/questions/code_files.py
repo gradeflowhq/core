@@ -3,8 +3,7 @@
 import re
 from collections.abc import Mapping
 
-from ..common.exceptions import InvalidError
-from ..common.problems import Problem
+from ..common.problems import InvalidError, Problem
 from ..common.text import quoted
 
 _FILE_MARKER = re.compile(r"^-- [^\S\n]*(\S(?:.*\S)?)[^\S\n]* --$\n?", re.MULTILINE)

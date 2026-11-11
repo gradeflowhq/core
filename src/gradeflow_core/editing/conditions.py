@@ -6,7 +6,7 @@ from typing import ClassVar, Literal
 
 from jinja2 import nodes
 
-from ..methods.templates import expression_node
+from ..steps.templates import expression_node
 
 type Match = Literal["all", "any"]
 type ConditionTest = Literal["correct", "incorrect", "half_correct"]

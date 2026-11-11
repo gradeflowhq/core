@@ -1,6 +1,6 @@
 """A result's breakdown: how each check of its marking marked the answer."""
 
-from ..methods.outcome import Detail, Outcome, effect_of
+from ..steps.outcome import Detail, Outcome, PartOutcome, effect_of
 from .results import CheckResult
 
 
@@ -12,7 +12,7 @@ def breakdown_of(outcome: Outcome, max_marks: float) -> CheckResult | None:
     # The result's own feedback says why it is unmarked, so the root gives no reason.
     return CheckResult(
         title=_title(outcome),
-        effect=outcome.effect or effect_of(outcome),
+        effect=effect_of(outcome),
         details=outcome.details,
         children=tuple(
             _check_result(child, _child_marks(child, max_marks)) for child in outcome.children
@@ -20,19 +20,19 @@ def breakdown_of(outcome: Outcome, max_marks: float) -> CheckResult | None:
     )
 
 
-def _check_result(outcome: Outcome, marks: float | None) -> CheckResult:
-    effect = outcome.effect or effect_of(outcome)
-    reason_details = (Detail("Reason", outcome.feedback),) if effect == "unmarked" else ()
+def _check_result(part: PartOutcome, marks: float | None) -> CheckResult:
+    outcome = part.outcome
+    reason_details = (Detail("Reason", outcome.feedback),) if part.effect == "unmarked" else ()
     return CheckResult(
         title=_title(outcome),
-        effect=effect,
+        effect=part.effect,
         marks=marks,
         details=(*outcome.details, *reason_details),
         children=tuple(_check_result(child, None) for child in outcome.children),
     )
 
 
-def _child_marks(child: Outcome, max_marks: float) -> float | None:
+def _child_marks(child: PartOutcome, max_marks: float) -> float | None:
     """The marks of the question ``child`` gave, or its penalty, when its parent adds them up."""
     if child.contribution is None or child.effect in ("uncounted", "unmarked"):
         return None

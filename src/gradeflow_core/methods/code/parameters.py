@@ -9,7 +9,7 @@ from pydantic import AfterValidator, ConfigDict, Field, JsonValue
 
 from ...common.hints import hint
 from ...common.schemas import type_field
-from ..settings import IDENTIFIER, Settings
+from ...steps.settings import IDENTIFIER, Settings
 
 RESERVED_NAMES = frozenset({"answer", "answers", "results", "correct", "proportion", "feedback"})
 

@@ -4,11 +4,14 @@ from typing import Any
 import pytest
 
 from gradeflow_core import (
-    Check,
+    BUILTINS,
     InvalidError,
+    Problem,
+    QuestionSet,
 )
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.reading import ListReading
+from gradeflow_core.steps.step import valid_step
 
 from ..methods.helpers import located
 
@@ -23,7 +26,7 @@ PYDANTIC_WORDING = (
 
 def problems_of(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]]:
     with pytest.raises(InvalidError) as exc_info:
-        Check.load(check)
+        valid_step(check, BUILTINS.by_ref)
     problems = located(exc_info.value.problems)
     assert not any(fragment in message for *_, message in problems for fragment in PYDANTIC_WORDING)
     return problems
@@ -99,11 +102,11 @@ def problems_of(check: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...],
                 "uses": "gradeflow/workflow@1",
                 "with": {"steps": [{"weight": math.nan, "uses": "gradeflow/full-marks@1"}]},
             },
-            [("with.steps.0", ("weight",), "Must be a number.")],
+            [("/with/steps/0", ("weight",), "Must be a number.")],
         ),
         (
             {"uses": "gradeflow/workflow@1", "with": {"steps": [{}]}},
-            [("with.steps.0", ("uses",), "Choose a method.")],
+            [("/with/steps/0", ("uses",), "Choose a method.")],
         ),
         (
             {"uses": "gradeflow/workflow@1", "with": {"steps": ["bad"]}},
@@ -170,7 +173,7 @@ def test_checks_refuse_what_would_mark_wrongly_in_plain_words(
     ],
 )
 def test_checks_accept_settings_at_their_limits(check: dict[str, Any]) -> None:
-    Check.load(check)
+    valid_step(check, BUILTINS.by_ref)
 
 
 def test_messages_keep_the_reason_a_question_gives() -> None:
@@ -180,3 +183,17 @@ def test_messages_keep_the_reason_a_question_gives() -> None:
     assert problem.message == "Options must be different: “a” appears twice."
     case_sensitive = ChoiceQuestion(options=("A", "a"), reading=ListReading(ignore_case=False))
     assert case_sensitive.options == ("A", "a")
+
+
+def test_a_problem_reads_after_its_line_and_field_and_an_error_after_its_place() -> None:
+    problem = Problem("Add at least one.", "/with/steps/0", ("answers",), line=4)
+    assert str(problem) == "Line 4: answers: Add at least one."
+    assert str(InvalidError([problem])) == "Line 4: /with/steps/0/answers: Add at least one."
+    assert str(Problem("Choose a method.", field=("uses",))) == "Choose a method."
+
+
+def test_a_name_with_a_slash_tilde_or_dot_is_one_part_of_a_problems_place() -> None:
+    with pytest.raises(InvalidError) as exc_info:
+        QuestionSet.load({"Q1.a/b~c": {"type": "choice", "options": ["x", "x"]}})
+    [problem] = exc_info.value.problems
+    assert problem.where == "/Q1.a~1b~0c/options"

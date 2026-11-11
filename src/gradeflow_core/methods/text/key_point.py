@@ -7,9 +7,13 @@ from pydantic import Field
 from ...common.hints import hint
 from ...common.problems import Problem
 from ...common.text import code_span, quoted
-from ...ml import nli
+from ...models import nli
 from ...questions.base import Question
 from ...questions.types import Answer
+from ...steps.method import AnswerMethod
+from ...steps.outcome import Outcome
+from ...steps.position import Position
+from ...steps.settings import NonBlankText, Settings
 from ..matching import (
     MATCH_FIELD,
     SPELLING_CUTOFFS,
@@ -21,11 +25,6 @@ from ..matching import (
     match_problems,
     model_context,
 )
-from ..method import AnswerMethod
-from ..outcome import Outcome
-from ..position import Position
-from ..settings import NonBlankText, Settings
-from ..step import Step
 
 # Entailment minus contradiction, the answer as premise: benchmarks/key-points-2026-10-26.
 POINT_MEANING_CUTOFFS: dict[Strictness, float] = {"lenient": -0.05, "normal": 0.1, "strict": 0.9}
@@ -52,8 +51,7 @@ class KeyPoint(AnswerMethod[KeyPointSettings]):
     question_types = frozenset({"text"})
     settings = KeyPointSettings
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: KeyPointSettings) -> str:
         whole_word_prefix = (
             "the whole word " if settings.whole_words and settings.match == "exact" else ""
         )
@@ -61,7 +59,7 @@ class KeyPoint(AnswerMethod[KeyPointSettings]):
         comparison_note = match_note(settings.match, settings.strictness)
         return f"Includes {whole_word_prefix}{point}{comparison_note}."
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: KeyPointSettings, answer: Answer, question: Question
     ) -> Outcome:
         matching_words = _matching_words(settings, str(answer), question)
@@ -70,8 +68,8 @@ class KeyPoint(AnswerMethod[KeyPointSettings]):
         as_written_note = f" (as {quoted(matching_words)})" if matching_words else ""
         return Outcome(1.0, f"Has {quoted(settings.point)}{as_written_note}.")
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
-        return match_problems(self._settings_of(step).match)
+    def problems(self, settings: KeyPointSettings, position: Position) -> Iterator[Problem]:
+        return match_problems(settings.match)
 
 
 def _matching_words(settings: KeyPointSettings, answer: str, question: Question) -> str | None:

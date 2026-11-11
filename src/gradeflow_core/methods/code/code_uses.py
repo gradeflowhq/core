@@ -10,12 +10,11 @@ from ...common.text import as_sentence, code_span
 from ...questions.base import Question
 from ...questions.code_files import python_files, split_answer
 from ...questions.types import Answer
-from ..example import examples_beside
-from ..method import AnswerMethod
-from ..outcome import Detail, Outcome
-from ..position import Position
-from ..settings import IDENTIFIER, Settings
-from ..step import Step
+from ...steps.example import examples_beside
+from ...steps.method import AnswerMethod
+from ...steps.outcome import Detail, Outcome
+from ...steps.position import Position
+from ...steps.settings import IDENTIFIER, Settings
 from .code_fixes import FIXES_FIELD, CodeFixSettings, best_fixed_outcome
 from .runner import syntax_error_text
 
@@ -69,8 +68,7 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
     settings = CodeUsesSettings
     examples = examples_beside(__file__)
 
-    def describe(self, step: Step) -> str:
-        settings = self._settings_of(step)
+    def describe(self, settings: CodeUsesSettings) -> str:
         match settings.looks_for:
             case "call":
                 return f"Calls {_code_span_or(settings.function, 'a function')}."
@@ -83,7 +81,7 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
             case "recursion":
                 return "Uses recursion."
 
-    def _mark_answer(
+    def mark_answer(
         self, settings: CodeUsesSettings, answer: Answer, question: Question
     ) -> Outcome:
         assert isinstance(answer, str)  # a code question's answer
@@ -94,8 +92,7 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
             lambda code: _construct_outcome(settings, code),
         )
 
-    def problems(self, step: Step, position: Position) -> Iterator[Problem]:
-        settings = self._settings_of(step)
+    def problems(self, settings: CodeUsesSettings, position: Position) -> Iterator[Problem]:
         if settings.looks_for == "call" and not settings.function:
             yield Problem("Name the function.", field=("function",), is_incomplete=True)
         if settings.looks_for == "import" and not settings.module:

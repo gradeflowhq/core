@@ -4,9 +4,9 @@ from typing import Any, ClassVar, Literal
 from pydantic import Field
 
 from ..common.hints import hint
+from ..common.python_layouts import BRACKETS
 from ..common.schemas import JsonDict, type_field
 from .base import Question
-from .layouts import BRACKETS
 from .number import NumberQuestion
 from .reading import ListReading, Reading, TextReading, read_list, reading_field
 from .text import TextQuestion

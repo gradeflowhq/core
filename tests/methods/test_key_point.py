@@ -2,7 +2,8 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core.ml import MISSING_MODEL_MESSAGE, nli
+from gradeflow_core.models import nli
+from gradeflow_core.models.local import MISSING_MODEL_MESSAGE
 from gradeflow_core.questions.text import TextQuestion
 
 from .helpers import describe, mark, mark_all, problems_of, proportions

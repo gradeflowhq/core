@@ -8,8 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..common.exceptions import GradeFlowError
 from ..common.problems import invalid_errors
 from ..common.text import format_marks, quoted
-from ..marking.results import MarkedSubmission
+from ..marking.results import Marked
 from ..questions.question_set import QuestionSet
+from ..questions.submissions import Submission
 
 
 class ResultsCsv(BaseModel):
@@ -49,7 +50,7 @@ class ResultsCsv(BaseModel):
         with invalid_errors(data):
             return cls.model_validate(data)
 
-    def write(self, questions: QuestionSet, marked: Iterable[MarkedSubmission]) -> str:
+    def write(self, questions: QuestionSet, marked: Iterable[Marked[Submission]]) -> str:
         """The marked submissions as CSV text, a row for each student in natural ID order. Raises
         ``GradeFlowError`` when two columns would share a name, such as a question named “Q1 marks”
         and Q1's marks."""
@@ -59,8 +60,8 @@ class ResultsCsv(BaseModel):
         buffer = StringIO()
         writer = csv.writer(buffer)
         writer.writerow(header)
-        for submission in natsorted(marked, key=lambda submission: submission.student_id):
-            writer.writerow(self._row(submission, questions))
+        for marked_submission in natsorted(marked, key=lambda marked: marked.sheet.student_id):
+            writer.writerow(self._row(marked_submission, questions))
         return buffer.getvalue()
 
     def _header(self, questions: QuestionSet) -> list[str]:
@@ -73,16 +74,16 @@ class ResultsCsv(BaseModel):
         header += ["marking report"] if self.include_report else []
         return header
 
-    def _row(self, submission: MarkedSubmission, questions: QuestionSet) -> list[str]:
-        cells = [submission.student_id]
+    def _row(self, marked: Marked[Submission], questions: QuestionSet) -> list[str]:
+        cells = [marked.sheet.student_id]
         for question_id in questions:
-            result = submission.results.get(question_id)
-            cells += [submission.answers.get(question_id, "")] if self.include_answers else []
+            result = marked.results.get(question_id)
+            cells += [marked.sheet.answers.get(question_id, "")] if self.include_answers else []
             if self.include_marks:
                 cells.append(format_marks(result.marks) if result else "")
             cells += [result.feedback if result else ""] if self.include_feedback else []
         if self.include_totals:
-            cells += [format_marks(submission.total_marks), format_marks(submission.max_marks)]
+            cells += [format_marks(marked.total_marks), format_marks(marked.max_marks)]
         if self.include_report:
-            cells.append("\n".join(map(str, submission.report())))
+            cells.append("\n".join(map(str, marked.report())))
         return cells

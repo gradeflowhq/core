@@ -11,14 +11,15 @@ from pydantic.fields import FieldInfo
 
 from ..common.documents import dump_yaml, load_yaml
 from ..common.error_formatting import IDENTIFIER_RULE
-from ..common.exceptions import EditingError, InvalidError, MethodFileError
-from ..common.paths import get_at, join_path, set_at
-from ..common.problems import Problem, invalid_errors, validation_problems
+from ..common.exceptions import EditingError
+from ..common.paths import patched, value_at
+from ..common.problems import InvalidError, Problem, invalid_errors, validation_problems
 from ..common.schemas import JsonDict, json_schema
 from ..common.text import quoted
 from ..marking.examples import method_step_data
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods, method_of
+from ..methods.composed.declared_settings import setting_name_problem
 from ..methods.composed.file import (
     TEMPLATE_KEYS,
     WORKFLOW_KEYS,
@@ -27,22 +28,18 @@ from ..methods.composed.file import (
     as_file_steps,
     as_workflow,
 )
-from ..methods.example import Example, ExampleRow
-from ..methods.method import Method
-from ..methods.names import method_ref
-from ..methods.settings import IDENTIFIER
-from ..methods.step import (
-    METHODS_CONTEXT_KEY,
-    STEP_OWN_FIELDS,
-    Marking,
-    load_step,
-    step_cardinality,
-)
-from ..methods.templates import has_template, is_template, names_read_in
 from ..questions import new_question
 from ..questions.question_set import QuestionSet
 from ..questions.types import ALL_QUESTION_TYPES, QuestionId, QuestionType
-from .drafts import MarkingDraft, field_path, fields_of, first_unused_name
+from ..steps.example import Example, ExampleRow
+from ..steps.method import Method
+from ..steps.names import method_ref
+from ..steps.places import marking_position
+from ..steps.problems import located_problems
+from ..steps.settings import IDENTIFIER, step_cardinality
+from ..steps.step import METHODS_CONTEXT_KEY, STEP_OWN_PROPERTIES, Step, load_step
+from ..steps.templates import has_template, is_template, names_read_in
+from .drafts import MarkingDraft, field_operation, field_path, fields_of, first_unused_name
 from .method_steps import (
     MethodStepsDraft,
     can_setting_fill,
@@ -155,7 +152,7 @@ class MethodDraft:
     @classmethod
     def from_marking(
         cls,
-        marking: Marking,
+        marking: Step,
         questions: QuestionSet,
         *,
         methods: Methods = BUILTINS,
@@ -230,8 +227,8 @@ class MethodDraft:
             ]:
                 self._file_fields["question_types"] = [questions[question_id].type]
             for path in self._steps_draft.paths():
-                if get_at(workflow_data, path).get("question") == question_id:
-                    get_at(workflow_data, path).pop("question")
+                if value_at(workflow_data, path).get("question") == question_id:
+                    value_at(workflow_data, path).pop("question")
             workflow_data["question"] = question_id
         self._steps_draft = MethodStepsDraft(
             workflow_data,
@@ -363,8 +360,8 @@ class MethodDraft:
         ``EditingError`` while the method can't be loaded."""
         try:
             return json_schema(self._loaded_method().settings)
-        except MethodFileError as error:
-            raise EditingError(str(error)) from None
+        except InvalidError as error:
+            raise EditingError(str(error.problems[0])) from None
 
     def declared_setting_schema(self, name: str) -> JsonDict:
         """The JSON schema of a declared setting, as the setting it fills allows it."""
@@ -389,8 +386,8 @@ class MethodDraft:
         ``InvalidError`` with a problem at each value the settings it fills don't take."""
         if not re.fullmatch(IDENTIFIER, name):
             raise EditingError(IDENTIFIER_RULE)
-        if name in STEP_OWN_FIELDS:
-            raise EditingError(f"Steps already have a field called {name}. Choose another name.")
+        if message := setting_name_problem(name):
+            raise EditingError(message)
         with invalid_errors(values):
             declaration = DeclaredSetting.model_validate(values).model_dump(
                 mode="json", exclude_unset=True
@@ -431,7 +428,7 @@ class MethodDraft:
         method = self._steps_draft.method(path)
         if method is None:
             return
-        step_data = get_at(self._steps_draft.data, path)
+        step_data = value_at(self._steps_draft.data, path)
         settings = method.settings_model_at(self._steps_draft.position(path)).model_fields
         for key, property_schema in self._steps_draft.schema(path)["properties"].items():
             if not can_setting_fill(key, settings) or (key not in settings and not path):
@@ -441,7 +438,7 @@ class MethodDraft:
                 key=key,
                 title=property_schema.get("title", key),
                 bound_setting=self._steps_draft.bound_setting(
-                    get_at(step_data, field_path("", key))
+                    value_at(step_data, field_path("", key))
                 ),
             )
 
@@ -469,7 +466,7 @@ class MethodDraft:
             raise EditingError(message)
         self.unbind(path)
         name = first_unused_name(
-            f"{field.key}_setting" if field.key in STEP_OWN_FIELDS else field.key,
+            f"{field.key}_setting" if field.key in STEP_OWN_PROPERTIES else field.key,
             self._declared_settings,
         )
         titles = {declaration.get("title") for declaration in self._declared_settings.values()}
@@ -477,7 +474,7 @@ class MethodDraft:
         if not is_empty(default):
             declaration["default"] = deepcopy(default)
         self._steps_draft.set_declared_setting(name, declaration)
-        self._bind(path, name)
+        self._bind(field, name)
         return name
 
     def compatible_settings(self, path: str) -> list[str]:
@@ -506,7 +503,7 @@ class MethodDraft:
         field = self._configurable_field(path)
         if name not in self.compatible_settings(path):
             raise EditingError(f"Setting {name} can't fill {field.title}.")
-        self._bind(path, name)
+        self._bind(field, name)
         if field.bound_setting is not None:
             self._remove_if_unused(field.bound_setting)
 
@@ -516,18 +513,21 @@ class MethodDraft:
         field = self._configurable_field(path)
         if field.bound_setting is None:
             return
-        data, declaration = self._steps_draft.data, self._declared_settings[field.bound_setting]
-        if "default" in declaration:
-            set_at(data, path, deepcopy(declaration["default"]))
-        else:
-            del get_at(data, path.rpartition(".")[0])[field.key]
-        self._steps_draft.replace(data)
+        declaration = self._declared_settings[field.bound_setting]
+        operation = (
+            {"op": "replace", "path": path, "value": deepcopy(declaration["default"])}
+            if "default" in declaration
+            else {"op": "remove", "path": path}
+        )
+        self._steps_draft.replace(patched(self._steps_draft.data, [operation]))
         self._remove_if_unused(field.bound_setting)
 
-    def _bind(self, path: str, name: str) -> None:
+    def _bind(self, field: ConfigurableField, name: str) -> None:
         data = self._steps_draft.data
-        set_at(data, path, f"{{{{ settings.{name} }}}}")
-        self._steps_draft.replace(data)
+        template = f"{{{{ settings.{name} }}}}"
+        step_data = value_at(data, field.step_path)
+        operation = field_operation(field.step_path, step_data, field.key, template)
+        self._steps_draft.replace(patched(data, [operation]))
 
     def _remove_if_unused(self, name: str) -> None:
         """Remove the declared setting ``name`` if no step or template of the method names it."""
@@ -544,7 +544,7 @@ class MethodDraft:
         settings = method.settings_model_at(
             self._steps_draft.position(field.step_path)
         ).model_fields
-        return settings.get(field.key) or STEP_OWN_FIELDS[field.key]
+        return settings.get(field.key) or STEP_OWN_PROPERTIES[field.key]
 
     def _rejection_reason(self, field: ConfigurableField, value: Any) -> str:
         """Why ``field`` doesn't take ``value``; ``""`` if it does."""
@@ -563,7 +563,7 @@ class MethodDraft:
         reasons = (
             reason
             for path in paths
-            for reason in self._uneditable_reasons_of_step(get_at(data, path), path, set(paths))
+            for reason in self._uneditable_reasons_of_step(value_at(data, path), path, set(paths))
         )
         return list(dict.fromkeys(reasons))
 
@@ -585,7 +585,7 @@ class MethodDraft:
         for key, value in fields_of(step_data).items():
             if key in TEMPLATE_KEYS:
                 continue
-            field = setting_fields.get(key) or STEP_OWN_FIELDS.get(key)
+            field = setting_fields.get(key) or STEP_OWN_PROPERTIES.get(key)
             if field is None:
                 yield f"{method.label} has no setting {key}."
             elif reason := self._uneditable_field_reason(
@@ -600,7 +600,7 @@ class MethodDraft:
         if (cardinality == "one" and path in step_paths) or (
             cardinality == "many"
             and isinstance(value, list)
-            and all(join_path(path, index) in step_paths for index in range(len(value)))
+            and all(f"{path}/{index}" in step_paths for index in range(len(value)))
         ):
             return None
         if cardinality is not None:
@@ -626,27 +626,45 @@ class MethodDraft:
         """What stops the method from being published or tried."""
         try:
             return self._problems(self._loaded_method())
-        except MethodFileError as error:
-            return [Problem(message) for message in error.messages]
+        except InvalidError as error:
+            return error.problems
 
-    def finalized(self) -> Method[Any]:
+    def finalized(self) -> Method:
         """The method, once nothing is wrong with it. Raises ``EditingError`` with its first
         problem."""
         try:
             method = self._loaded_method()
-        except MethodFileError as error:
-            raise EditingError(str(error)) from None
+        except InvalidError as error:
+            raise EditingError(str(error.problems[0])) from None
         if problems := self._problems(method):
             raise EditingError(str(problems[0]))
         return method
 
-    def _loaded_method(self) -> Method[Any]:
-        other_methods = Methods(
-            method for method in self._methods if method.ref != method_ref(self.name, self.version)
-        ).by_ref
-        return method_of(self.name, self._method_file(), other_methods)
+    def tested_step(self) -> Step:
+        """The step a test run marks with: the method with the test values. Raises
+        ``EditingError`` with the method's first problem."""
+        return self._tested_step(self._methods_with(self.finalized()))
 
-    def _problems(self, method: Method[Any]) -> list[Problem]:
+    def _other_methods(self) -> list[Method]:
+        """The methods it may use: all but the one it replaces."""
+        ref = method_ref(self.name, self.version)
+        return [method for method in self._methods if method.ref != ref]
+
+    def _loaded_method(self) -> Method:
+        return method_of(self.name, self._method_file(), Methods(self._other_methods()).by_ref)
+
+    def _methods_with(self, method: Method) -> Methods:
+        return Methods([*self._other_methods(), method])
+
+    def _tested_step(self, methods: Methods) -> Step:
+        """The method with the test values, as a step using ``methods``, whatever is wrong with
+        it."""
+        test_step_data = method_step_data(
+            method_ref(self.name, self.version), self.question, self.test_values
+        )
+        return load_step(test_step_data, methods.by_ref)
+
+    def _problems(self, method: Method) -> list[Problem]:
         if not self.questions:
             return [Problem("Add at least one question.")]
         if not method.label.strip():
@@ -655,26 +673,17 @@ class MethodDraft:
             return [Problem("Choose at least one question type.")]
         if not self.uneditable_reasons and (problems := self._steps_draft.problems):
             return problems
-        test_step_data = method_step_data(method.ref, self.question, self.test_values)
-        methods = Methods(
-            [
-                *(
-                    supplied_method
-                    for supplied_method in self._methods
-                    if supplied_method.ref != method.ref
-                ),
-                method,
-            ]
-        )
+        methods = self._methods_with(method)
         try:
             methods.dependencies(method.ref)
-            step = load_step(test_step_data, methods.by_ref)
-        except MethodFileError as error:
-            return [Problem(str(error))]
-        except ValidationError as error:
-            problems = validation_problems(error, test_step_data)
-            return [_test_value_problem(problem, method, self.test_values) for problem in problems]
-        problems = step.problems(self.questions)
+        except InvalidError as error:
+            return error.problems
+        step = self._tested_step(methods)
+        if data_problems := step.resolution.data_problems:
+            return [
+                _test_value_problem(problem, method, self.test_values) for problem in data_problems
+            ]
+        problems = located_problems(step, marking_position(self.questions, step.question))
         if problems or not self.question or _holds_steps(method):
             return problems
         other_types = sorted(method.question_types - {self.questions[self.question].type})
@@ -682,15 +691,18 @@ class MethodDraft:
             Problem(f"It can't mark {question_type} questions: {sample_problems[0]}")
             for question_type in other_types
             if (
-                sample_problems := step.problems(
-                    QuestionSet({self.question: new_question(question_type)})
+                sample_problems := located_problems(
+                    step,
+                    marking_position(
+                        QuestionSet({self.question: new_question(question_type)}), step.question
+                    ),
                 )
             )
         ]
 
 
 def _test_value_problem(
-    problem: Problem, method: Method[Any], test_values: Mapping[str, Any]
+    problem: Problem, method: Method, test_values: Mapping[str, Any]
 ) -> Problem:
     """A problem with the test values; one with a value not given asks for it by its setting."""
     name = problem.field[0] if len(problem.field) == 1 and not problem.step_path else None
@@ -727,7 +739,7 @@ def _example_data(example: Example) -> dict[str, Any]:
     return data
 
 
-def _holds_steps(method: Method[Any]) -> bool:
+def _holds_steps(method: Method) -> bool:
     """Whether its settings hold steps."""
     return any(
         step_cardinality(field) is not None for field in method.settings.model_fields.values()
