@@ -105,13 +105,13 @@ def test_only_the_results_are_read_back() -> None:
 
 def test_code_that_cant_run_is_a_problem_of_the_check() -> None:
     assert problems_of(custom_code("correct = (\n")) == [
-        ("", ("code",), "Line 1: '(' was never closed.")
+        ("", "/with/code", "Line 1: '(' was never closed.")
     ]
     [marking] = mark_scheme_of(custom_code_for_a_group("results = {}\nif True\n", "Q1")).markings
     [problem] = problems_in(marking, QuestionSet(QUESTIONS))
     assert (problem.step_path, problem.field, problem.message) == (
         "",
-        ("code",),
+        "/with/code",
         "Line 2: expected ':'.",
     )
 
@@ -242,8 +242,8 @@ def test_group_code_lists_each_question_of_the_assessment_once() -> None:
     [marking] = mark_scheme_of(custom_code_for_a_group("results = {}", "Q1", "Q1", "Q9")).markings
     problems = located(problems_in(marking, QuestionSet(QUESTIONS)))
     assert problems == [
-        ("", ("questions", 1), "Q1 is listed twice."),
-        ("", ("questions", 2), "Q9 isn't one of the questions."),
+        ("", "/with/questions/1", "Q1 is listed twice."),
+        ("", "/with/questions/2", "Q9 isn't one of the questions."),
     ]
     assert problems_of(custom_code("correct = True")) == []
 

@@ -84,8 +84,8 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
         },
         roots,
     ) == [
-        ("/with/checks/0", (), "Accepted Answers can't be used on a multiple values question."),
-        ("/with/checks/1", (), "Accepted Answers can't be used on a multiple values question."),
+        ("/with/checks/0", "", "Accepted Answers can't be used on a multiple values question."),
+        ("/with/checks/1", "", "Accepted Answers can't be used on a multiple values question."),
     ]
 
 
@@ -95,18 +95,18 @@ def test_multiple_values_needs_a_check_for_each_value(any_order: bool) -> None:
     one_check = [accepted_answer("2")]
     three_checks = [accepted_answer("2"), accepted_answer("-3"), accepted_answer("5")]
 
-    def problems_with(checks: list[dict[str, Any]]) -> list[tuple[str, tuple[str | int, ...], str]]:
+    def problems_with(checks: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
         check = {
             "uses": "gradeflow/multiple-values@1",
             "with": {"any_order": any_order, "checks": with_value_inputs(*checks)},
         }
         return problems_of(check, roots)
 
-    count_problem = ("", ("checks",), "List 2 checks, one for each value.")
+    count_problem = ("", "/with/checks", "List 2 checks, one for each value.")
     assert problems_with(one_check) == [count_problem]
     assert problems_with(three_checks) == [
         count_problem,
-        ("/with/checks/2", ("input",), "The answer has 2 values."),
+        ("/with/checks/2", "/input", "The answer has 2 values."),
     ]
 
 
@@ -253,8 +253,8 @@ def test_list_settings_need_an_item_unless_they_may_be_empty() -> None:
     with pytest.raises(InvalidError) as exc_info:
         mark_scheme_of({"uses": "gradeflow/conditional@1", "with": {"condition": []}})
     assert [(problem.field, problem.message) for problem in exc_info.value.problems] == [
-        (("condition",), "Add at least one."),
-        (("then",), "Required."),
+        ("/with/condition", "Add at least one."),
+        ("/with/then", "Required."),
     ]
     without_otherwise = {
         "uses": "gradeflow/conditional@1",

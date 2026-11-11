@@ -8,13 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, PlainValidat
 from pydantic_core import InitErrorDetails, PydanticCustomError, ValidationError
 
 from ..common.hints import hint
-from ..common.paths import location_of
+from ..common.paths import parts_of
 from ..common.problems import InvalidError, Problem
 from ..questions.types import QuestionId
 from .combining import MARKS_BY_LABELS, MarksBy, Part
 from .step import (
     METHODS_CONTEXT_KEY,
-    STEP_PROPERTIES,
     Step,
     needs_workflow_problem,
     valid_step,
@@ -44,10 +43,9 @@ def _validate_step(value: Any, info: ValidationInfo) -> Step:
 
 def _error_details(problem: Problem, value: Any) -> InitErrorDetails:
     """A problem of a step as pydantic reports one, where it is in the step's data."""
-    is_setting = bool(problem.field) and problem.field[0] not in STEP_PROPERTIES
     return InitErrorDetails(
         type=PydanticCustomError("invalid_step", "{message}", {"message": problem.message}),
-        loc=(*location_of(problem.step_path), *(("with",) if is_setting else ()), *problem.field),
+        loc=tuple(parts_of(problem.where)),
         input=value,
     )
 

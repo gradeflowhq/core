@@ -76,7 +76,7 @@ def test_it_describes_itself(settings: dict[str, Any], description: str) -> None
 
 def test_it_refuses_options_the_question_lacks() -> None:
     check = {"uses": "gradeflow/multiple-choice@1", "with": {"correct": ["a", "z"]}}
-    assert problems_of(check, CHOICE) == [("", ("correct", 1), "z isn't one of the options.")]
+    assert problems_of(check, CHOICE) == [("", "/with/correct/1", "z isn't one of the options.")]
 
 
 @pytest.mark.parametrize(
@@ -107,13 +107,13 @@ def test_the_correct_options_are_read_as_the_question_reads_its_own() -> None:
     assert problems_of(check, CHOICE) == []
     case_sensitive = ChoiceQuestion.load({"options": ["A", "b"], "reading": {"ignore_case": False}})
     assert problems_of({**check, "with": {"correct": ["a"]}}, case_sensitive) == [
-        ("", ("correct", 0), "a isn't one of the options.")
+        ("", "/with/correct/0", "a isn't one of the options.")
     ]
 
 
 def test_each_correct_option_must_read_differently() -> None:
     check = {"uses": "gradeflow/multiple-choice@1", "with": {"correct": ["B", "C", "b"]}}
-    assert problems_of(check, CHOICE) == [("", ("correct", 2), "It reads the same as item 1.")]
+    assert problems_of(check, CHOICE) == [("", "/with/correct/2", "It reads the same as item 1.")]
 
 
 def test_its_settings_schema_offers_the_questions_options() -> None:

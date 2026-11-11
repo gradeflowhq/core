@@ -18,7 +18,7 @@ def test_base_question_is_abstract() -> None:
 def test_max_marks_is_a_finite_number_of_zero_or_more(max_marks: object) -> None:
     with pytest.raises(InvalidError) as exc_info:
         TextQuestion.load({"max_marks": max_marks})
-    assert [problem.field for problem in exc_info.value.problems] == [("max_marks",)]
+    assert [problem.field for problem in exc_info.value.problems] == ["/max_marks"]
 
 
 def test_multiple_values_need_at_least_one_value() -> None:

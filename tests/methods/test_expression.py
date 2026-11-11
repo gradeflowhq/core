@@ -119,9 +119,9 @@ def test_describes_the_accepted_expressions() -> None:
 def test_accepted_expressions_must_parse_and_be_worked_out() -> None:
     assert problems_of(equivalent_expression("2x + 2")) == []
     assert problems_of(equivalent_expression("x", "2x +", "sqrt(-1 - x^2)", "1/0")) == [
-        ("", ("answers", 1), "Couldn't read “2x +” as an expression."),
-        ("", ("answers", 2), "Can't be worked out for enough values of its variables."),
-        ("", ("answers", 3), "Can't be worked out for enough values of its variables."),
+        ("", "/with/answers/1", "Couldn't read “2x +” as an expression."),
+        ("", "/with/answers/2", "Can't be worked out for enough values of its variables."),
+        ("", "/with/answers/3", "Can't be worked out for enough values of its variables."),
     ]
     with pytest.raises(InvalidError, match="Add at least one"):
         problems_of(equivalent_expression())
@@ -138,7 +138,7 @@ def test_a_question_ignoring_punctuation_is_a_problem() -> None:
     assert problems_of(equivalent_expression("2(x + 1)"), question) == [
         (
             "",
-            (),
+            "",
             "The question ignores punctuation, which removes the brackets and signs "
             "expressions need.",
         )

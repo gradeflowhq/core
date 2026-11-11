@@ -87,30 +87,30 @@ def test_it_describes_the_order() -> None:
 def test_the_question_needs_a_value_for_each_item_all_of_one_type() -> None:
     three = ValuesQuestion(value_types=["text"] * 3)
     assert problems_of(order("a", "b"), three) == [
-        ("", ("order",), "List 3 items, one for each value.")
+        ("", "/with/order", "List 3 items, one for each value.")
     ]
     mixed = ValuesQuestion(value_types=["text", "number"])
     assert problems_of(order("a", "1"), mixed) == [
-        ("", ("order",), "The question's values must all be text or all numbers.")
+        ("", "/with/order", "The question's values must all be text or all numbers.")
     ]
 
 
 def test_each_item_must_be_readable() -> None:
     numbers = ValuesQuestion(value_types=["number"] * 3)
     assert problems_of(order("1", "two", "N/A"), numbers) == [
-        ("", ("order", 1), "Couldn't read “two” as a number."),
-        ("", ("order", 2), "It reads as a blank answer."),
+        ("", "/with/order/1", "Couldn't read “two” as a number."),
+        ("", "/with/order/2", "It reads as a blank answer."),
     ]
 
 
 def test_each_item_must_read_differently() -> None:
     numbers = ValuesQuestion(value_types=["number"] * 3)
     assert problems_of(order("1", "1.0", "3"), numbers) == [
-        ("", ("order", 1), "It reads the same as item 1.")
+        ("", "/with/order/1", "It reads the same as item 1.")
     ]
     three_text_values = ValuesQuestion(value_types=["text"] * 3)
     assert problems_of(order("A", "b", "a"), three_text_values) == [
-        ("", ("order", 2), "It reads the same as item 1.")
+        ("", "/with/order/2", "It reads the same as item 1.")
     ]
     case_sensitive = ValuesQuestion(
         value_types=["text"] * 3, reading=ListReading(ignore_case=False)

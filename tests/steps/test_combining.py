@@ -144,4 +144,4 @@ def test_weights_are_noted_where_they_count_and_problems_where_they_dont(
     assert combination.weight_notes(0.5) == notes
     assert combination.weight_notes(1) == ()
     problems = list(combination.weight_problems([1, 0, 0.5], "steps"))
-    assert [problem.field for problem in problems] == [("steps", 2, "weight")] * problem_count
+    assert [problem.field for problem in problems] == ["/steps/2/weight"] * problem_count

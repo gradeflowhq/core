@@ -9,6 +9,7 @@ from rapidfuzz import process
 from rapidfuzz.distance import Levenshtein
 
 from ..common.hints import hint
+from ..common.paths import pointer
 from ..common.problems import Problem
 from ..models import nli
 from ..models.local import MISSING_MODEL_MESSAGE
@@ -64,7 +65,7 @@ def model_context(question: Question) -> str:
 
 def match_problems(match: MatchMode) -> Iterator[Problem]:
     if match == "meaning" and not nli.is_available():
-        yield Problem(MISSING_MODEL_MESSAGE, field=("match",))
+        yield Problem(MISSING_MODEL_MESSAGE, field="/match")
 
 
 TOLERANCE_FIELD = Field(
@@ -94,10 +95,10 @@ def unreadable_problems(
         try:
             answer = read(text)
         except ValueError as error:
-            yield Problem(str(error), field=(setting_name, index))
+            yield Problem(str(error), field=pointer(setting_name, index))
             continue
         if answer is None:
-            yield Problem("It reads as a blank answer.", field=(setting_name, index))
+            yield Problem("It reads as a blank answer.", field=pointer(setting_name, index))
 
 
 def duplicate_problems(
@@ -111,7 +112,8 @@ def duplicate_problems(
         first_item_number = first_item_numbers.setdefault(answer, index + 1)
         if first_item_number != index + 1:
             yield Problem(
-                f"It reads the same as item {first_item_number}.", field=(setting_name, index)
+                f"It reads the same as item {first_item_number}.",
+                field=pointer(setting_name, index),
             )
 
 

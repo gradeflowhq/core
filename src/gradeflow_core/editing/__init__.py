@@ -15,7 +15,7 @@ from ..steps.names import method_name, method_ref, split_ref
 from ..steps.position import Position
 from .by_example import DECISIONS, Decision, can_mark_by_example
 from .conditions import Condition, ConditionRow
-from .drafts import Draft, StepsSetting, compatible_methods
+from .drafts import Draft, StepsSetting, compatible_methods, field_in_values
 from .marking_drafts import MarkingDraft
 from .method_drafts import MethodDraft
 
@@ -41,6 +41,7 @@ __all__ = [
     "compatible_methods",
     "converted_question",
     "dump_yaml",
+    "field_in_values",
     "load_method_files",
     "load_yaml",
     "mark_rows",

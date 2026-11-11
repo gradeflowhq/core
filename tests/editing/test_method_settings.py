@@ -64,7 +64,7 @@ def test_a_setting_with_no_default_is_checked_with_its_test_value() -> None:
     ]
     draft.add("/with/steps/1", "gradeflow/equivalent-expression@1")
     draft.update("/with/steps/1", {"answers": ["x2"]})
-    expected = [Problem("Unknown name “x2”.", "/with/steps/1", ("answers", 0))]
+    expected = [Problem("Unknown name “x2”.", "/with/steps/1", "/with/answers/0")]
     assert draft.step_problems == expected, "while the first step waits for its setting"
     draft.test_values = {"answers": ["sun"]}
     assert draft.step_problems == expected
@@ -308,7 +308,7 @@ def test_a_settings_examples_are_typed_like_the_field_it_fills() -> None:
     assert "choices" not in properties
     with pytest.raises(InvalidError) as exc_info:
         draft.update_declared_setting("min_value", {"examples": [1, "ten"]})
-    assert exc_info.value.problems == [Problem("Must be a number.", field=("examples", 1))]
+    assert exc_info.value.problems == [Problem("Must be a number.", field="/examples/1")]
     draft.update_declared_setting("min_value", {"examples": [10, 2.5]})
     assert draft.declared_settings["min_value"]["examples"] == [10, 2.5]
 

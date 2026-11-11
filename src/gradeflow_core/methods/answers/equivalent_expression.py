@@ -6,6 +6,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from pydantic import Field
 
 from ...common.hints import hint
+from ...common.paths import pointer
 from ...common.problems import Problem
 from ...common.text import (
     as_sentence,
@@ -112,7 +113,7 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
                     expression_text, question
                 )
             except ValueError as error:
-                yield Problem(str(error), field=("answers", index))
+                yield Problem(str(error), field=pointer("answers", index))
         points = _sample_points(
             frozenset().union(
                 *(expression.variables for expression in accepted_expressions_by_index.values())
@@ -122,7 +123,7 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
             if len(_values_at_points(expression, points)) < MIN_WORKABLE_POINTS:
                 yield Problem(
                     "Can't be worked out for enough values of its variables.",
-                    field=("answers", index),
+                    field=pointer("answers", index),
                 )
 
 

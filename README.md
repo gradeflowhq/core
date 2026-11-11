@@ -204,8 +204,9 @@ template. A `weight` of 0 gives no marks. A marking without a `question` marks a
 its steps name the questions they mark.
 
 A `MarkScheme` is a list of markings, each a `Step`: what its YAML holds, with `settings` for its
-`with`. `problems(questions)` lists what would stop it marking. Each `Problem` points at the check
-and field at fault with a JSON Pointer, such as `/markings/0/with/steps/1`.
+`with`. `problems(questions)` lists what would stop it marking. Each `Problem` gives the JSON
+Pointer of the check at fault, such as `/markings/0/with/steps/1`, and of the field in it, such as
+`/with/answers/0`.
 
 ```python
 from gradeflow_core import MarkScheme
@@ -457,8 +458,8 @@ assert AnswerComparison.model_validate_json(stored).groups(threshold=0.85) == [[
 
 The library raises `GradeFlowError`, with messages fit to show people. `InvalidError` carries the
 `problems` with invalid data: each `Problem` has a `message`, the `step_path` and `field` at
-fault and, if it was read from YAML, its `line`. `MethodFileError` is the `InvalidError` of a method
-file, which its `ref` names.
+fault and, if it was read from YAML, its `line`. `where` joins the two into one JSON Pointer.
+`MethodFileError` is the `InvalidError` of a method file, which its `ref` names.
 
 ## Editing
 
@@ -484,6 +485,9 @@ assert draft.problems == []
 print(draft.notes("/with/steps/1"))
 print(draft.finalized().dump())
 ```
+
+A check's `values` hold its settings and its own properties as one. `field_in_values` gives where a
+problem's `field` is among them: `/with/answers/0` is `/answers/0`.
 
 `MethodDraft` writes a composed method from example questions. Its steps are one Workflow at `""`,
 edited as a marking's are: both drafts are a `Draft`. `bind_new_setting` turns a field of a step

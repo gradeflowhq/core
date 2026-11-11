@@ -121,7 +121,7 @@ def test_without_the_meaning_model_installed_same_meaning_is_a_problem(
 ) -> None:
     monkeypatch.setattr(nli, "is_available", lambda: False)
     assert problems_of({"uses": KEY_POINT, "with": {"point": "a", "match": "meaning"}}) == [
-        ("", ("match",), MISSING_MODEL_MESSAGE)
+        ("", "/with/match", MISSING_MODEL_MESSAGE)
     ]
     problems = problems_of(key_points("a", "b", match="meaning"))
     assert [message for _, _, message in problems] == [

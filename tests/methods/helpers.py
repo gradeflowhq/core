@@ -97,14 +97,14 @@ def mark_group(
     return submission.results
 
 
-def located(problems: Iterable[Problem]) -> list[tuple[str, tuple[str | int, ...], str]]:
+def located(problems: Iterable[Problem]) -> list[tuple[str, str, str]]:
     """Each problem as the check and field it is at, and its message."""
     return [(problem.step_path, problem.field, problem.message) for problem in problems]
 
 
 def problems_of(
     check: Mapping[str, Any], question: Question | None = None
-) -> list[tuple[str, tuple[str | int, ...], str]]:
+) -> list[tuple[str, str, str]]:
     questions = QuestionSet({QUESTION_ID: question or TextQuestion()})
     [marking] = mark_scheme_of({"question": QUESTION_ID, **check}).markings
     return located(problems_in(marking, questions))

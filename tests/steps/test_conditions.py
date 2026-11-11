@@ -148,7 +148,7 @@ def test_wrapped_incompatible_check_rejected() -> None:
     marking = {"question": "Q1", "uses": "sample/wrapped@1"}
     problems = MarkScheme.load([marking], methods=methods).problems(questions)
     message = "Number Range can't be used on a text question."
-    assert helpers.located(problems) == [("/markings/0", (), message)]
+    assert helpers.located(problems) == [("/markings/0", "", message)]
 
 
 def test_problems_in_a_conditionals_branch_name_their_path() -> None:

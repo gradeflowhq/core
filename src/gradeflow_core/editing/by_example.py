@@ -144,7 +144,7 @@ def _proportions_decided_by(
         return {}
     method = step.resolution.method
     if method is not None and method.name == NOT_ALLOWED_METHOD_NAME:
-        reversed_check = step.resolution.inner_steps.get(("check",))
+        reversed_check = step.resolution.inner_steps.get("/with/check")
         return {
             answer: 1 - proportion
             for answer, proportion in _proportions_decided_by(

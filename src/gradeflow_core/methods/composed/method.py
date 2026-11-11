@@ -5,7 +5,7 @@ from copy import deepcopy
 from dataclasses import replace
 from typing import Any
 
-from ...common.paths import Location, is_within, json_pointer, location_of
+from ...common.paths import is_within, pointer
 from ...common.problems import InvalidError, Problem
 from ...questions.base import Question
 from ...questions.types import ALL_QUESTION_TYPES, QuestionId
@@ -117,37 +117,31 @@ class ComposedMethod(Method[ComposedSettings]):
             return
         expansion_places = places(expansion, position)
         settings_steps = [
-            (
-                place.location,
-                ("with", *settings_location),
-                settings_location[0] in settings.model_fields_set,
-            )
+            (place.path, "/with" + settings_path, name in settings.model_fields_set)
             for place in expansion_places
-            for settings_location, settings_step in _steps_in_settings(settings)
+            for name, settings_path, settings_step in _steps_in_settings(settings)
             if place.step is settings_step
         ]
 
-        def settings_step_containing(location: Location) -> tuple[Location, Location, bool] | None:
-            """The step the settings hold that ``location`` is in: where it is in the expansion
-            and in the settings, and whether the settings write it."""
-            return next((step for step in settings_steps if is_within(location, step[0])), None)
+        def settings_step_containing(path: str) -> tuple[str, str, bool] | None:
+            """The step the settings hold that ``path`` is in: where it is in the expansion and
+            in the settings, and whether the settings write it."""
+            return next((step for step in settings_steps if is_within(path, step[0])), None)
 
         # Steps written in the settings report their own problems.
         places_to_ask = [
             place
             for place in expansion_places
-            if not ((step := settings_step_containing(place.location)) and step[2])
+            if not ((step := settings_step_containing(place.path)) and step[2])
         ]
         for problem in place_problems(usable_places(places_to_ask)):
-            location = location_of(problem.step_path)
-            match settings_step_containing(location):
+            match settings_step_containing(problem.step_path):
                 # A step a setting holds by default has its problems where the setting holds it.
-                case (expansion_location, settings_location, False):
-                    inner_location = location[len(expansion_location) :]
-                    step_path = json_pointer((*settings_location, *inner_location))
-                    yield replace(problem, step_path=step_path)
+                case (expansion_path, settings_path, False):
+                    inner_path = problem.step_path[len(expansion_path) :]
+                    yield replace(problem, step_path=settings_path + inner_path)
                 # A list an optional setting fills may be left with no steps.
-                case _ if replace(problem, step_path="") != NO_STEPS_PROBLEM:
+                case _ if problem.message != NO_STEPS_PROBLEM.message:
                     yield Problem(problem.message, is_incomplete=problem.is_incomplete)
 
     def mark_students(
@@ -205,12 +199,13 @@ def _expansion_or_none(settings: ComposedSettings) -> Step | None:
         return None
 
 
-def _steps_in_settings(settings: ComposedSettings) -> Iterator[tuple[Location, Step]]:
-    """Each step the settings hold, written or by default, and where: ``("sets", 0)``."""
+def _steps_in_settings(settings: ComposedSettings) -> Iterator[tuple[str, str, Step]]:
+    """Each step the settings hold, written or by default: the setting's name, where the step is
+    in the settings, such as ``/sets/0``, and the step."""
     for name, value in file_scope(settings)["settings"].items():
         if isinstance(value, Step):
-            yield (name,), value
+            yield name, pointer(name), value
         elif isinstance(value, list):
             for index, item in enumerate(value):
                 if isinstance(item, Step):
-                    yield (name, index), item
+                    yield name, pointer(name, index), item

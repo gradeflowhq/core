@@ -11,7 +11,7 @@ from pydantic_core import PydanticUndefined
 
 from ...common.error_formatting import error_message
 from ...common.hints import Hint, hint_of
-from ...common.paths import Location
+from ...common.paths import pointer
 from ...common.problems import InvalidError, Problem
 from ...common.text import quoted_join
 from ...steps.method import Method
@@ -49,8 +49,8 @@ class _SettingTypes:
         workflow_step_data = self.file.workflow_step_data()
         method = self.methods_by_ref.get(workflow_step_data["uses"])
         if method is None:
-            raise method_file_error(f"There's no method {workflow_step_data['uses']}.", ("uses",))
-        self._visit_settings(workflow_step_data["with"], method, ())
+            raise method_file_error(f"There's no method {workflow_step_data['uses']}.", "/uses")
+        self._visit_settings(workflow_step_data["with"], method, "")
         for setting_name, declared_setting in self.file.settings.items():
             with self._collect_errors():
                 self._visit_declared_setting(setting_name, declared_setting)
@@ -60,14 +60,14 @@ class _SettingTypes:
 
     def _visit_declared_setting(self, setting_name: str, declared_setting: DeclaredSetting) -> None:
         if message := setting_name_problem(setting_name):
-            raise method_file_error(message, ("settings", setting_name))
+            raise method_file_error(message, pointer("settings", setting_name))
         # A setting that failed may be the one that uses it.
         if setting_name in self.setting_types or self.problems:
             return
         if setting_name not in self.settings_in_templates:
             raise method_file_error(
                 f"{declared_setting.title or f'Setting {setting_name}'} isn't used.",
-                ("settings", setting_name),
+                pointer("settings", setting_name),
             )
         self.setting_types[setting_name] = (_type_of(declared_setting.default), FieldInfo())
 
@@ -80,7 +80,7 @@ class _SettingTypes:
             self.problems += error.problems
 
     def _record_setting_type(
-        self, expression: str, annotation: Any, field_info: FieldInfo, path: Location
+        self, expression: str, annotation: Any, field_info: FieldInfo, path: str
     ) -> None:
         if not _DOTTED_NAME.fullmatch(expression):
             # A template's own refusal says best what's wrong, such as arithmetic.
@@ -110,26 +110,26 @@ class _SettingTypes:
         elif root != "index":
             raise method_file_error(f"There's no {expression}.", path)
 
-    def _visit_step(self, step_data: Any, path: Location) -> None:
+    def _visit_step(self, step_data: Any, path: str) -> None:
         if not isinstance(step_data, Mapping) or "uses" not in step_data:
             raise method_file_error(NOT_A_STEP_MESSAGE, path)
         method = self.methods_by_ref.get(str(step_data["uses"]))
         if method is None:
-            raise method_file_error(f"There's no method {step_data['uses']}.", (*path, "uses"))
+            raise method_file_error(f"There's no method {step_data['uses']}.", path + "/uses")
         for step_key, value in sorted(step_data.items(), key=lambda item: item[0] != "with"):
             if step_key in TEMPLATE_KEYS or step_key in ("uses", "for_each"):
                 continue
             if step_key == "with":
-                self._visit_settings(value, method, (*path, "with"))
+                self._visit_settings(value, method, path + "/with")
             elif step_key not in STEP_OWN_PROPERTIES:
-                raise method_file_error(f"A step has no {step_key}:.", (*path, step_key))
+                raise method_file_error(f"A step has no {step_key}:.", path + pointer(step_key))
             elif (expression := reference_expression(value)) is not None:
                 field_info = STEP_OWN_PROPERTIES[step_key]
                 self._record_setting_type(
-                    expression, field_info.annotation, field_info, (*path, step_key)
+                    expression, field_info.annotation, field_info, path + pointer(step_key)
                 )
 
-    def _visit_settings(self, settings: Any, method: Method, path: Location) -> None:
+    def _visit_settings(self, settings: Any, method: Method, path: str) -> None:
         if (expression := reference_expression(settings)) is not None:
             raise method_file_error(
                 f"Fill in a method's settings one by one, not with {expression}.",
@@ -143,15 +143,16 @@ class _SettingTypes:
                 field_info = model.model_fields.get(setting_name)
                 if field_info is None:
                     raise method_file_error(
-                        f"{method.label} has no setting {setting_name}.", (*path, setting_name)
+                        f"{method.label} has no setting {setting_name}.",
+                        path + pointer(setting_name),
                     )
                 if (root := _root_of(value)) is not None:
                     field_info = _with_setting_conditions(
-                        field_info, root, settings or {}, model, (*path, setting_name)
+                        field_info, root, settings or {}, model, path + pointer(setting_name)
                     )
-                self._visit_setting(value, field_info, (*path, setting_name))
+                self._visit_setting(value, field_info, path + pointer(setting_name))
 
-    def _visit_setting(self, value: Any, field_info: FieldInfo, path: Location) -> None:
+    def _visit_setting(self, value: Any, field_info: FieldInfo, path: str) -> None:
         if hint_of(field_info).kind == "output_step":  # read when the steps run
             return
         if (expression := reference_expression(value)) is not None:
@@ -165,7 +166,7 @@ class _SettingTypes:
             ):
                 for index, item in enumerate(value):
                     with self._collect_errors():
-                        self._visit_item(item, item_field_info, (*path, index))
+                        self._visit_item(item, item_field_info, path + pointer(index))
             case _ if has_template(value):
                 item_annotation = (
                     get_args(field_info.annotation)[0] if get_args(field_info.annotation) else Any
@@ -173,23 +174,23 @@ class _SettingTypes:
                 for index, item in enumerate(value if isinstance(value, list) else ()):
                     if (expression := reference_expression(item)) is not None:
                         self._record_setting_type(
-                            expression, item_annotation, field_info, (*path, index)
+                            expression, item_annotation, field_info, path + pointer(index)
                         )
                     elif not has_template(item) and (item_field_info := item_field(field_info)):
                         _validate_written_value(
-                            item, item_field_info, (*path, index), self.methods_by_ref
+                            item, item_field_info, path + pointer(index), self.methods_by_ref
                         )
             case _:
                 _validate_written_value(value, field_info, path, self.methods_by_ref)
 
-    def _visit_item(self, item: Any, field_info: FieldInfo, path: Location) -> None:
+    def _visit_item(self, item: Any, field_info: FieldInfo, path: str) -> None:
         if (expression := reference_expression(item)) is not None:
             self._record_setting_type(expression, field_info.rebuild_annotation(), field_info, path)
             return
         if isinstance(item, Mapping) and "for_each" in item:
             list_reference = reference_expression(item["for_each"])
             if list_reference is None or not list_reference.startswith("settings."):
-                raise method_file_error("for_each needs one {{ settings.… }}.", (*path, "for_each"))
+                raise method_file_error("for_each needs one {{ settings.… }}.", path + "/for_each")
             self.repeated_item_fields.append({})
             self._visit_step(item, path)
             item_fields = self._with_item_titles(
@@ -215,20 +216,20 @@ class _SettingTypes:
                 FieldInfo(
                     title=item_field_info.title, json_schema_extra=item_field_info.json_schema_extra
                 ),
-                (*path, "for_each"),
+                path + "/for_each",
             )
             return
         self._visit_step(item, path)
 
     def _with_item_titles(
-        self, item_fields: dict[str, tuple[Any, FieldInfo]], list_reference: str, path: Location
+        self, item_fields: dict[str, tuple[Any, FieldInfo]], list_reference: str, path: str
     ) -> dict[str, tuple[Any, FieldInfo]]:
         """The fields of each item, with the titles the setting gives them."""
         declared_setting = self.file.settings.get(list_reference.removeprefix("settings."))
         item_titles = (declared_setting.items if declared_setting else None) or {}
         if unused_item_fields := item_titles.keys() - item_fields.keys():
             raise method_file_error(
-                f"Each item has no {', '.join(sorted(unused_item_fields))}.", (*path, "for_each")
+                f"Each item has no {', '.join(sorted(unused_item_fields))}.", path + "/for_each"
             )
         return {
             item_field_name: (
@@ -271,7 +272,7 @@ def _with_setting_conditions(
     root: str,
     sibling_settings: Mapping[str, Any],
     model: type[BaseModel],
-    path: Location,
+    path: str,
 ) -> FieldInfo:
     """``field_info`` filled from ``root``, its ``applies_when`` rewritten for the method file."""
     hint = hint_of(field_info)
@@ -316,7 +317,7 @@ def _type_of(default: Any) -> Any:
 def _validate_written_value(
     value: Any,
     field_info: FieldInfo,
-    path: Location,
+    path: str,
     methods_by_ref: Mapping[str, Method],
 ) -> None:
     """Refuses a setting written as it is that its method wouldn't accept."""
@@ -326,7 +327,9 @@ def _validate_written_value(
         )
     except ValidationError as error:
         first_error = error.errors()[0]
-        raise method_file_error(error_message(first_error), (*path, *first_error["loc"])) from None
+        raise method_file_error(
+            error_message(first_error), path + pointer(*first_error["loc"])
+        ) from None
 
 
 def declared_setting_field(
@@ -377,7 +380,7 @@ def settings_model(
             _validate_written_value(
                 declared_setting.default,
                 fields[setting_name][1],
-                ("settings", setting_name, "default"),
+                pointer("settings", setting_name, "default"),
                 methods_by_ref,
             )
     model: type[ComposedSettings] = create_model(  # type: ignore[call-overload]

@@ -89,21 +89,21 @@ class FormulaOfAnswers(MarkingMethod[FormulaOfAnswersSettings]):
 
     def problems(self, settings: FormulaOfAnswersSettings, position: Position) -> Iterator[Problem]:
         if message := _number_question_message(settings.question_to_mark, position):
-            yield Problem(message, field=("question_to_mark",))
+            yield Problem(message, field="/question_to_mark")
         try:
             question_ids = _parse_formula(settings.formula).variables
         except ValueError as error:
-            yield Problem(str(error), field=("formula",))
+            yield Problem(str(error), field="/formula")
             return
         if not question_ids:
-            yield Problem("Use another answer, such as Q1 * 12.", field=("formula",))
+            yield Problem("Use another answer, such as Q1 * 12.", field="/formula")
         if settings.question_to_mark in question_ids:
             yield Problem(
-                f"{settings.question_to_mark} can't follow from itself.", field=("formula",)
+                f"{settings.question_to_mark} can't follow from itself.", field="/formula"
             )
         for question_id in natsorted(question_ids - {settings.question_to_mark}):
             if message := _number_question_message(question_id, position):
-                yield Problem(message, field=("formula",))
+                yield Problem(message, field="/formula")
 
 
 def _parse_formula(formula: str) -> Expression:

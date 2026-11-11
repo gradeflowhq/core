@@ -79,7 +79,7 @@ def test_a_question_of_a_type_is_set_up_as_its_schema_describes() -> None:
     with pytest.raises(InvalidError) as exc_info:
         QUESTION_CLASSES["choice"].load({"options": []})
     assert exc_info.value.problems == [
-        Problem("Add at least one.", field=("options",), is_incomplete=True)
+        Problem("Add at least one.", field="/options", is_incomplete=True)
     ]
 
 

@@ -3,6 +3,7 @@ from collections.abc import Iterator, Mapping
 from pydantic import Field
 
 from ...common.hints import hint
+from ...common.paths import pointer
 from ...common.problems import Problem
 from ...common.text import code_block, code_join
 from ...questions.types import QuestionId, Unreadable
@@ -146,10 +147,10 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
         questions = settings.questions
         for index, question_id in enumerate(questions):
             if question_id in questions[:index]:
-                yield Problem(f"{question_id} is listed twice.", field=("questions", index))
+                yield Problem(f"{question_id} is listed twice.", field=pointer("questions", index))
             elif question_id not in position.questions:
                 yield Problem(
-                    f"{question_id} isn't one of the questions.", field=("questions", index)
+                    f"{question_id} isn't one of the questions.", field=pointer("questions", index)
                 )
 
 

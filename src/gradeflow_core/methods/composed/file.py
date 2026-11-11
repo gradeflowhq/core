@@ -5,7 +5,6 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from ...common.hints import hint
-from ...common.paths import Location
 from ...common.problems import InvalidError, Problem
 from ...questions import QUESTION_CLASSES
 from ...questions.types import QuestionType
@@ -131,9 +130,9 @@ def as_file_steps(step_data: Mapping[str, Any]) -> dict[str, Any]:
     return {"steps": [step_data]}
 
 
-def method_file_error(message: str, location: Location) -> InvalidError:
-    """What is wrong at ``location`` in a method file."""
-    return InvalidError([Problem(message, field=location)])
+def method_file_error(message: str, path: str) -> InvalidError:
+    """What is wrong at the JSON Pointer ``path`` in a method file."""
+    return InvalidError([Problem(message, field=path)])
 
 
 def methods_used(yaml_data: Any) -> set[str]:

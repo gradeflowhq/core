@@ -719,7 +719,7 @@ def test_a_step_of_a_group_reading_an_output_must_name_its_question() -> None:
     assert [
         (problem.message, problem.field)
         for problem in MarkScheme.load([marking]).problems(QUESTIONS)
-    ] == [("Choose the question it checks.", ("question",))]
+    ] == [("Choose the question it checks.", "/question")]
 
 
 def test_a_workflow_changed_to_give_a_steps_output_gets_an_id() -> None:
@@ -856,7 +856,7 @@ def test_a_workflow_cant_give_a_checks_marks_as_its_output() -> None:
     )
     assert (
         "Marks can't be read as an answer.",
-        "/markings/0/with/steps/0/output_step",
+        "/markings/0/with/steps/0/with/output_step",
     ) in [(problem.message, problem.where) for problem in problems]
 
 

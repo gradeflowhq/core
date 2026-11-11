@@ -98,7 +98,7 @@ def test_same_meaning_without_the_meaning_model_installed_is_a_problem(
 ) -> None:
     monkeypatch.setattr(nli, "is_available", lambda: False)
     check = {"uses": ACCEPTED_ANSWERS, "with": {"answers": ["a"], "match": "meaning"}}
-    assert problems_of(check) == [("", ("match",), MISSING_MODEL_MESSAGE)]
+    assert problems_of(check) == [("", "/with/match", MISSING_MODEL_MESSAGE)]
     assert (
         problems_of({"uses": ACCEPTED_ANSWERS, "with": {"answers": ["a"], "match": "spelling"}})
         == []
@@ -181,7 +181,7 @@ def test_an_accepted_answer_the_question_cant_read_is_a_problem(
             "answers": ["ok", answer] if isinstance(question, TextQuestion) else ["1", answer]
         },
     }
-    assert problems_of(check, question) == [("", ("answers", 1), message)]  # type: ignore[arg-type]
+    assert problems_of(check, question) == [("", "/with/answers/1", message)]  # type: ignore[arg-type]
 
 
 def test_its_settings_fit_the_question() -> None:

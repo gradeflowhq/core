@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
+from jsonpointer import set_pointer
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -21,7 +22,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from ..common.error_formatting import REQUIRED_MESSAGE, UNKNOWN_MESSAGE
 from ..common.hints import ADVANCED_HINT, hint
-from ..common.paths import Location, is_within, json_pointer, value_at
+from ..common.paths import is_within, pointer
 from ..common.problems import InvalidError, Problem, validation_problem, validation_problems
 from ..common.text import capitalized
 from ..questions.types import QuestionId
@@ -41,9 +42,9 @@ FEEDBACK_INSERTS = {
 """What feedback may include, by label."""
 CHECK_PROPERTIES = ("weight", "feedback")
 """The properties only a check has."""
-type InnerSteps = Mapping[Location, Step | None]
-"""By place in a step's settings, such as ``("steps", 0)``, the step written there; None where
-one can be added, as after the last of a list."""
+type InnerSteps = Mapping[str, Step | None]
+"""By path in a step, such as ``/with/steps/0``, the step written in its settings there; None
+where one can be added, as after the last of a list."""
 
 
 class OutcomeFeedback(BaseModel):
@@ -240,7 +241,7 @@ def valid_step(
     if not isinstance(data, Mapping):
         raise InvalidError([Problem(NOT_A_STEP_MESSAGE)])
     if "uses" not in data:
-        raise InvalidError([Problem("Choose a method.", field=("uses",))])
+        raise InvalidError([Problem("Choose a method.", field="/uses")])
     step = load_step(data, methods_by_ref, scope)
     if step.resolution.data_problems:
         raise InvalidError(list(step.resolution.data_problems))
@@ -262,7 +263,7 @@ def load_step(
     inner_steps: InnerSteps = {}
     if method is None:
         message = f"There's no method {uses}." if uses else "Choose a method."
-        settings_problems = [Problem(message, field=("uses",))]
+        settings_problems = [Problem(message, field="/uses")]
     else:
         settings, inner_steps, settings_problems = _loaded_settings(method, data, methods_by_ref)
     resolution = StepResolution(
@@ -285,7 +286,9 @@ def _step_of(step_data: Mapping[str, Any], resolution: StepResolution) -> Step:
     read_data = {key: value for key, value in step_data.items() if key not in refused_keys}
     if not resolution.gives_marks:
         read_data["weight"] = 0
-    problems = [Problem(UNKNOWN_MESSAGE, field=(key,)) for key in refused_keys if key in step_data]
+    problems = [
+        Problem(UNKNOWN_MESSAGE, field=pointer(key)) for key in refused_keys if key in step_data
+    ]
 
     def step(valid_data: Mapping[str, Any], property_problems: list[Problem]) -> Step:
         data_problems = (*property_problems, *resolution.data_problems)
@@ -313,7 +316,7 @@ def _loaded_settings(
         field_info.is_required() for field_info in method.settings.model_fields.values()
     )
     if "with" not in data and needs_settings:
-        return None, inner_steps, [Problem(REQUIRED_MESSAGE, field=("with",), is_incomplete=True)]
+        return None, inner_steps, [Problem(REQUIRED_MESSAGE, field="/with", is_incomplete=True)]
     settings_data = data.get("with", {})
     if isinstance(settings_data, Mapping):
         settings_data = _with_steps(settings_data, inner_steps)
@@ -325,26 +328,27 @@ def _loaded_settings(
         )
     except ValidationError as error:
         for error_details in error.errors():
-            location = tuple(error_details["loc"])
             problem = validation_problem(error_details, settings_data)
-            inner_step = inner_steps.get(location)
-            place = next((place for place in inner_steps if is_within(location, place)), ())
+            field = "/with" + problem.field
+            inner_step = inner_steps.get(field)
+            inner_step_path = next((path for path in inner_steps if is_within(field, path)), "")
             if inner_step is not None:
                 # What a setting refuses of a step is wrong with the step, if nothing else is.
                 resolution = inner_step.resolution
                 if not resolution.data_problems:
-                    step_problem = replace(problem, field=())
-                    inner_steps[location] = inner_step.model_copy(
+                    step_problem = replace(problem, field="")
+                    inner_steps[field] = inner_step.model_copy(
                         update={"resolution": replace(resolution, data_problems=(step_problem,))}
                     )
-            elif len(location) > len(place) > 0:
-                step_path, field = json_pointer(("with", *place)), location[len(place) :]
-                problems.append(replace(problem, step_path=step_path, field=field))
+            elif inner_step_path and field != inner_step_path:
+                problems.append(
+                    replace(problem, step_path=inner_step_path, field=field[len(inner_step_path) :])
+                )
             else:
-                problems.append(_at_settings(problem, error_details["type"]))
+                problems.append(_at_settings(replace(problem, field=field), error_details["type"]))
     problems += [
-        replace(problem, step_path=json_pointer(("with", *location)) + problem.step_path)
-        for location, inner_step in inner_steps.items()
+        replace(problem, step_path=path_in_step + problem.step_path)
+        for path_in_step, inner_step in inner_steps.items()
         if inner_step is not None
         for problem in inner_step.resolution.data_problems
     ]
@@ -354,16 +358,16 @@ def _loaded_settings(
 def _at_settings(problem: Problem, error_type: str) -> Problem:
     """A problem pydantic found in a step's settings, at the step's field. A rule over all the
     settings is the step's; anything else about them as a whole is about its ``with``."""
-    if problem.field:
+    if problem.field != "/with":
         return problem
-    return replace(problem, field=() if error_type == "value_error" else ("with",))
+    return replace(problem, field="" if error_type == "value_error" else "/with")
 
 
 def _loaded_inner_steps(
     method: Method,
     settings_data: Mapping[str, Any],
     methods_by_ref: Mapping[str, Method],
-) -> dict[Location, Step | None]:
+) -> dict[str, Step | None]:
     def inner_step(value: object) -> Step | None:
         if isinstance(value, Step):
             return value
@@ -371,15 +375,15 @@ def _loaded_inner_steps(
             return load_step(value, methods_by_ref)
         return None
 
-    inner_steps: dict[Location, Step | None] = {}
+    inner_steps: dict[str, Step | None] = {}
     for name, field_info in method.settings.model_fields.items():
         value = settings_data.get(name)
         match step_cardinality(field_info):
             case "one":
-                inner_steps[name,] = inner_step(value)
+                inner_steps[pointer("with", name)] = inner_step(value)
             case "many":
                 for index, item in enumerate([*(value if isinstance(value, list) else ()), None]):
-                    inner_steps[name, index] = inner_step(item)
+                    inner_steps[pointer("with", name, index)] = inner_step(item)
     return inner_steps
 
 
@@ -389,9 +393,9 @@ def _with_steps(settings_data: Mapping[str, Any], inner_steps: InnerSteps) -> di
         name: list(value) if isinstance(value, list) else value
         for name, value in settings_data.items()
     }
-    for location, inner_step in inner_steps.items():
+    for path_in_step, inner_step in inner_steps.items():
         if inner_step is not None:
-            value_at(settings_with_steps, json_pointer(location[:-1]))[location[-1]] = inner_step
+            set_pointer(settings_with_steps, path_in_step.removeprefix("/with"), inner_step)
     return settings_with_steps
 
 

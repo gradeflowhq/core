@@ -260,7 +260,7 @@ def test_expected_values_are_shown_as_worked_out() -> None:
 def test_a_test_weight_where_weights_arent_used_is_a_problem() -> None:
     check = code_tests(F_GIVES_1, {**G_GIVES_2, "weight": 2})
     assert problems_of(check, CODE_QUESTION) == [
-        ("", ("tests", 1, "weight"), "“All must be correct” doesn't use weights.")
+        ("", "/with/tests/1/weight", "“All must be correct” doesn't use weights.")
     ]
     assert (
         problems_of({**check, "with": {**check["with"], "marks_by": "total"}}, CODE_QUESTION) == []

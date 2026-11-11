@@ -9,7 +9,7 @@ from pydantic_core import ErrorDetails
 
 from .error_formatting import error_message
 from .exceptions import GradeFlowError
-from .paths import Location, json_pointer, value_at
+from .paths import is_list_item, last_part, parent, pointer, value_at
 
 _INCOMPLETE_ERROR_TYPES = frozenset({"missing", "too_short"})
 """What pydantic finds of a value not filled in yet, rather than wrong."""
@@ -22,8 +22,8 @@ class Problem:
     message: str
     step_path: str = ""
     """Where the step is, a JSON Pointer such as ``/with/steps/0``; ``""`` is the marking itself."""
-    field: Location = ()
-    """Where in the step, its settings and properties as one, such as ``("answers", 0)``."""
+    field: str = ""
+    """Where in the step, a JSON Pointer such as ``/with/answers/0``."""
     line: int | None = None
     """The line at fault, from 1, of the YAML it was read from."""
     is_incomplete: bool = False
@@ -32,18 +32,25 @@ class Problem:
     @property
     def where(self) -> str:
         """The step and field at fault, such as ``/markings/0/with/answers/1``."""
-        return self.step_path + json_pointer(self.field)
+        return self.step_path + self.field
 
     def __str__(self) -> str:
         """The message after its line and the field at fault, such as ``Line 4: answers: Add at
         least one.``"""
-        field_name = next((part for part in reversed(self.field) if isinstance(part, str)), "")
+        field_name = _field_name(self.field)
         text = (
             f"{field_name}: {self.message}"
             if field_name not in ("", "with", "uses")
             else self.message
         )
         return with_line(self.line, text)
+
+
+def _field_name(field: str) -> str:
+    """The name of the field at ``field``, past any list index."""
+    while is_list_item(field):
+        field = parent(field)
+    return last_part(field)
 
 
 def with_line(line: int | None, text: str) -> str:
@@ -85,19 +92,20 @@ def validation_problem(error_details: ErrorDetails, data: object) -> Problem:
     """A problem pydantic found validating ``data``, at its field."""
     return Problem(
         error_message(error_details),
-        field=_untagged(tuple(error_details["loc"]), data),
+        field=_untagged(error_details["loc"], data),
         is_incomplete=error_details["type"] in _INCOMPLETE_ERROR_TYPES,
     )
 
 
-def _untagged(location: Location, data: object) -> Location:
-    """``location`` without the tags pydantic puts in it for a member of a tagged union: a value
-    of the object there, such as its ``type``, rather than one of its keys."""
+def _untagged(location: tuple[str | int, ...], data: object) -> str:
+    """The JSON Pointer to ``location``, without the tags pydantic puts in it for a member of a
+    tagged union: a value of the object there, such as its ``type``, rather than one of its
+    keys."""
     parts: list[str | int] = []
     value = data
     for part in location:
         if isinstance(value, Mapping) and part not in value and part in value.values():
             continue
         parts.append(part)
-        value = value_at(value, json_pointer((part,)))
-    return tuple(parts)
+        value = value_at(value, pointer(part))
+    return pointer(*parts)

@@ -97,7 +97,7 @@ def test_describes_the_formula() -> None:
     )
 
 
-def group_problems(marking: dict[str, Any]) -> list[tuple[str, tuple[Any, ...], str]]:
+def group_problems(marking: dict[str, Any]) -> list[tuple[str, str, str]]:
     [check] = mark_scheme_of(marking).markings
     return located(problems_in(check, QuestionSet(QUESTIONS)))
 
@@ -105,16 +105,18 @@ def group_problems(marking: dict[str, Any]) -> list[tuple[str, tuple[Any, ...], 
 def test_problems_with_its_question_and_formula() -> None:
     assert group_problems(formula("Q1^2")) == []
     assert group_problems(formula("Q3 + Q9", question_to_mark="Q8")) == [
-        ("", ("question_to_mark",), "There's no question Q8."),
-        ("", ("formula",), "Q3 isn't a number question."),
-        ("", ("formula",), "There's no question Q9."),
+        ("", "/with/question_to_mark", "There's no question Q8."),
+        ("", "/with/formula", "Q3 isn't a number question."),
+        ("", "/with/formula", "There's no question Q9."),
     ]
     assert group_problems(formula("12")) == [
-        ("", ("formula",), "Use another answer, such as Q1 * 12.")
+        ("", "/with/formula", "Use another answer, such as Q1 * 12.")
     ]
-    assert group_problems(formula("Q2 + 1")) == [("", ("formula",), "Q2 can't follow from itself.")]
+    assert group_problems(formula("Q2 + 1")) == [
+        ("", "/with/formula", "Q2 can't follow from itself.")
+    ]
     assert group_problems(formula("2Q1 +")) == [
-        ("", ("formula",), "Couldn't read “2Q1 +” as an expression.")
+        ("", "/with/formula", "Couldn't read “2Q1 +” as an expression.")
     ]
 
 

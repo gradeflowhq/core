@@ -107,10 +107,10 @@ def test_a_step_whose_settings_arent_valid_keeps_the_steps_it_holds_and_their_pr
     assert (draft.describe(""), draft.describe("/with/steps/0")) == ("", "Matches `Paris`.")
     assert [(problem.where, problem.message) for problem in draft.problems] == [
         (
-            "/marks_by",
+            "/with/marks_by",
             "Choose 'all_correct', 'any_correct', 'none_correct', 'total' or 'proportional'.",
         ),
-        ("/with/steps/1/answers/0", "Unknown name “x2”."),
+        ("/with/steps/1/with/answers/0", "Unknown name “x2”."),
     ]
 
 
@@ -121,7 +121,7 @@ def test_a_key_no_check_has_is_kept_and_is_a_problem() -> None:
     draft = MarkingDraft(data, QUESTIONS, "Q1")
     draft.update("/with/steps/0", {"weight": 2})
     assert list(draft.data["with"]["steps"][0]) == ["nmae", "weight", "uses", "with"]
-    assert ("/with/steps/0", ("nmae",), "Unknown setting.") in located(draft.problems)
+    assert ("/with/steps/0", "/nmae", "Unknown setting.") in located(draft.problems)
 
 
 @pytest.mark.parametrize(
@@ -230,7 +230,7 @@ def test_a_condition_is_offered_where_it_has_an_earlier_check_to_read() -> None:
     draft.move("/with/steps/1", -1)
     assert "if" in draft.schema("/with/steps/0")["properties"]
     assert located(draft.problems) == [
-        ("/with/steps/0", ("if",), "Accepted Answers must come before this step.")
+        ("/with/steps/0", "/if", "Accepted Answers must come before this step.")
     ]
 
 
@@ -275,7 +275,7 @@ def test_a_condition_reading_a_later_check_is_reported_while_another_check_is_un
     draft.update("/with/steps/0", {"answers": ["Paris"]})
     draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
     draft.move("/with/steps/1", -1)
-    assert ("/with/steps/0", ("if",), "Accepted Answers must come before this step.") in located(
+    assert ("/with/steps/0", "/if", "Accepted Answers must come before this step.") in located(
         draft.problems
     )
 
@@ -287,7 +287,7 @@ def test_a_condition_reading_a_removed_check_says_no_check_before_it_has_that_na
     draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
     draft.remove("/with/steps/0")
     assert located(draft.problems) == [
-        ("/with/steps/0", ("if",), "No step before this one is called capital.")
+        ("/with/steps/0", "/if", "No step before this one is called capital.")
     ]
 
 
@@ -336,8 +336,8 @@ def test_problems_are_on_the_check_and_field_at_fault() -> None:
     assert [
         (problem.step_path, problem.field, problem.is_incomplete) for problem in draft.problems
     ] == [
-        ("/with/steps/0", ("answers",), True),
-        ("/with/steps/1", ("points",), True),
+        ("/with/steps/0", "/with/answers", True),
+        ("/with/steps/1", "/with/points", True),
     ]
     with pytest.raises(EditingError, match=r"^answers: "):
         draft.finalized()
@@ -359,7 +359,7 @@ def test_problems_are_where_validating_the_check_puts_them() -> None:
     assert (
         draft.problems
         == exc_info.value.problems
-        == [Problem("Must be a whole number.", field=("parameters", "n", "value"))]
+        == [Problem("Must be a whole number.", field="/with/parameters/n/value")]
     )
 
 
@@ -457,7 +457,7 @@ def test_a_condition_that_cant_be_read_says_so() -> None:
     draft.update(
         "/with/steps/1", {"points": ["capital"], "if": "{{ steps.x.output.correct garbage(( }}"}
     )
-    assert located(draft.problems) == [("/with/steps/1", ("if",), "Can't read this condition.")]
+    assert located(draft.problems) == [("/with/steps/1", "/if", "Can't read this condition.")]
 
 
 def test_a_method_that_cant_mark_the_question_says_so_before_its_finished() -> None:
@@ -466,7 +466,7 @@ def test_a_method_that_cant_mark_the_question_says_so_before_its_finished() -> N
     )
     assert [
         (problem.step_path, problem.field, problem.is_incomplete) for problem in draft.problems
-    ] == [("", (), False)]
+    ] == [("", "", False)]
     assert draft.problems[0].message.startswith("Accepted Answers can't be used on")
 
 
@@ -551,7 +551,7 @@ def test_a_problem_read_from_yaml_keeps_its_place_beside_its_line() -> None:
         "      with: {points: []}\n"
     )
     assert draft.problems == [
-        Problem("Add at least one.", "/with/steps/0", ("points",), line=5, is_incomplete=True)
+        Problem("Add at least one.", "/with/steps/0", "/with/points", line=5, is_incomplete=True)
     ]
     assert str(draft.problems[0]) == "Line 5: points: Add at least one."
 

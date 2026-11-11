@@ -152,8 +152,12 @@ def test_a_row_matches_only_when_it_declares_every_question_marked() -> None:
     ("reference", "settings", "message"),
     [
         ("gradeflow/nope@1", {}, "There's no method gradeflow/nope@1."),
-        ("gradeflow/accepted-answers@1", {"answers": 5}, "/markings/0/answers: Must be a list."),
-        ("gradeflow/extract@1", {"bogus": 1}, "/bogus: Unknown setting."),
+        (
+            "gradeflow/accepted-answers@1",
+            {"answers": 5},
+            "/markings/0/with/answers: Must be a list.",
+        ),
+        ("gradeflow/extract@1", {"bogus": 1}, "/with/bogus: Unknown setting."),
     ],
 )
 def test_marking_rows_refuses_unknown_methods_and_bad_settings(

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..common.documents import dump_yaml, load_yaml
-from ..common.paths import json_pointer
+from ..common.paths import pointer
 from ..common.problems import InvalidError, Problem
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
@@ -24,7 +24,7 @@ class MarkScheme:
         """The markings ``data`` lists as a mark scheme whose checks may use ``methods``. Raises
         ``InvalidError`` if one isn't a check."""
         if not isinstance(data, list):
-            raise InvalidError([Problem("Must be a list.", field=("markings",))])
+            raise InvalidError([Problem("Must be a list.", field="/markings")])
         markings: list[Step] = []
         problems: list[Problem] = []
         for index, marking_data in enumerate(data):
@@ -32,15 +32,13 @@ class MarkScheme:
                 marking = valid_step(marking_data, methods.by_ref)
             except InvalidError as error:
                 problems += [
-                    replace(
-                        problem, step_path=json_pointer(("markings", index)) + problem.step_path
-                    )
+                    replace(problem, step_path=pointer("markings", index) + problem.step_path)
                     for problem in error.problems
                 ]
                 continue
             if not marking.resolution.gives_marks:
                 problem = needs_workflow_problem(marking)
-                problems.append(replace(problem, step_path=json_pointer(("markings", index))))
+                problems.append(replace(problem, step_path=pointer("markings", index)))
             markings.append(marking)
         if problems:
             raise InvalidError(problems)
@@ -69,13 +67,13 @@ class MarkScheme:
             problem
             for index, marking in enumerate(self.markings)
             for problem in located_problems(
-                marking, marking_position(questions, marking.question), ("markings", index)
+                marking, marking_position(questions, marking.question), pointer("markings", index)
             )
         ]
         first_marking_index_by_question: dict[QuestionId, int] = {}
         for index, marking in enumerate(self.markings):
             problems += [
-                Problem(f"{question_id} is marked twice.", json_pointer(("markings", index)))
+                Problem(f"{question_id} is marked twice.", pointer("markings", index))
                 for question_id in sorted(marking.questions_marked())
                 if first_marking_index_by_question.setdefault(question_id, index) != index
             ]

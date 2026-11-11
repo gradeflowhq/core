@@ -97,7 +97,7 @@ def test_loading_what_isnt_a_question_says_where(question_id: str) -> None:
     with pytest.raises(InvalidError) as exc_info:
         QuestionSet.load({question_id: {"type": "number", "max_marks": "x"}})
     assert exc_info.value.problems == [
-        Problem("Must be a number.", field=(question_id, "max_marks"))
+        Problem("Must be a number.", field=f"/{question_id}/max_marks")
     ]
 
 

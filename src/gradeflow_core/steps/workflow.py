@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator
 
 from ..common.hints import hint
+from ..common.paths import pointer
 from ..common.problems import Problem
 from ..common.text import markdown_list
 from ..questions.base import Question
@@ -29,7 +30,7 @@ from .settings import Settings, specialized
 from .step import Step
 from .templates import names_read_in
 
-NO_STEPS_PROBLEM = Problem("Add at least one step.", field=("steps",), is_incomplete=True)
+NO_STEPS_PROBLEM = Problem("Add at least one step.", field="/steps", is_incomplete=True)
 
 
 class WorkflowSettings(Settings):
@@ -85,10 +86,10 @@ def _problems_of_steps(
             continue
         later_steps = [later_step.dump() for later_step in steps[index + 1 :]]
         if step.id is None:
-            yield Problem("Give it an ID.", field=("steps", index, "id"))
+            yield Problem("Give it an ID.", field=pointer("steps", index, "id"))
         elif step.id not in names_read_in(later_steps, "steps") | step_ids_read_by_output:
             yield Problem(
-                f"No later step reads {step.method_label}.", field=("steps",), is_incomplete=True
+                f"No later step reads {step.method_label}.", field="/steps", is_incomplete=True
             )
 
 
@@ -205,7 +206,7 @@ class Workflow(Method[WorkflowSettings]):
             yield from self._output_step_problems(settings)
             return
         if steps and not any(inner_step.weight != 0 for inner_step in steps):
-            yield Problem("Add a step that gives marks.", field=("steps",), is_incomplete=True)
+            yield Problem("Add a step that gives marks.", field="/steps", is_incomplete=True)
         yield from _problems_of_steps(steps)
         yield from COMBINATIONS[settings.marks_by].weight_problems(
             [inner_step.weight for inner_step in steps], "steps"
@@ -218,12 +219,14 @@ class Workflow(Method[WorkflowSettings]):
         )
         if step_id is None:
             yield Problem(
-                "Choose the step whose output it gives.", field=("output_step",), is_incomplete=True
+                "Choose the step whose output it gives.",
+                field="/output_step",
+                is_incomplete=True,
             )
         elif output_step is None:
-            yield Problem(f"No step here is called {step_id}.", field=("output_step",))
+            yield Problem(f"No step here is called {step_id}.", field="/output_step")
         elif output_step.resolution.gives_marks:
-            yield Problem(MARKS_AS_ANSWER_MESSAGE, field=("output_step",))
+            yield Problem(MARKS_AS_ANSWER_MESSAGE, field="/output_step")
         yield from _problems_of_steps(settings.steps, frozenset({step_id} if step_id else ()))
 
 

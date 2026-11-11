@@ -1,20 +1,18 @@
 """A marking of a question or question group being edited."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import Literal
 
 from ..common.documents import line_of, load_yaml_with_lines
 from ..common.exceptions import EditingError
-from ..common.paths import Location, location_of, value_at
 from ..common.problems import InvalidError, Problem
-from ..common.schemas import JsonDict
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
 from ..questions.base import Question
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
-from ..steps.step import STEP_PROPERTIES, Step, needs_workflow_problem
+from ..steps.step import Step, needs_workflow_problem
 from .by_example import Decision, answer_decisions, mark_by_example
 from .drafts import Draft
 
@@ -53,7 +51,7 @@ class MarkingDraft(Draft):
                 if question
                 else "Remove question; a question group's checks name their own."
             )
-            question_problem = Problem(fix_message, line=line_of(document, ("question",)))
+            question_problem = Problem(fix_message, line=line_of(document, "/question"))
             raise InvalidError(list(dict.fromkeys([question_problem, *draft.problems])))
         return draft
 
@@ -123,7 +121,9 @@ class MarkingDraft(Draft):
             return problems
         problems_by_text: dict[str, Problem] = {}
         for problem in problems:
-            line = line_of(document, _yaml_location(problem, self._data))
+            line = line_of(
+                document, problem.where if problem.field else problem.step_path + "/uses"
+            )
             problem_with_line = replace(problem, line=line)
             problems_by_text.setdefault(str(problem_with_line), problem_with_line)
         return list(problems_by_text.values())
@@ -138,15 +138,3 @@ class MarkingDraft(Draft):
         ):
             return [needs_workflow_problem(marking)]
         return super().step_problems
-
-
-def _yaml_location(problem: Problem, data: JsonDict) -> Location:
-    """Where the problem is in the YAML."""
-    step_data, field = value_at(data, problem.step_path), problem.field
-    step_location = location_of(problem.step_path)
-    if not field:
-        return (*step_location, "uses")
-    is_property = field[0] in STEP_PROPERTIES or (
-        isinstance(step_data, Mapping) and field[0] in step_data
-    )
-    return (*step_location, *(field if is_property else ("with", *field)))

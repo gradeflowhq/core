@@ -104,7 +104,8 @@ class Method[S: Settings = Any](ABC):
         """What a step with ``settings`` does, in a sentence or two of markdown."""
 
     def problems(self, settings: S, position: Position) -> Iterator[Problem]:
-        """What is wrong with the settings of a step at ``position``, each at its setting."""
+        """What is wrong with the settings of a step at ``position``, each at the JSON Pointer of
+        its field in them, such as ``/answers/0``."""
         return iter(())
 
     def questions_marked(self, settings: S, question_id: QuestionId | None) -> set[QuestionId]:

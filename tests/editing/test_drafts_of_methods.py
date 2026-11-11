@@ -37,7 +37,7 @@ def test_a_composed_methods_check_that_cant_mark_the_question_is_its_users_probl
     draft = MarkingDraft(
         {"question": "Q1", "uses": "sample/wrapped@1"}, QUESTIONS, "Q1", methods=methods
     )
-    assert located(draft.problems) == [("", (), "Number Range can't be used on a text question.")]
+    assert located(draft.problems) == [("", "", "Number Range can't be used on a text question.")]
     assert draft.settings_holding_steps("") == []
 
 

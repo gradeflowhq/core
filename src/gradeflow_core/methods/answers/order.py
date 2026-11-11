@@ -103,13 +103,9 @@ class Order(AnswerMethod[OrderSettings]):
             return
         order = settings.order
         if question.value_count != len(order):
-            yield Problem(
-                f"List {question.value_count} items, one for each value.", field=("order",)
-            )
+            yield Problem(f"List {question.value_count} items, one for each value.", field="/order")
         if len(set(question.value_types)) > 1:
-            yield Problem(
-                "The question's values must all be text or all numbers.", field=("order",)
-            )
+            yield Problem("The question's values must all be text or all numbers.", field="/order")
             return
         read = _item_reader(question)
         yield from unreadable_problems(order, read, "order")

@@ -172,10 +172,10 @@ def test_it_describes_itself(check: dict[str, Any], description: str) -> None:
 
 def test_call_and_import_need_a_name() -> None:
     assert problems_of(code_uses("call"), CODE_QUESTION) == [
-        ("", ("function",), "Name the function.")
+        ("", "/with/function", "Name the function.")
     ]
     assert problems_of(code_uses("import"), CODE_QUESTION) == [
-        ("", ("module",), "Name the module.")
+        ("", "/with/module", "Name the module.")
     ]
     assert problems_of(code_uses("loop"), CODE_QUESTION) == []
 

@@ -109,7 +109,7 @@ def test_feedback_for_each_outcome_replaces_its_feedback_and_an_empty_one_keeps_
 
 def test_feedback_for_an_outcome_says_where_its_template_is_wrong() -> None:
     check = accepted_answer("Paris", feedback={"partly_correct": "{{ anser }}"})
-    assert problems_of(check) == [("", ("feedback", "partly_correct"), "There's no anser.")]
+    assert problems_of(check) == [("", "/feedback/partly_correct", "There's no anser.")]
 
 
 def test_feedback_can_name_earlier_checks_results() -> None:
@@ -143,19 +143,19 @@ def test_feedback_can_name_earlier_checks_results() -> None:
 
 def test_a_marking_with_a_template_it_cant_use_says_where() -> None:
     check = {"uses": "gradeflow/key-point@1", "with": {"point": "a"}, "feedback": "{{ score }}"}
-    assert problems_of(check) == [("", ("feedback",), "There's no score.")]
+    assert problems_of(check) == [("", "/feedback", "There's no score.")]
     workflow = {
         "uses": "gradeflow/workflow@1",
         "with": {"steps": [{**check, "feedback": None, "if": "{{ steps.later.output.correct }}"}]},
     }
     assert problems_of(workflow) == [
-        ("/with/steps/0", ("if",), "No step before this one is called later.")
+        ("/with/steps/0", "/if", "No step before this one is called later.")
     ]
 
 
 def test_a_condition_that_doesnt_parse_says_so_plainly() -> None:
     check = {"uses": "gradeflow/key-point@1", "with": {"point": "a"}, "if": "{{ x garbage(( }}"}
-    assert problems_of(check) == [("", ("if",), "Can't read this condition.")]
+    assert problems_of(check) == [("", "/if", "Can't read this condition.")]
 
 
 @pytest.mark.parametrize("condition_text", ["{{ false }}", "{{ 1 > 0 }}"])
@@ -165,12 +165,12 @@ def test_a_condition_reads_an_earlier_step_or_a_setting(condition_text: str) -> 
         "Make a condition read an earlier step or a setting, such as "
         "{{ steps.test.output.correct }}."
     )
-    assert problems_of({**check, "if": condition_text}) == [("", ("if",), message)]
+    assert problems_of({**check, "if": condition_text}) == [("", "/if", message)]
     workflow = {
         "uses": "gradeflow/workflow@1",
         "with": {"steps": [check, {**check, "if": condition_text}]},
     }
-    assert problems_of(workflow) == [("/with/steps/1", ("if",), message)]
+    assert problems_of(workflow) == [("/with/steps/1", "/if", message)]
 
 
 @pytest.mark.parametrize(
@@ -198,7 +198,7 @@ def test_a_condition_reads_an_earlier_checks_correct_proportion_and_feedback(
         "with": {"point": "b"},
     }
     marking = {"uses": "gradeflow/workflow@1", "with": {"steps": [first, second]}}
-    expected = [("/with/steps/1", ("if",), problem)] if problem else []
+    expected = [("/with/steps/1", "/if", problem)] if problem else []
     assert problems_of(marking) == expected
 
 

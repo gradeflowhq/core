@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import Field
 
 from ...common.hints import hint
+from ...common.paths import pointer
 from ...common.problems import Problem
 from ...common.text import (
     as_sentence,
@@ -137,5 +138,7 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         correct_options = settings.correct
         for index, option in enumerate(correct_options):
             if question.reading.normalized(option) not in question.options:
-                yield Problem(f"{option} isn't one of the options.", field=("correct", index))
+                yield Problem(
+                    f"{option} isn't one of the options.", field=pointer("correct", index)
+                )
         yield from duplicate_problems(correct_options, question.reading.normalized, "correct")

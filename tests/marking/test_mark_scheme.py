@@ -30,7 +30,7 @@ QUESTIONS = QuestionSet(
 )
 
 
-def problems(*markings: dict[str, Any]) -> list[tuple[str, tuple[str | int, ...], str]]:
+def problems(*markings: dict[str, Any]) -> list[tuple[str, str, str]]:
     scheme = MarkScheme.load(list(markings))
     return located(scheme.problems(QUESTIONS))
 
@@ -47,7 +47,7 @@ def test_a_mark_scheme_that_can_mark_has_no_problems() -> None:
 
 def test_a_question_is_marked_by_one_marking_the_first() -> None:
     assert problems(key_point("a", question="Q1"), key_point("a", question="Q1")) == [
-        ("/markings/1", (), "Q1 is marked twice.")
+        ("/markings/1", "", "Q1 is marked twice.")
     ]
 
 
@@ -58,10 +58,10 @@ def test_checks_mark_only_where_they_can() -> None:
         key_point("a"),
         {"question": "Q3", "uses": "gradeflow/multiple-choice@1", "with": {"correct": ["a"]}},
     ) == [
-        ("/markings/0", ("question",), "Q9 isn't one of the questions."),
-        ("/markings/1", (), "Key Points can't be used on a number question."),
-        ("/markings/2", ("question",), "Choose the question it checks."),
-        ("/markings/3", (), "Multiple Choice can't be used on a multiple values question."),
+        ("/markings/0", "/question", "Q9 isn't one of the questions."),
+        ("/markings/1", "", "Key Points can't be used on a number question."),
+        ("/markings/2", "/question", "Choose the question it checks."),
+        ("/markings/3", "", "Multiple Choice can't be used on a multiple values question."),
     ]
 
 
@@ -79,14 +79,14 @@ def test_problems_in_a_question_group_are_located_in_its_checks() -> None:
         },
     }
     assert problems(group) == [
-        ("/markings/0/with/steps/0", ("question",), "Choose the question it checks."),
+        ("/markings/0/with/steps/0", "/question", "Choose the question it checks."),
         (
             "/markings/0/with/steps/1",
-            ("input",),
+            "/input",
             "Only a question with several values has values to read.",
         ),
-        ("/markings/0/with/steps/2", ("input",), "The answer has 2 values."),
-        ("/markings/0/with/steps/4", ("id",), "Another step here is called x."),
+        ("/markings/0/with/steps/2", "/input", "The answer has 2 values."),
+        ("/markings/0/with/steps/4", "/id", "Another step here is called x."),
     ]
 
 
@@ -98,7 +98,7 @@ def test_a_value_is_marked_as_its_type() -> None:
         "with": {"points": ["a"]},
     }
     assert problems({"uses": "gradeflow/workflow@1", "with": {"steps": [number_value]}}) == [
-        ("/markings/0/with/steps/0", (), "Key Points can't be used on a number value.")
+        ("/markings/0/with/steps/0", "", "Key Points can't be used on a number value.")
     ]
 
 
@@ -139,8 +139,8 @@ def test_loading_markings_that_arent_checks_says_where_each_problem_is() -> None
     with pytest.raises(InvalidError) as exc_info:
         MarkScheme.load(markings)
     assert exc_info.value.problems == [
-        Problem("There's no method gradeflow/nope@1.", "/markings/1", ("uses",)),
-        Problem("Choose a method.", "/markings/2/with/steps/0", ("uses",)),
+        Problem("There's no method gradeflow/nope@1.", "/markings/1", "/uses"),
+        Problem("Choose a method.", "/markings/2/with/steps/0", "/uses"),
     ]
     assert isinstance(exc_info.value, GradeFlowError)
 

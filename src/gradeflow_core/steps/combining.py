@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from ..common.paths import pointer
 from ..common.problems import Problem
 from ..common.text import as_sentence, format_number, plain_markdown
 from ..questions.question_set import QuestionSet
@@ -77,7 +78,8 @@ class Combination(ABC):
         for index, weight in enumerate(weights):
             if weight not in (0, 1):
                 yield Problem(
-                    f"“{self.label}” doesn't use weights.", field=(setting_name, index, "weight")
+                    f"“{self.label}” doesn't use weights.",
+                    field=pointer(setting_name, index, "weight"),
                 )
 
     def denominator(self, weights: Sequence[float], max_marks: float) -> float:

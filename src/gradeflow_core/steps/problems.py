@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import replace
 from typing import Any
 
-from ..common.paths import Location, is_within, json_pointer, location_of
+from ..common.paths import is_within
 from ..common.problems import Problem
 from .places import StepPlace, places, usable_places
 from .position import Position
@@ -15,25 +15,21 @@ from .templates import CHECK_RESULT_SHAPE, STEP_RESULT_SHAPE, Shape, template_er
 def located_problems(
     marking: Step,
     position: Position,
-    location: Location = (),
+    path: str = "",
     *,
     scope: Mapping[str, Shape] = {},
 ) -> list[Problem]:
-    """What stops ``marking``, at ``location``, from marking inside ``position``, each where it
+    """What stops ``marking``, at ``path``, from marking inside ``position``, each where it
     is: what is wrong with its data, then with what its steps read and do. A step that can't be
     where it is has only that problem. Its templates may also read ``scope``."""
-    step_places = usable_places(places(marking, position, location))
-    usable_locations = {place.location for place in step_places if place.position_problem is None}
+    step_places = usable_places(places(marking, position, path))
+    usable_paths = {place.path for place in step_places if place.position_problem is None}
     data_problems = (
-        replace(problem, step_path=json_pointer(location) + problem.step_path)
+        replace(problem, step_path=path + problem.step_path)
         for problem in marking.resolution.data_problems
     )
     problems = [
-        *(
-            problem
-            for problem in data_problems
-            if location_of(problem.step_path) in usable_locations
-        ),
+        *(problem for problem in data_problems if problem.step_path in usable_paths),
         *place_problems(step_places, scope),
     ]
     if marking.question is not None and not marking.resolution.data_problems:
@@ -43,10 +39,7 @@ def located_problems(
         if other_question_ids:
             question_ids_text = ", ".join(sorted(other_question_ids))
             problems.append(
-                Problem(
-                    f"Use a group marking to read or award {question_ids_text}.",
-                    json_pointer(location),
-                )
+                Problem(f"Use a group marking to read or award {question_ids_text}.", path)
             )
     return problems
 
@@ -57,11 +50,11 @@ def place_problems(
     """What stops the steps at ``step_places`` marking where they are, besides what is wrong with
     their data."""
     for place in step_places:
-        step, step_path = place.step, json_pointer(place.location)
+        step, step_path = place.step, place.path
         if step is None:
             continue
         if place.shares_id:
-            yield Problem(f"Another step here is called {step.id}.", step_path, ("id",))
+            yield Problem(f"Another step here is called {step.id}.", step_path, "/id")
         if place.position_problem is not None:
             yield replace(place.position_problem, step_path=step_path)
             continue
@@ -74,7 +67,7 @@ def place_problems(
         if not step.resolution.data_problems:
             method, settings = method_and_settings(step)
             for problem in method.problems(settings, place.position):
-                yield _at_inner_step(problem, step, place.location)
+                yield _method_problem_in_step(problem, step, step_path)
 
 
 def _templates(step: Step) -> dict[str, Any]:
@@ -94,14 +87,15 @@ def _shapes(place: StepPlace) -> dict[str, Shape]:
     }
 
 
-def _at_inner_step(problem: Problem, step: Step, location: Location) -> Problem:
-    """``problem``, found in the settings of ``step`` at ``location``, at the step written in
-    them that it is about, if it is about one."""
-    for inner_location, inner_step in step.resolution.inner_steps.items():
-        if inner_step is not None and is_within(problem.field, inner_location):
+def _method_problem_in_step(problem: Problem, step: Step, step_path: str) -> Problem:
+    """``problem``, which the method of ``step`` at ``step_path`` found in its settings, at the
+    step written in them that its field is in, or else at that field of ``step``."""
+    if problem.step_path or not problem.field:
+        return replace(problem, step_path=step_path + problem.step_path)
+    field = "/with" + problem.field
+    for path_in_step, inner_step in step.resolution.inner_steps.items():
+        if inner_step is not None and is_within(field, path_in_step):
             return replace(
-                problem,
-                step_path=json_pointer((*location, "with", *inner_location)),
-                field=problem.field[len(inner_location) :],
+                problem, step_path=step_path + path_in_step, field=field[len(path_in_step) :]
             )
-    return replace(problem, step_path=json_pointer(location) + problem.step_path)
+    return replace(problem, step_path=step_path, field=field)

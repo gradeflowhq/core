@@ -94,9 +94,9 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
 
     def problems(self, settings: CodeUsesSettings, position: Position) -> Iterator[Problem]:
         if settings.looks_for == "call" and not settings.function:
-            yield Problem("Name the function.", field=("function",), is_incomplete=True)
+            yield Problem("Name the function.", field="/function", is_incomplete=True)
         if settings.looks_for == "import" and not settings.module:
-            yield Problem("Name the module.", field=("module",), is_incomplete=True)
+            yield Problem("Name the module.", field="/module", is_incomplete=True)
 
 
 def _construct_outcome(settings: CodeUsesSettings, code: str) -> Outcome:

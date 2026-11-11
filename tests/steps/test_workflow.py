@@ -205,14 +205,14 @@ def test_a_nested_workflow_is_described_as_an_indented_list() -> None:
 
 
 def test_a_workflow_needs_a_step() -> None:
-    assert problems_of(workflow("all_correct")) == [("", ("steps",), "Add at least one step.")]
+    assert problems_of(workflow("all_correct")) == [("", "/with/steps", "Add at least one step.")]
 
 
 @pytest.mark.parametrize("marks_by", ["all_correct", "none_correct"])
 def test_a_weight_where_weights_arent_used_is_a_problem(marks_by: str) -> None:
     check = workflow(marks_by, key_point("a"), key_point("b", weight=0.5))
     label = {"all_correct": "All must be correct", "none_correct": "None may be correct"}[marks_by]
-    assert problems_of(check) == [("/with/steps/1", ("weight",), f"“{label}” doesn't use weights.")]
+    assert problems_of(check) == [("/with/steps/1", "/weight", f"“{label}” doesn't use weights.")]
     assert problems_of({**check, "with": {**check["with"], "marks_by": "any_correct"}}) == []
 
 

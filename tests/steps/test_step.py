@@ -6,7 +6,7 @@ EXTRACT = "gradeflow/extract@1"
 YAML_ORDER = ["id", "name", "question", "input", "if", "weight", "uses", "with", "feedback"]
 
 
-def problems(step: Step) -> list[tuple[tuple[str | int, ...], str]]:
+def problems(step: Step) -> list[tuple[str, str]]:
     return [(problem.field, problem.message) for problem in step.resolution.data_problems]
 
 
@@ -44,7 +44,7 @@ def test_a_step_whose_data_isnt_valid_keeps_what_is_valid() -> None:
         BUILTINS.by_ref,
     )
     assert (step.id, step.name, step.weight, step.settings) == (None, "Units", 1, None)
-    assert [field for field, _ in problems(step)] == [("id",), ("nmae",), ("answers",)]
+    assert [field for field, _ in problems(step)] == ["/id", "/nmae", "/with/answers"]
 
 
 def test_a_transform_has_no_weight_or_feedback() -> None:
@@ -54,8 +54,8 @@ def test_a_transform_has_no_weight_or_feedback() -> None:
         BUILTINS.by_ref,
     )
     assert problems(step) == [
-        (("weight",), "Unknown setting."),
-        (("feedback",), "Unknown setting."),
+        ("/weight", "Unknown setting."),
+        ("/feedback", "Unknown setting."),
     ]
     assert (step.weight, step.feedback) == (0, None)
     transform = load_step({"id": "n", "uses": EXTRACT, "with": settings}, BUILTINS.by_ref)
@@ -71,6 +71,6 @@ def test_a_copy_of_a_step_keeps_what_loading_worked_out() -> None:
 
 def test_what_loading_works_out_is_not_a_property_of_the_step() -> None:
     step = load_step({"uses": ACCEPTED_ANSWERS, "resolution": {}}, BUILTINS.by_ref)
-    assert problems(step)[0] == (("resolution",), "Unknown setting.")
+    assert problems(step)[0] == ("/resolution", "Unknown setting.")
     assert "resolution" not in step.dump()
     assert "resolution" not in Step.model_json_schema()["properties"]

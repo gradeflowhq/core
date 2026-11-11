@@ -621,7 +621,7 @@ def test_missing_test_values_say_how_to_fix_them_naming_the_setting() -> None:
     draft.test_values = {}
     assert problem_messages(draft) == ["Give “Lower limit” a test value or a default."]
     draft.test_values = {"min_value": "many"}
-    assert draft.problems == [Problem("Must be a number.", field=("min_value",))]
+    assert draft.problems == [Problem("Must be a number.", field="/with/min_value")]
     messages = "\n".join(problem_messages(draft))
     assert "validation error" not in messages
     assert "https://" not in messages
@@ -712,7 +712,7 @@ def test_a_composed_check_missing_a_setting_is_a_problem_in_words() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="words", version=1, label="Words")
     draft.add("/with/steps/0", "gradeflow/key-points@1")
     assert draft.problems == [
-        Problem("Required.", "/with/steps/0", ("points",), is_incomplete=True)
+        Problem("Required.", "/with/steps/0", "/with/points", is_incomplete=True)
     ]
 
 
@@ -768,7 +768,7 @@ steps: '{{ settings.checks }}'
         version=1,
     )
     [problem] = draft.step_problems
-    assert (problem.step_path, problem.field) == ("", ("steps", 1))
+    assert (problem.step_path, problem.field) == ("", "/with/steps/1")
 
 
 def test_metadata_edits_preserve_repeated_yaml_checks() -> None:

@@ -34,7 +34,7 @@ def test_choice_rejects_options_read_alike(options: list[str]) -> None:
     with pytest.raises(InvalidError) as exc_info:
         ChoiceQuestion.load({"options": options})
     assert exc_info.value.problems == [
-        Problem("Options must be different: “a” appears twice.", field=("options",))
+        Problem("Options must be different: “a” appears twice.", field="/options")
     ]
 
 
@@ -116,7 +116,7 @@ def test_options_keep_the_order_they_are_listed_in() -> None:
 def test_options_must_be_listed() -> None:
     with pytest.raises(InvalidError) as exc_info:
         ChoiceQuestion.load({"options": {"a", "b"}})
-    assert exc_info.value.problems == [Problem("Must be a list.", field=("options",))]
+    assert exc_info.value.problems == [Problem("Must be a list.", field="/options")]
 
 
 def test_options_first_answered_come_after_the_listed_ones() -> None:

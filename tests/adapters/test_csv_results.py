@@ -73,7 +73,7 @@ def test_columns_follow_the_options() -> None:
 def test_the_student_id_column_needs_a_name(name: str) -> None:
     with pytest.raises(InvalidError) as exc_info:
         ResultsCsv.load({"student_id_column": name})
-    assert exc_info.value.problems == [Problem("Required.", field=("student_id_column",))]
+    assert exc_info.value.problems == [Problem("Required.", field="/student_id_column")]
 
 
 @pytest.mark.parametrize(

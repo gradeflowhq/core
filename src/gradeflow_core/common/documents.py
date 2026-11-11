@@ -13,7 +13,7 @@ from ruamel.yaml.error import YAMLError
 from ruamel.yaml.nodes import ScalarNode
 from ruamel.yaml.representer import RoundTripRepresenter
 
-from .paths import Location
+from .paths import parts_of
 from .problems import InvalidError, Problem
 
 _MAX_DEPTH = 100
@@ -101,14 +101,15 @@ def dump_yaml(data: Any) -> str:
     return buffer.getvalue()
 
 
-def line_of(document: Any, location: Location) -> int | None:
-    """The line, from 1, of the deepest value along ``location`` that ``document`` has."""
+def line_of(document: Any, path: str) -> int | None:
+    """The line, from 1, of the deepest value along the JSON Pointer ``path`` that ``document``
+    has."""
     value, line = document, None
-    for part in location:
+    for part in parts_of(path):
         if isinstance(value, Mapping) and part in value:
             line = value.lc.key(part)[0] + 1 if hasattr(value, "lc") else line
             value = value[part]
-        elif isinstance(value, list) and isinstance(part, int) and 0 <= part < len(value):
-            line = value.lc.item(part)[0] + 1 if hasattr(value, "lc") else line
-            value = value[part]
+        elif isinstance(value, list) and part.isdecimal() and int(part) < len(value):
+            line = value.lc.item(int(part))[0] + 1 if hasattr(value, "lc") else line
+            value = value[int(part)]
     return line

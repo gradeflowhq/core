@@ -13,7 +13,7 @@ from pydantic.fields import FieldInfo
 from ..common.documents import dump_yaml, load_yaml
 from ..common.error_formatting import IDENTIFIER_RULE
 from ..common.exceptions import EditingError
-from ..common.paths import value_at
+from ..common.paths import parts_of, pointer, value_at
 from ..common.problems import InvalidError, Problem, invalid_errors, validation_problems
 from ..common.schemas import JsonDict, json_schema
 from ..common.text import quoted
@@ -48,7 +48,14 @@ from ..steps.templates import (
     names_read_in,
     reference_expression,
 )
-from .drafts import Draft, field_operation, field_path, fields_of, first_unused_name
+from .drafts import (
+    Draft,
+    field_in_values,
+    field_operation,
+    field_path,
+    fields_of,
+    first_unused_name,
+)
 from .setting_schemas import declared_setting_schema, default_schema
 
 METADATA_KEYS = tuple(
@@ -329,9 +336,9 @@ class MethodDraft(Draft):
         return self._resolved_value(value, self.test_values)
 
     def _is_filled_by_setting(self, problem: Problem) -> bool:
-        if not problem.field or not self.is_step(problem.step_path):
+        if not (field := field_in_values(problem.field)) or not self.is_step(problem.step_path):
             return False
-        key, method = str(problem.field[0]), self.method(problem.step_path)
+        key, method = parts_of(field)[0], self.method(problem.step_path)
         if not _can_setting_fill(key, method.settings.model_fields if method else {}):
             return False
         return (
@@ -492,19 +499,19 @@ class MethodDraft(Draft):
             )
         choices, examples = declaration.get("choices") or [], declaration.get("examples") or []
         values_to_check = [
-            *((("choices", index), choice) for index, choice in enumerate(choices)),
-            *((("examples", index), example) for index, example in enumerate(examples)),
-            *([(("default",), declaration["default"])] if "default" in declaration else []),
+            *((pointer("choices", index), choice) for index, choice in enumerate(choices)),
+            *((pointer("examples", index), example) for index, example in enumerate(examples)),
+            *([("/default", declaration["default"])] if "default" in declaration else []),
         ]
         problems = [
-            Problem(message, field=location)
+            Problem(message, field=value_path)
             for field in self.configurable_fields()
             if field.bound_setting == name
-            for location, value in values_to_check
+            for value_path, value in values_to_check
             if (message := self._rejection_reason(field, value))
         ]
         if "default" in declaration and choices and declaration["default"] not in choices:
-            problems.append(Problem("Choose one of the setting's choices.", field=("default",)))
+            problems.append(Problem("Choose one of the setting's choices.", field="/default"))
         if problems:
             raise InvalidError(list(dict.fromkeys(problems)))
         self._set_declared_setting(name, declaration)
@@ -698,7 +705,7 @@ class MethodDraft(Draft):
         if (cardinality == "one" and path in step_paths) or (
             cardinality == "many"
             and isinstance(value, list)
-            and all(f"{path}/{index}" in step_paths for index in range(len(value)))
+            and all(path + pointer(index) in step_paths for index in range(len(value)))
         ):
             return None
         if cardinality is not None:
@@ -804,11 +811,12 @@ def _test_value_problem(
     problem: Problem, method: Method, test_values: Mapping[str, Any]
 ) -> Problem:
     """A problem with the test values; one with a value not given asks for it by its setting."""
-    name = problem.field[0] if len(problem.field) == 1 and not problem.step_path else None
-    field = method.settings.model_fields.get(str(name))
+    parts = parts_of(field_in_values(problem.field))
+    name = parts[0] if len(parts) == 1 and not problem.step_path else None
+    field = method.settings.model_fields.get(name) if name else None
     if field is None or name in test_values:
         return problem
-    return Problem(f"Give {quoted(field.title or str(name))} a test value or a default.")
+    return Problem(f"Give {quoted(field.title or name)} a test value or a default.")
 
 
 def _without_results(examples: Any) -> Any:

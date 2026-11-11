@@ -11,6 +11,7 @@ from jinja2.environment import TemplateExpression
 from jinja2.sandbox import SandboxedEnvironment
 
 from ..common.exceptions import GradeFlowError
+from ..common.paths import pointer
 from ..common.text import (
     code_span,
     escaped_markdown,
@@ -345,7 +346,7 @@ def _dotted_name(node: nodes.Node) -> str:
 
 def template_errors(
     step_data: Mapping[str, Any], scope: Mapping[str, Shape]
-) -> Iterator[tuple[tuple[str, ...], TemplateError]]:
+) -> Iterator[tuple[str, TemplateError]]:
     """What isn't allowed in the condition and feedback of ``step_data``, where it is, when
     ``scope`` holds what they may name. Feedback may be a template for each outcome."""
     if isinstance(template := step_data.get("if"), str):
@@ -354,11 +355,11 @@ def template_errors(
                 expression := condition_expression(template), scope, expression_kind="condition"
             )
         except TemplateError as error:
-            yield ("if",), error
+            yield "/if", error
         else:
             if not top_level_names(expression):
                 yield (
-                    ("if",),
+                    "/if",
                     TemplateError(
                         "Make a condition read an earlier step or a setting, such as "
                         "{{ steps.test.output.correct }}."
@@ -371,7 +372,10 @@ def template_errors(
             try:
                 validate(template, {**scope, **FEEDBACK_SCOPE})
             except TemplateError as error:
-                yield ("feedback",) if outcome_key is None else ("feedback", outcome_key), error
+                yield (
+                    "/feedback" if outcome_key is None else pointer("feedback", outcome_key),
+                    error,
+                )
 
 
 @lru_cache(maxsize=4096)

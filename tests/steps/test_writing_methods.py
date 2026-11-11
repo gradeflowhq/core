@@ -107,7 +107,7 @@ def test_a_method_written_in_python_marks_describes_and_is_offered() -> None:
 
 
 def test_its_settings_are_validated_as_a_built_in_methods_are() -> None:
-    with pytest.raises(InvalidError, match=r"/markings/0/prefix: Required\."):
+    with pytest.raises(InvalidError, match=r"/markings/0/with/prefix: Required\."):
         MarkScheme.load([{**STARTS_WITH, "with": {}}], methods=METHODS)
 
 

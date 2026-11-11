@@ -105,7 +105,7 @@ def code_problems(code: str) -> Iterator[Problem]:
         compile(code, "<code>", "exec")
     except SyntaxError as error:
         line_note = f"Line {error.lineno}: " if error.lineno else ""
-        yield Problem(as_sentence(f"{line_note}{error.msg}"), field=("code",))
+        yield Problem(as_sentence(f"{line_note}{error.msg}"), field="/code")
 
 
 class CustomCode(AnswerMethod[CustomCodeSettings]):

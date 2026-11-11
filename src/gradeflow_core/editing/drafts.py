@@ -13,14 +13,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from ..common.exceptions import EditingError
 from ..common.hints import HINT_KEY, hint, hint_of
-from ..common.paths import (
-    Location,
-    is_within,
-    json_pointer,
-    location_of,
-    patched,
-    value_at,
-)
+from ..common.paths import is_list_item, is_within, last_part, parent, patched, pointer, value_at
 from ..common.problems import Problem
 from ..common.schemas import JsonDict, json_schema
 from ..common.text import format_fraction, plain_markdown
@@ -83,7 +76,7 @@ class StepsSetting:
     @property
     def new_step_path(self) -> str:
         """The path a step added to it gets."""
-        return f"{self.path}/{len(self.step_paths)}" if self.is_list else self.path
+        return self.path + pointer(len(self.step_paths)) if self.is_list else self.path
 
     @property
     def is_full(self) -> bool:
@@ -130,7 +123,7 @@ class DraftSnapshot:
         """What is wrong with the marking, each at the innermost step it writes."""
         marking = self.marking_places[""].step
         if marking is None:
-            return [Problem("Choose a method.", field=("uses",))]
+            return [Problem("Choose a method.", field="/uses")]
         problems = located_problems(marking, self.position, scope=self.template_names)
         return list(map(self._at_written_step, problems))
 
@@ -141,29 +134,18 @@ class DraftSnapshot:
         """Each step of the marking ``data`` holds by path, each before those it holds and the
         places left for more. Until it names a method, its only place is for one."""
         marking = load_step(data, self.methods.by_ref) if "uses" in data else None
-        return {json_pointer(place.location): place for place in places(marking, self.position)}
+        return {place.path: place for place in places(marking, self.position)}
 
     def _at_written_step(self, problem: Problem) -> Problem:
         """``problem`` at the innermost step the marking writes: one in a step that only a setting
         fills in is a problem of the field holding it."""
-        parts = location_of(problem.step_path)
-        written_length = next(
-            (
-                length
-                for length in range(len(parts), 0, -1)
-                if self.is_step(json_pointer(parts[:length]))
-            ),
-            0,
-        )
-        if written_length == len(parts):
+        written_path = problem.step_path
+        while written_path and not self.is_step(written_path):
+            written_path = parent(written_path)
+        if written_path == problem.step_path:
             return problem
-        is_setting = bool(problem.field) and problem.field[0] not in STEP_PROPERTIES
-        location = (*parts[written_length:], *(("with",) if is_setting else ()), *problem.field)
-        return replace(
-            problem,
-            step_path=json_pointer(parts[:written_length]),
-            field=location[1:] if location[0] == "with" else location,
-        )
+        inner_path = problem.step_path[len(written_path) :]
+        return replace(problem, step_path=written_path, field=inner_path + problem.field)
 
 
 class Draft:
@@ -314,11 +296,11 @@ class Draft:
         }
         for property_schema in properties.values():
             if property_schema.get(HINT_KEY, {}).get("kind") == "output_step":
-                steps_location = (*self._place(path).location, "with", "steps")
+                steps_path = path + "/with/steps"
                 transform_paths = [
                     step_path
                     for step_path in self.paths()
-                    if location_of(step_path)[:-1] == steps_location
+                    if parent(step_path) == steps_path
                     and self._is_transform(step_path)
                     and self._step_id(step_path)
                 ]
@@ -510,7 +492,7 @@ class Draft:
         """Adds a step of the method ``reference`` names at ``path``, a setting's
         ``new_step_path``, reading ``question`` if given."""
         place = self._snapshot.places.get(path)
-        step_path = _enclosing_step_path(place.location if place else ())
+        step_path = _enclosing_step_path(path if place else "")
         settings = self.settings_holding_steps(step_path)
         setting = next((setting for setting in settings if setting.new_step_path == path), None)
         if setting is None or setting.is_full:
@@ -564,18 +546,18 @@ class Draft:
         """Removes the step at ``path``; the path of the step that held it."""
         if not path or not self.is_step(path):
             raise EditingError(f"{path} isn't a step inside this marking.")
-        step_path = _enclosing_step_path(self._place(path).location)
+        step_path = _enclosing_step_path(path)
         self._patch({"op": "remove", "path": path})
         return step_path
 
     def move(self, path: str, offset: int) -> None:
         """Moves the step at ``path`` within its list; at either end, no further."""
-        location = self._place(path).location if self.is_step(path) else ()
-        if not location or not isinstance(index := location[-1], int):
+        if not self.is_step(path) or not is_list_item(path):
             raise EditingError(f"{path} isn't a step in a list.")
-        last_index = len(value_at(self._data, json_pointer(location[:-1]))) - 1
-        new_location = (*location[:-1], max(0, min(index + offset, last_index)))
-        self._patch({"op": "move", "from": path, "path": json_pointer(new_location)})
+        list_path = parent(path)
+        last_index = len(value_at(self._data, list_path)) - 1
+        new_index = max(0, min(int(last_part(path)) + offset, last_index))
+        self._patch({"op": "move", "from": path, "path": list_path + pointer(new_index)})
 
     def _patch(self, *operations: JsonDict) -> None:
         """Applies the JSON Patch ``operations`` to the marking."""
@@ -599,14 +581,16 @@ class Draft:
             cardinality = step_cardinality(field_info)
             if cardinality is None:
                 continue
-            setting_path = field_path(path, name)
+            setting_path, setting_in_step = field_path(path, name), pointer("with", name)
             property_schema = properties.get(name, {})
             if cardinality == "many":
                 # The last place of a list is where another step can be added.
-                step_count = sum(location[0] == name for location in inner_steps) - 1
-                step_paths = tuple(f"{setting_path}/{index}" for index in range(step_count))
+                step_count = sum(
+                    parent(inner_path) == setting_in_step for inner_path in inner_steps
+                )
+                step_paths = tuple(setting_path + pointer(index) for index in range(step_count - 1))
             else:
-                step_paths = (setting_path,) if inner_steps[name,] is not None else ()
+                step_paths = (setting_path,) if inner_steps[setting_in_step] is not None else ()
             settings.append(
                 StepsSetting(
                     name=name,
@@ -690,12 +674,11 @@ class Draft:
     def _earlier_step_paths(self, path: str) -> list[str]:
         """Paths of the steps before the one at ``path`` in its list, and in the lists holding
         it."""
-        location = self._place(path).location
         return [
-            json_pointer(sibling)
+            sibling
             for place in self._snapshot.places.values()
-            if place.step is not None and is_within(location, place.location)
-            for sibling in place.earlier_locations
+            if place.step is not None and is_within(path, place.path)
+            for sibling in place.earlier_paths
         ]
 
     def _paths_by_id(self, paths: Iterable[str]) -> dict[str, str]:
@@ -725,16 +708,15 @@ class Draft:
     def _condition_order_problem(self, problem: Problem) -> Problem:
         """``problem``, naming the check to move if its condition reads a later one."""
         condition = (
-            value_at(self._data, f"{problem.step_path}/if") if problem.field == ("if",) else None
+            value_at(self._data, problem.step_path + "/if") if problem.field == "/if" else None
         )
         if not isinstance(condition, str):
             return problem
-        location = location_of(problem.step_path)
         later_paths_by_id = {
             step_id: path
             for path, place in self._snapshot.places.items()
             if place.step is not None
-            and any(is_within(location, sibling) for sibling in place.earlier_locations)
+            and any(is_within(problem.step_path, sibling) for sibling in place.earlier_paths)
             and (step_id := self._step_id(path))
         }
         later_checks_read = [
@@ -818,9 +800,15 @@ def fields_of(step_data: Mapping[str, Any]) -> JsonDict:
     }
 
 
+def field_in_values(field: str) -> str:
+    """Where ``field``, a JSON Pointer into a step, is among its settings and own properties as
+    one, as ``Draft.values`` gives them: ``/with/answers/0`` is ``/answers/0``."""
+    return field.removeprefix("/with") if is_within(field, "/with") else field
+
+
 def field_path(step_path: str, key: str) -> str:
     """The path of the field ``key`` of the step at ``step_path``."""
-    return step_path + json_pointer((key,) if key in STEP_OWN_PROPERTIES else ("with", key))
+    return step_path + (pointer(key) if key in STEP_OWN_PROPERTIES else pointer("with", key))
 
 
 def field_operation(step_path: str, step_data: Mapping[str, Any], key: str, value: Any) -> JsonDict:
@@ -828,7 +816,7 @@ def field_operation(step_path: str, step_data: Mapping[str, Any], key: str, valu
     ``step_path``; a setting of a step without settings gives it them."""
     if key in STEP_OWN_PROPERTIES or isinstance(step_data.get("with"), Mapping):
         return {"op": "add", "path": field_path(step_path, key), "value": value}
-    return {"op": "add", "path": f"{step_path}/with", "value": {key: value}}
+    return {"op": "add", "path": step_path + "/with", "value": {key: value}}
 
 
 def _is_available_at(method: Method, position: Position) -> bool:
@@ -849,11 +837,11 @@ def _list_or_empty(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
-def _enclosing_step_path(location: Location) -> str:
-    """The path of the step holding the step at ``location``, as ``/with/steps/0`` holds
+def _enclosing_step_path(path: str) -> str:
+    """The path of the step holding the step at ``path``, as ``/with/steps/0`` holds
     ``/with/steps/0/with/steps/1`` and ``/with/steps/0/with/check``."""
-    is_in_list = bool(location) and isinstance(location[-1], int)
-    return json_pointer(location[: -3 if is_in_list else -2])
+    setting_path = parent(path) if is_list_item(path) else path
+    return parent(parent(setting_path))
 
 
 def _numbered(labels: Sequence[str]) -> list[str]:
