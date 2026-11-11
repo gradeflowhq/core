@@ -15,7 +15,8 @@ from ..steps.names import method_name, method_ref, split_ref
 from ..steps.position import Position
 from .by_example import DECISIONS, Decision, can_mark_by_example
 from .conditions import Condition, ConditionRow
-from .drafts import MarkingDraft, StepsSetting, compatible_methods
+from .drafts import Draft, StepsSetting, compatible_methods
+from .marking_drafts import MarkingDraft
 from .method_drafts import MethodDraft
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "Condition",
     "ConditionRow",
     "Decision",
+    "Draft",
     "EditingError",
     "Example",
     "ExampleRow",

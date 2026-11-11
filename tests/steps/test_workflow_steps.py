@@ -577,13 +577,13 @@ def test_transforms_with_the_same_description_are_numbered() -> None:
 
 def test_a_method_draft_chooses_marks_or_a_step_output() -> None:
     draft = MethodDraft.new(QUESTIONS, name="m", version=1, label="M", summary="M.")
-    top_level_properties = draft.steps_draft.schema("")["properties"]
+    top_level_properties = draft.schema("")["properties"]
     assert {"output", "marks_by", "output_step"} <= top_level_properties.keys()
     assert top_level_properties["marks_by"][HINT_KEY]["applies_when"] == {"output": ["marks"]}
     assert top_level_properties["output_step"][HINT_KEY]["applies_when"] == {
         "output": ["step_output"]
     }
-    assert draft.steps_draft.position("").is_in_workflow
+    assert draft.position("").is_in_workflow
 
 
 UNIT_PART = {
@@ -734,8 +734,8 @@ def test_a_workflow_changed_to_give_a_steps_output_gets_an_id() -> None:
 
 def test_a_method_giving_a_steps_output_has_no_id_of_its_own() -> None:
     draft = MethodDraft.new(QUESTIONS, name="m", version=1, label="M", summary="M.")
-    draft.steps_draft.update("", {"output": "step_output"})
-    assert "id" not in draft.steps_draft.data
+    draft.update("", {"output": "step_output"})
+    assert "id" not in draft.data
 
 
 def test_extracted_text_that_is_the_blank_marker_is_blank() -> None:

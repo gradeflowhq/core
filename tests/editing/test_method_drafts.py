@@ -62,7 +62,7 @@ def try_rows(
 
 def test_a_new_draft_is_an_empty_workflow_written_with_its_version_first() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="empty", version=3, label="Empty")
-    assert draft.steps_draft.data == {
+    assert draft.data == {
         "question": "Q1",
         "uses": "gradeflow/workflow@1",
         "with": {"steps": []},
@@ -79,27 +79,25 @@ def test_a_new_draft_is_an_empty_workflow_written_with_its_version_first() -> No
 
 def test_a_files_steps_are_edited_as_a_workflow_whose_method_is_fixed() -> None:
     reopened = reopen(number_range_draft())
-    assert reopened.steps_draft.data == number_range_draft().steps_draft.data
+    assert reopened.data == number_range_draft().data
     assert reopened.to_yaml() == number_range_draft().to_yaml()
-    assert [method.ref for method in reopened.steps_draft.methods("")] == ["gradeflow/workflow@1"]
-    assert (
-        not {"name", "id", "if", "feedback"} & reopened.steps_draft.schema("")["properties"].keys()
-    )
+    assert [method.ref for method in reopened.methods("")] == ["gradeflow/workflow@1"]
+    assert not {"name", "id", "if", "feedback"} & reopened.schema("")["properties"].keys()
 
-    reopened.steps_draft.add("/with/steps/1", "gradeflow/full-marks@1")
-    assert reopen(reopened).steps_draft.is_step("/with/steps/1")
+    reopened.add("/with/steps/1", "gradeflow/full-marks@1")
+    assert reopen(reopened).is_step("/with/steps/1")
 
     proportional_draft = number_range_draft()
-    proportional_draft.steps_draft.update("", {"marks_by": "proportional"})
-    assert reopen(proportional_draft).steps_draft.data["with"]["marks_by"] == "proportional"
+    proportional_draft.update("", {"marks_by": "proportional"})
+    assert reopen(proportional_draft).data["with"]["marks_by"] == "proportional"
 
 
 def test_bound_settings_follow_moved_checks_and_examples_never_change_defaults() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
     draft.bind_new_setting("/with/steps/0/with/max_value")
-    draft.steps_draft.add("/with/steps/1", "gradeflow/full-marks@1")
-    draft.steps_draft.move("/with/steps/0", 1)
+    draft.add("/with/steps/1", "gradeflow/full-marks@1")
+    draft.move("/with/steps/0", 1)
     text = draft.to_yaml()
     document = load_yaml(text)
     assert document["version"] == 1
@@ -109,7 +107,7 @@ def test_bound_settings_follow_moved_checks_and_examples_never_change_defaults()
     reopened = MethodDraft.from_yaml(
         text, draft.questions, name="range", version=1, test_values={"max_value": 25}
     )
-    assert reopened.steps_draft.values("/with/steps/1")["max_value"] == 20
+    assert reopened.values("/with/steps/1")["max_value"] == 20
     assert load_yaml(reopened.to_yaml())["settings"]["max_value"]["default"] == 20
     assert reopened.settings_schema["properties"]["min_value"]["title"] == "From"
     version_4 = reopen(reopened, version=4)
@@ -119,7 +117,7 @@ def test_bound_settings_follow_moved_checks_and_examples_never_change_defaults()
 def test_deletion_and_retyping_report_affected_settings_and_allow_explicit_removal() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
-    draft.steps_draft.remove("/with/steps/0")
+    draft.remove("/with/steps/0")
     assert "From isn't used." in problem_messages(draft)
     with pytest.raises(EditingError, match="From"):
         draft.finalized()
@@ -146,8 +144,8 @@ steps:
         True,
         False,
     ]
-    draft.steps_draft.update("/with/steps/0", {"name": "Term"})
-    assert list(draft.steps_draft.data["with"]["steps"][0].items()) == [
+    draft.update("/with/steps/0", {"name": "Term"})
+    assert list(draft.data["with"]["steps"][0].items()) == [
         ("for_each", "{{ settings.terms }}"),
         ("name", "Term"),
         ("uses", "gradeflow/key-point@1"),
@@ -231,10 +229,10 @@ def test_group_question_settings_are_reusable_and_all_sample_answers_are_require
     draft = MethodDraft.new(
         TWO_NUMBER_QUESTIONS, name="pair", version=1, label="Pair", summary="Both."
     )
-    draft.steps_draft.add("/with/steps/0", "gradeflow/number-range@1", "Q1")
-    draft.steps_draft.add("/with/steps/1", "gradeflow/number-range@1", "Q2")
-    draft.steps_draft.update("/with/steps/0", {"min_value": 10})
-    draft.steps_draft.update("/with/steps/1", {"max_value": 20})
+    draft.add("/with/steps/0", "gradeflow/number-range@1", "Q1")
+    draft.add("/with/steps/1", "gradeflow/number-range@1", "Q2")
+    draft.update("/with/steps/0", {"min_value": 10})
+    draft.update("/with/steps/1", {"max_value": 20})
     draft.bind_new_setting("/with/steps/0/question")
     draft.bind_new_setting("/with/steps/1/question")
     [result] = try_rows(draft, [ExampleRow(answers={"Q1": "15", "Q2": "25"})])
@@ -248,7 +246,7 @@ def test_group_question_settings_are_reusable_and_all_sample_answers_are_require
 def test_retyping_a_bound_check_refuses_to_rebind_it_to_the_new_method() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
-    draft.steps_draft.change_method("/with/steps/0", "gradeflow/full-marks@1")
+    draft.change_method("/with/steps/0", "gradeflow/full-marks@1")
     assert problem_messages(draft) == ["From isn't used."]
     assert draft.declared_settings["min_value"]["default"] == 10
     draft.remove_declared_setting("min_value")
@@ -257,12 +255,12 @@ def test_retyping_a_bound_check_refuses_to_rebind_it_to_the_new_method() -> None
 
 def test_a_method_whose_root_gives_a_step_output_is_a_transform_and_keeps_its_steps() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="last", version=1, label="Last", summary="Last.")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/extract@1")
-    draft.steps_draft.update("/with/steps/0", {"occurrence": "last"})
-    steps = draft.steps_draft.data["with"]["steps"]
+    draft.add("/with/steps/0", "gradeflow/extract@1")
+    draft.update("/with/steps/0", {"occurrence": "last"})
+    steps = draft.data["with"]["steps"]
     output_step = f"{{{{ steps.{steps[0]['id']}.output }}}}"
-    draft.steps_draft.update("", {"output": "step_output", "output_step": output_step})
-    assert draft.steps_draft.data["with"]["steps"] == steps
+    draft.update("", {"output": "step_output", "output_step": output_step})
+    assert draft.data["with"]["steps"] == steps
     document = load_yaml(draft.to_yaml())
     assert (document["output"], document["output_step"]) == ("step_output", output_step)
     assert not reopen(draft).finalized().gives_marks({})
@@ -322,11 +320,11 @@ def test_invalid_setting_defaults_are_rejected_even_when_test_values_are_valid()
 
 def test_unbinding_a_bound_setting_preserves_its_inherited_default() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="cat", version=1, label="Cat")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/key-points@1")
-    draft.steps_draft.update("/with/steps/0", {"points": ["cat"]})
+    draft.add("/with/steps/0", "gradeflow/key-points@1")
+    draft.update("/with/steps/0", {"points": ["cat"]})
     draft.bind_new_setting("/with/steps/0/with/whole_words")
     reopened = reopen(draft)
-    assert reopened.steps_draft.values("/with/steps/0")["whole_words"] is False
+    assert reopened.values("/with/steps/0")["whole_words"] is False
     reopened.unbind("/with/steps/0/with/whole_words")
     assert reopened.problems == []
 
@@ -341,7 +339,7 @@ def test_a_refused_change_to_a_bound_field_leaves_its_default() -> None:
         version=1,
     )
     with pytest.raises(EditingError, match=re.escape("There's no method gradeflow/retired@1.")):
-        draft_using_removed_method.steps_draft.update("/with/steps/0", {"min_value": 3})
+        draft_using_removed_method.update("/with/steps/0", {"min_value": 3})
     assert draft_using_removed_method.declared_settings["min_value"]["default"] == 10
 
 
@@ -350,7 +348,7 @@ def test_removing_a_setting_without_a_default_leaves_the_field_unset() -> None:
     name = draft.bind_new_setting("/with/steps/0/weight")
     draft.update_declared_setting(name, {"title": "Weight"})
     draft.remove_declared_setting(name)
-    assert "weight" not in draft.steps_draft.data["with"]["steps"][0]
+    assert "weight" not in draft.data["with"]["steps"][0]
     assert draft.problems == []
 
 
@@ -367,10 +365,10 @@ def test_a_new_version_may_use_the_previous_one_but_not_itself() -> None:
     edited = MethodDraft.from_yaml(
         text, NUMBER_QUESTIONS, name="range", version=2, methods=Methods([*BUILTINS, published])
     )
-    edited.steps_draft.update("/with/steps/0", {"max_value": 25})
+    edited.update("/with/steps/0", {"max_value": 25})
     assert edited.finalized().ref == "range@2"
     assert published.version == 1
-    edited.steps_draft.change_method("/with/steps/0", "range@1")
+    edited.change_method("/with/steps/0", "range@1")
     assert edited.problems == []
     assert [
         row.total_marks
@@ -379,7 +377,7 @@ def test_a_new_version_may_use_the_previous_one_but_not_itself() -> None:
     same_version = MethodDraft.from_yaml(
         text, NUMBER_QUESTIONS, name="range", version=1, methods=Methods([*BUILTINS, published])
     )
-    same_version.steps_draft.change_method("/with/steps/0", "range@1")
+    same_version.change_method("/with/steps/0", "range@1")
     with pytest.raises(EditingError, match=re.escape("There's no method range@1.")):
         same_version.finalized()
 
@@ -387,13 +385,11 @@ def test_a_new_version_may_use_the_previous_one_but_not_itself() -> None:
 def test_bound_setting_keeps_its_condition_reference_after_reload() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
-    draft.steps_draft.add("/with/steps/1", "gradeflow/full-marks@1")
-    draft.steps_draft.update(
-        "/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))}
-    )
+    draft.add("/with/steps/1", "gradeflow/full-marks@1")
+    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
     reopened = reopen(draft)
     assert reopened.problems == []
-    assert isinstance(reopened.steps_draft.values("/with/steps/1")["if"], Condition)
+    assert isinstance(reopened.values("/with/steps/1")["if"], Condition)
     field = next(
         field for field in reopened.configurable_fields() if field.bound_setting == "min_value"
     )
@@ -437,14 +433,14 @@ def test_text_that_isnt_a_method_file_cant_be_opened(text: str, problem: Problem
 
 def test_two_questions_make_a_group_method_and_keep_bound_checks() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="range", version=1, label="Range")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/number-range@1")
-    draft.steps_draft.update("/with/steps/0", {"min_value": 10})
+    draft.add("/with/steps/0", "gradeflow/number-range@1")
+    draft.update("/with/steps/0", {"min_value": 10})
     draft.bind_new_setting("/with/steps/0/with/min_value")
     draft.set_questions(TWO_NUMBER_QUESTIONS)
     assert (draft.question, draft.finalized().marks_question_group) == (None, True)
     assert draft.metadata["marks_question_group"] is True
     draft.update_metadata(**draft.metadata)
-    assert draft.steps_draft.values("/with/steps/0")["question"] == "Q1"
+    assert draft.values("/with/steps/0")["question"] == "Q1"
     assert (
         next(
             field for field in draft.configurable_fields() if field.key == "min_value"
@@ -463,10 +459,10 @@ def test_checks_of_removed_questions_are_reported_and_drafts_without_questions_c
     None
 ):
     draft = MethodDraft.new(TWO_NUMBER_QUESTIONS, name="range", version=1, label="Range")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/number-range@1", "Q2")
-    draft.steps_draft.update("/with/steps/0", {"min_value": 10})
+    draft.add("/with/steps/0", "gradeflow/number-range@1", "Q2")
+    draft.update("/with/steps/0", {"min_value": 10})
     draft.set_questions(QuestionSet({"Q1": TWO_NUMBER_QUESTIONS["Q1"]}))
-    assert draft.steps_draft.values("/with/steps/0")["question"] == "Q2"
+    assert draft.values("/with/steps/0")["question"] == "Q2"
     assert "Q2" in " ".join(problem_messages(draft))
     draft.set_questions(QuestionSet({}))
     assert problem_messages(draft) == ["Add at least one question."]
@@ -476,8 +472,8 @@ def test_checks_of_removed_questions_are_reported_and_drafts_without_questions_c
 
 def test_a_newly_bound_setting_uses_its_current_value_as_the_default() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="cat", version=1, label="Cat")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/key-points@1")
-    draft.steps_draft.update("/with/steps/0", {"points": ["cat"]})
+    draft.add("/with/steps/0", "gradeflow/key-points@1")
+    draft.update("/with/steps/0", {"points": ["cat"]})
     draft.bind_new_setting("/with/steps/0/with/whole_words")
     assert draft.test_values == {}
     assert "whole_words" not in draft.settings_schema.get("required", [])
@@ -522,7 +518,7 @@ def test_the_tested_step_is_the_method_with_its_test_values() -> None:
     step = draft.tested_step()
     assert step.dump() == {"question": "Q1", "uses": "range@1", "with": {"min_value": 15}}
     assert (step.questions_read(), step.needs_model_endpoint()) == ({"Q1"}, False)
-    draft.steps_draft.update("/with/steps/0", {"max_value": 5})
+    draft.update("/with/steps/0", {"max_value": 5})
     with pytest.raises(EditingError):
         draft.tested_step()
 
@@ -531,7 +527,7 @@ def test_changed_test_values_do_not_replace_defaults_and_fix_uses_authored_defau
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
     draft.test_values = {"min_value": 15}
-    assert draft.steps_draft.values("/with/steps/0")["min_value"] == 10
+    assert draft.values("/with/steps/0")["min_value"] == 10
     assert load_yaml(draft.to_yaml())["settings"]["min_value"]["default"] == 10
     draft.set_example(example_rows("17"), index=None)
     assert draft.examples[0].with_ == {"min_value": 15}
@@ -634,9 +630,9 @@ def test_missing_test_values_say_how_to_fix_them_naming_the_setting() -> None:
 
 def test_a_complex_field_value_becomes_its_settings_default() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/custom-code@1")
+    draft.add("/with/steps/0", "gradeflow/custom-code@1")
     default = {"minimum": {"type": "integer", "value": 5}}
-    draft.steps_draft.update("/with/steps/0", {"parameters": default})
+    draft.update("/with/steps/0", {"parameters": default})
     draft.bind_new_setting("/with/steps/0/with/parameters")
     assert draft.test_values == {}
     schema = draft.finalized().settings_schema(Position(NUMBER_QUESTIONS))
@@ -650,15 +646,15 @@ def test_bound_defaults_and_setting_metadata_survive_unrelated_edits() -> None:
     draft.update_declared_setting(
         "min_value", {"title": "Limit", "default": 4, "advanced": True, "examples": [4, 8]}
     )
-    draft.steps_draft.update("/with/steps/0", {"max_value": 30, "id": "range", "name": "Range"})
+    draft.update("/with/steps/0", {"max_value": 30, "id": "range", "name": "Range"})
     assert {field.key: field.bound_setting for field in draft.configurable_fields()}[
         "min_value"
     ] == "min_value"
-    assert draft.steps_draft.values("/with/steps/0")["min_value"] == 4
+    assert draft.values("/with/steps/0")["min_value"] == 4
     assert draft.problems == []
     assert "number" in draft.declared_setting_schema("min_value")["properties"]["default"]["type"]
-    draft.steps_draft.update("/with/steps/0", {"min_value": 5})
-    assert draft.steps_draft.values("/with/steps/0")["min_value"] == 5
+    draft.update("/with/steps/0", {"min_value": 5})
+    assert draft.values("/with/steps/0")["min_value"] == 5
     assert draft.declared_settings["min_value"]["examples"] == [4, 8]
 
 
@@ -666,7 +662,7 @@ def test_only_settings_of_the_same_type_and_a_fitting_default_can_fill_a_field()
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
     draft.bind_new_setting("/with/steps/0/with/max_value")
-    draft.steps_draft.update("/with/steps/0", {"name": "Range"})
+    draft.update("/with/steps/0", {"name": "Range"})
     draft.bind_new_setting("/with/steps/0/name")
     assert draft.compatible_settings("/with/steps/0/with/min_value") == ["min_value", "max_value"]
     assert draft.compatible_settings("/with/steps/0/name") == ["name_setting"]
@@ -714,7 +710,7 @@ def test_a_setting_is_titled_as_the_field_it_fills() -> None:
 
 def test_a_composed_check_missing_a_setting_is_a_problem_in_words() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="words", version=1, label="Words")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/key-points@1")
+    draft.add("/with/steps/0", "gradeflow/key-points@1")
     assert draft.problems == [
         Problem("Required.", "/with/steps/0", ("points",), is_incomplete=True)
     ]
@@ -771,7 +767,7 @@ steps: '{{ settings.checks }}'
         name="supplied",
         version=1,
     )
-    [problem] = draft.steps_draft.problems
+    [problem] = draft.step_problems
     assert (problem.step_path, problem.field) == ("", ("steps", 1))
 
 
@@ -804,23 +800,23 @@ steps:
 
 def test_nested_template_values_require_whole_document_editing() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/custom-code@1")
+    draft.add("/with/steps/0", "gradeflow/custom-code@1")
     parameters = {"limit": {"type": "integer", "value": "{{ settings.limit }}"}}
-    draft.steps_draft.update("/with/steps/0", {"parameters": parameters})
+    draft.update("/with/steps/0", {"parameters": parameters})
     draft.update_declared_setting("limit", {"default": 5})
     assert draft.uneditable_reasons == ["Parameters is written as a template."]
-    assert reopen(draft).steps_draft.values("/with/steps/0")["parameters"] == parameters
+    assert reopen(draft).values("/with/steps/0")["parameters"] == parameters
 
 
 def test_editing_a_checks_id_keeps_bound_fields_and_hides_generated_ids() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
-    assert "id" not in draft.steps_draft.values("/with/steps/0")
-    draft.steps_draft.update("/with/steps/0", {"id": "minimum", "max_value": 30})
+    assert "id" not in draft.values("/with/steps/0")
+    draft.update("/with/steps/0", {"id": "minimum", "max_value": 30})
     document = load_yaml(draft.to_yaml())
     assert document["steps"][0]["id"] == "minimum"
     assert document["steps"][0]["with"]["min_value"] == "{{ settings.min_value }}"
-    draft.steps_draft.update("/with/steps/0", {"id": "", "max_value": 40})
+    draft.update("/with/steps/0", {"id": "", "max_value": 40})
     document = load_yaml(draft.to_yaml())
     assert "id" not in document["steps"][0]
     assert document["steps"][0]["with"]["min_value"] == "{{ settings.min_value }}"
@@ -876,21 +872,21 @@ def test_packaged_composed_methods_preserve_yaml_and_still_execute(file: Path) -
 def test_wrapping_a_bound_check_preserves_its_binding_source() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
-    draft.steps_draft.change_method("/with/steps/0", "gradeflow/workflow@1")
+    draft.change_method("/with/steps/0", "gradeflow/workflow@1")
     assert (
         load_yaml(draft.to_yaml())["steps"][0]["with"]["steps"][0]["with"]["min_value"]
         == "{{ settings.min_value }}"
     )
     assert draft.problems == []
-    draft.steps_draft.update("/with/steps/0/with/steps/0", {"id": "range"})
+    draft.update("/with/steps/0/with/steps/0", {"id": "range"})
     assert draft.problems == []
     assert load_yaml(draft.to_yaml())["steps"][0]["with"]["steps"][0]["id"] == "range"
 
 
 def test_json_values_with_uses_are_not_interpreted_as_nested_checks() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/custom-code@1")
-    draft.steps_draft.update(
+    draft.add("/with/steps/0", "gradeflow/custom-code@1")
+    draft.update(
         "/with/steps/0",
         {
             "parameters": {
@@ -903,9 +899,7 @@ def test_json_values_with_uses_are_not_interpreted_as_nested_checks() -> None:
     )
     assert {field.step_path for field in draft.configurable_fields()} == {"", "/with/steps/0"}
     draft.set_questions(TWO_NUMBER_QUESTIONS)
-    assert (
-        "question" not in draft.steps_draft.values("/with/steps/0")["parameters"]["item"]["value"]
-    )
+    assert "question" not in draft.values("/with/steps/0")["parameters"]["item"]["value"]
 
 
 def test_setting_one_example_keeps_the_others_and_its_title() -> None:
@@ -962,7 +956,7 @@ def test_an_unfinished_draft_says_what_it_is_so_far() -> None:
     draft = MethodDraft.from_yaml(
         text, NUMBER_QUESTIONS, name="sample/ranges", version=1, methods=Methods()
     )
-    assert (draft.label, draft.summary) == ("Ranges", "Within ranges.")
+    assert (draft.method_label, draft.summary) == ("Ranges", "Within ranges.")
     assert (draft.question_types, draft.marks_question_group) == (frozenset({"number"}), False)
     group = MethodDraft.from_yaml(
         "label: 3\nsteps: []\n",
@@ -971,7 +965,12 @@ def test_an_unfinished_draft_says_what_it_is_so_far() -> None:
         version=1,
         methods=Methods(),
     )
-    assert (group.label, group.summary, group.question_types, group.marks_question_group) == (
+    assert (
+        group.method_label,
+        group.summary,
+        group.question_types,
+        group.marks_question_group,
+    ) == (
         "",
         "",
         frozenset(),
@@ -1036,24 +1035,24 @@ def test_metadata_set_to_none_is_unset() -> None:
 
 def test_a_name_a_setting_fills_labels_its_check_with_its_default() -> None:
     draft = number_range_draft()
-    draft.steps_draft.update("/with/steps/0", {"name": "In range"})
+    draft.update("/with/steps/0", {"name": "In range"})
     draft.bind_new_setting("/with/steps/0/name")
-    assert draft.steps_draft.label("/with/steps/0") == "In range"
+    assert draft.label("/with/steps/0") == "In range"
     draft.update_declared_setting("name_setting", {"title": "Check name"})
-    assert draft.steps_draft.label("/with/steps/0") == "Number Range"
+    assert draft.label("/with/steps/0") == "Number Range"
 
 
 def test_a_field_a_setting_fills_has_its_problems_with_the_method() -> None:
     draft = MethodDraft.new(TEXT_QUESTIONS, name="answers", version=1, label="Answers")
-    draft.steps_draft.add("/with/steps/0", "gradeflow/accepted-answers@1")
+    draft.add("/with/steps/0", "gradeflow/accepted-answers@1")
     draft.bind_new_setting("/with/steps/0/with/answers")
-    assert draft.steps_draft.problems == []
+    assert draft.step_problems == []
     assert draft.problems
     with pytest.raises(EditingError):
-        draft.steps_draft.finalized()
+        draft.finalized()
 
 
 def test_a_change_to_a_check_thats_not_there_is_refused() -> None:
     draft = number_range_draft()
     with pytest.raises(EditingError):
-        draft.steps_draft.update("/with/steps/5", {"min_value": 1})
+        draft.update("/with/steps/5", {"min_value": 1})

@@ -1,9 +1,10 @@
-"""Writing a composed method: its steps are edited as a marking's are."""
+"""Writing a composed method: its steps are edited as a marking's are, and its fields may be
+bound to its declared settings."""
 
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, get_args
 
 from pydantic import TypeAdapter, ValidationError
@@ -12,7 +13,7 @@ from pydantic.fields import FieldInfo
 from ..common.documents import dump_yaml, load_yaml
 from ..common.error_formatting import IDENTIFIER_RULE
 from ..common.exceptions import EditingError
-from ..common.paths import patched, value_at
+from ..common.paths import value_at
 from ..common.problems import InvalidError, Problem, invalid_errors, validation_problems
 from ..common.schemas import JsonDict, json_schema
 from ..common.text import quoted
@@ -23,6 +24,7 @@ from ..methods.composed.declared_settings import setting_name_problem
 from ..methods.composed.file import (
     TEMPLATE_KEYS,
     WORKFLOW_KEYS,
+    WORKFLOW_REF,
     DeclaredSetting,
     MethodFile,
     as_file_steps,
@@ -35,16 +37,18 @@ from ..steps.example import Example, ExampleRow
 from ..steps.method import Method
 from ..steps.names import method_ref
 from ..steps.places import marking_position
+from ..steps.position import Position
 from ..steps.problems import located_problems
 from ..steps.settings import IDENTIFIER, step_cardinality
 from ..steps.step import METHODS_CONTEXT_KEY, STEP_OWN_PROPERTIES, Step, load_step
-from ..steps.templates import has_template, is_template, names_read_in
-from .drafts import MarkingDraft, field_operation, field_path, fields_of, first_unused_name
-from .method_steps import (
-    MethodStepsDraft,
-    can_setting_fill,
-    is_empty,
+from ..steps.templates import (
+    Shape,
+    has_template,
+    is_template,
+    names_read_in,
+    reference_expression,
 )
+from .drafts import Draft, field_operation, field_path, fields_of, first_unused_name
 from .setting_schemas import declared_setting_schema, default_schema
 
 METADATA_KEYS = tuple(
@@ -69,13 +73,13 @@ class ConfigurableField:
         return field_path(self.step_path, self.key)
 
 
-class MethodDraft:
+class MethodDraft(Draft):
     """A composed method being written for ``questions``, to become ``name`` at ``version``.
 
     One question makes a method for questions like it; more make a method for question groups.
-    The steps are edited as ``steps_draft``; fields bound to declared settings read and change those
-    settings' defaults. Test values fill declared settings when it is tried. Its examples hold no
-    results unless ``set_example`` gives them.
+    Its steps are edited as one Workflow at ``""``; fields bound to declared settings read and
+    change those settings' defaults. Test values fill declared settings when it is tried. Its
+    examples hold no results unless ``set_example`` gives them.
     """
 
     def __init__(
@@ -94,24 +98,17 @@ class MethodDraft:
         ):
             raise EditingError("Settings must map each name to its declaration.")
         self.name, self.version = name, version
-        self._methods = methods
         self._file_fields = {
             key: deepcopy(data[key]) for key in data if key not in ("version", *WORKFLOW_KEYS)
         }
         if "examples" in self._file_fields:
             self._file_fields["examples"] = _without_results(self._file_fields["examples"])
         self._file_fields["settings"] = self._declared_settings = deepcopy(declared_settings)
+        self._test_values = dict(test_values)
         question_id, workflow_data = _only_question_id(questions), as_workflow(data)
         if question_id:
             workflow_data["question"] = question_id
-        self._steps_draft = MethodStepsDraft(
-            workflow_data,
-            questions,
-            question_id,
-            self._methods,
-            self._declared_settings,
-            test_values,
-        )
+        super().__init__(workflow_data, questions, question_id, methods=methods)
         self._fit_to_questions()
 
     @classmethod
@@ -181,25 +178,12 @@ class MethodDraft:
 
     @property
     def test_values(self) -> dict[str, Any]:
-        return self._steps_draft.test_values
+        return self._test_values
 
     @test_values.setter
     def test_values(self, values: Mapping[str, Any]) -> None:
-        self._steps_draft.test_values = values
-
-    @property
-    def questions(self) -> QuestionSet:
-        return self._steps_draft.questions
-
-    @property
-    def question(self) -> QuestionId | None:
-        """The only question, which makes it a method for questions like it."""
-        return self._steps_draft.question
-
-    @property
-    def steps_draft(self) -> MarkingDraft:
-        """The method's steps, edited as a marking of its questions."""
-        return self._steps_draft
+        self._test_values = dict(values)
+        self._set_data(self._data)
 
     def _fit_to_questions(self) -> None:
         """One question gives the method its question type; more make it a group method."""
@@ -214,7 +198,7 @@ class MethodDraft:
     def set_questions(self, questions: QuestionSet) -> None:
         """Change the questions, keeping the steps; a step of a removed question stays, as a
         problem."""
-        previous_question_id, workflow_data = self.question, self._steps_draft.data
+        previous_question_id, workflow_data = self.question, self.data
         question_id = _only_question_id(questions)
         if previous_question_id and not question_id:
             for check in workflow_data["with"].get("steps", []):
@@ -226,22 +210,136 @@ class MethodDraft:
                 self.questions[previous_question_id].type
             ]:
                 self._file_fields["question_types"] = [questions[question_id].type]
-            for path in self._steps_draft.paths():
+            for path in self.paths():
                 if value_at(workflow_data, path).get("question") == question_id:
                     value_at(workflow_data, path).pop("question")
             workflow_data["question"] = question_id
-        self._steps_draft = MethodStepsDraft(
-            workflow_data,
-            questions,
-            question_id,
-            self._methods,
-            self._declared_settings,
-            self.test_values,
-        )
+        self.questions, self.question = questions, question_id
+        self.replace(workflow_data)
         self._fit_to_questions()
 
     @property
-    def label(self) -> str:
+    def _root_position(self) -> Position:
+        return replace(super()._root_position, is_in_workflow=True)
+
+    def methods(self, path: str, question: QuestionId | None = None) -> Methods:
+        return (
+            Methods([self._method(WORKFLOW_REF)]) if not path else super().methods(path, question)
+        )
+
+    def schema(self, path: str) -> JsonDict:
+        schema = super().schema(path)
+        if path:
+            return schema
+        properties = schema["properties"].items()
+        return {
+            **schema,
+            "properties": {
+                key: value for key, value in properties if key not in STEP_OWN_PROPERTIES
+            },
+        }
+
+    def values(self, path: str) -> JsonDict:
+        return {
+            name: value if name in TEMPLATE_KEYS else self._resolved_value(value)
+            for name, value in super().values(path).items()
+        }
+
+    def update(self, path: str, values: Mapping[str, Any]) -> None:
+        """Sets the step's fields; a bound field sets its declared setting's default instead."""
+        old_step_data = self._step_data(path)
+        fields = fields_of(old_step_data)
+        bound_settings_by_key = {
+            key: name
+            for key, value in fields.items()
+            if key not in (*TEMPLATE_KEYS, "for_each") and (name := self.bound_setting(value))
+        }
+        defaults: dict[str, Any] = {}
+        for key, name in bound_settings_by_key.items():
+            if key not in values or values[key] == self._resolved_value(fields[key]):
+                continue
+            if name in defaults and defaults[name] != values[key]:
+                raise EditingError(f"Fields sharing setting {name} must have the same default.")
+            defaults[name] = values[key]
+        super().update(path, values)
+        step_data = self._step_data(path)
+        for name, value in defaults.items():
+            self._declared_settings[name].pop("default", None)
+            if not _is_empty(value):
+                self._declared_settings[name]["default"] = deepcopy(value)
+        self._patch(
+            *(field_operation(path, step_data, key, fields[key]) for key in bound_settings_by_key)
+        )
+
+    @property
+    def step_problems(self) -> list[Problem]:
+        """What is wrong with each step, leaving out fields a declared setting fills."""
+        return [
+            problem for problem in super().step_problems if not self._is_filled_by_setting(problem)
+        ]
+
+    def bound_setting(self, value: Any) -> str | None:
+        """The declared setting ``value`` names, as in ``{{ settings.minimum }}``."""
+        match = re.fullmatch(r"settings\.(\w+)", reference_expression(value) or "")
+        return match[1] if match and match[1] in self._declared_settings else None
+
+    @property
+    def _template_names(self) -> Mapping[str, Shape]:
+        return {"settings": dict.fromkeys(self._declared_settings, "any")}
+
+    def _resolved_value(self, value: Any, test_values: Mapping[str, Any] = {}) -> Any:
+        """``value``, or the default of the declared setting it is bound to, else its value in
+        ``test_values``."""
+        name = self.bound_setting(value)
+        if name is None:
+            return deepcopy(value)
+        return deepcopy(self._declared_settings[name].get("default", test_values.get(name)))
+
+    def _written_data(self, data: JsonDict) -> JsonDict:
+        written_data: JsonDict = self._with_resolved_questions(data)
+        return written_data
+
+    def _marking_data(self, data: JsonDict) -> JsonDict:
+        marking_data: JsonDict = self._resolved_data(data)
+        return marking_data
+
+    def _with_resolved_questions(self, value: Any) -> Any:
+        """``value`` with the question each step names filled in from its setting's default, and
+        left out while a template says it."""
+        if isinstance(value, list):
+            return [self._with_resolved_questions(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        data = {key: self._with_resolved_questions(item) for key, item in value.items()}
+        if "uses" in value and "question" in value:
+            question_id = self._resolved_value(value["question"])
+            is_known = isinstance(question_id, str) and not is_template(question_id)
+            data["question"] = question_id if is_known else None
+        return data
+
+    def _resolved_data(self, value: Any) -> Any:
+        """``value`` with each bound field filled in: its default, or else its test value."""
+        if isinstance(value, dict):
+            return {
+                key: item if key in TEMPLATE_KEYS else self._resolved_data(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self._resolved_data(item) for item in value]
+        return self._resolved_value(value, self.test_values)
+
+    def _is_filled_by_setting(self, problem: Problem) -> bool:
+        if not problem.field or not self.is_step(problem.step_path):
+            return False
+        key, method = str(problem.field[0]), self.method(problem.step_path)
+        if not _can_setting_fill(key, method.settings.model_fields if method else {}):
+            return False
+        return (
+            self.bound_setting(value_at(self._data, field_path(problem.step_path, key))) is not None
+        )
+
+    @property
+    def method_label(self) -> str:
         """The method's name as people see it, as written so far."""
         return _string_or_empty(self._file_fields.get("label"))
 
@@ -409,42 +507,48 @@ class MethodDraft:
             problems.append(Problem("Choose one of the setting's choices.", field=("default",)))
         if problems:
             raise InvalidError(list(dict.fromkeys(problems)))
-        self._steps_draft.set_declared_setting(name, declaration)
+        self._set_declared_setting(name, declaration)
+
+    def _set_declared_setting(self, name: str, declaration: dict[str, Any]) -> None:
+        """Declare the setting ``name``, or replace its declaration."""
+        self._declared_settings[name] = declaration
+        self._set_data(self._data)
+
+    def _remove_declared_setting(self, name: str) -> None:
+        self._declared_settings.pop(name, None)
+        self._test_values.pop(name, None)
+        self._set_data(self._data)
 
     def remove_declared_setting(self, name: str) -> None:
         """Remove a declared setting, fixing each field bound to it at its default."""
         for field in self.configurable_fields():
             if field.bound_setting == name:
                 self.unbind(field.path)
-        self._steps_draft.remove_declared_setting(name)
+        self._remove_declared_setting(name)
 
     def configurable_fields(self) -> list[ConfigurableField]:
         """The fields a declared setting can fill, in the order of their steps."""
-        return [
-            field for path in self._steps_draft.paths() for field in self._configurable_fields(path)
-        ]
+        return [field for path in self.paths() for field in self._configurable_fields(path)]
 
     def _configurable_fields(self, path: str) -> Iterator[ConfigurableField]:
-        method = self._steps_draft.method(path)
+        method = self.method(path)
         if method is None:
             return
-        step_data = value_at(self._steps_draft.data, path)
-        settings = method.settings_model_at(self._steps_draft.position(path)).model_fields
-        for key, property_schema in self._steps_draft.schema(path)["properties"].items():
-            if not can_setting_fill(key, settings) or (key not in settings and not path):
+        step_data = self._step_data(path)
+        settings = method.settings_model_at(self.position(path)).model_fields
+        for key, property_schema in self.schema(path)["properties"].items():
+            if not _can_setting_fill(key, settings) or (key not in settings and not path):
                 continue
             yield ConfigurableField(
                 step_path=path,
                 key=key,
                 title=property_schema.get("title", key),
-                bound_setting=self._steps_draft.bound_setting(
-                    value_at(step_data, field_path("", key))
-                ),
+                bound_setting=self.bound_setting(value_at(step_data, field_path("", key))),
             )
 
     def _schema_of(self, field: ConfigurableField) -> JsonDict:
         """The JSON schema of the setting, with the definitions it refers to."""
-        schema = self._steps_draft.schema(field.step_path)
+        schema = self.schema(field.step_path)
         property_schema, definitions = schema["properties"][field.key], schema.get("$defs", {})
         return deepcopy({**property_schema, "$defs": definitions})
 
@@ -459,10 +563,8 @@ class MethodDraft:
         """Bind a field to a new declared setting that takes its title and value. The setting's
         name."""
         field = self._configurable_field(path)
-        default = self._steps_draft.values(field.step_path).get(
-            field.key, self._schema_of(field).get("default")
-        )
-        if not is_empty(default) and (message := self._rejection_reason(field, default)):
+        default = self.values(field.step_path).get(field.key, self._schema_of(field).get("default"))
+        if not _is_empty(default) and (message := self._rejection_reason(field, default)):
             raise EditingError(message)
         self.unbind(path)
         name = first_unused_name(
@@ -471,9 +573,9 @@ class MethodDraft:
         )
         titles = {declaration.get("title") for declaration in self._declared_settings.values()}
         declaration: dict[str, Any] = {"title": first_unused_name(field.title, titles, " ")}
-        if not is_empty(default):
+        if not _is_empty(default):
             declaration["default"] = deepcopy(default)
-        self._steps_draft.set_declared_setting(name, declaration)
+        self._set_declared_setting(name, declaration)
         self._bind(field, name)
         return name
 
@@ -519,31 +621,27 @@ class MethodDraft:
             if "default" in declaration
             else {"op": "remove", "path": path}
         )
-        self._steps_draft.replace(patched(self._steps_draft.data, [operation]))
+        self._patch(operation)
         self._remove_if_unused(field.bound_setting)
 
     def _bind(self, field: ConfigurableField, name: str) -> None:
-        data = self._steps_draft.data
         template = f"{{{{ settings.{name} }}}}"
-        step_data = value_at(data, field.step_path)
-        operation = field_operation(field.step_path, step_data, field.key, template)
-        self._steps_draft.replace(patched(data, [operation]))
+        step_data = self._step_data(field.step_path)
+        self._patch(field_operation(field.step_path, step_data, field.key, template))
 
     def _remove_if_unused(self, name: str) -> None:
         """Remove the declared setting ``name`` if no step or template of the method names it."""
         templates = {
-            "steps": self._steps_draft.data,
+            "steps": self._data,
             **{key: self._file_fields.get(key) for key in ("description", "feedback")},
         }
         if name not in names_read_in(templates, "settings"):
-            self._steps_draft.remove_declared_setting(name)
+            self._remove_declared_setting(name)
 
     def _field_info(self, field: ConfigurableField) -> FieldInfo:
-        method = self._steps_draft.method(field.step_path)
+        method = self.method(field.step_path)
         assert method is not None  # a configurable field belongs to a step of a known method
-        settings = method.settings_model_at(
-            self._steps_draft.position(field.step_path)
-        ).model_fields
+        settings = method.settings_model_at(self.position(field.step_path)).model_fields
         return settings.get(field.key) or STEP_OWN_PROPERTIES[field.key]
 
     def _rejection_reason(self, field: ConfigurableField, value: Any) -> str:
@@ -559,7 +657,7 @@ class MethodDraft:
     @property
     def uneditable_reasons(self) -> list[str]:
         """What is written in ways that editing the steps field by field can't change."""
-        data, paths = self._steps_draft.data, self._steps_draft.paths()
+        data, paths = self._data, self.paths()
         reasons = (
             reason
             for path in paths
@@ -574,7 +672,7 @@ class MethodDraft:
         if "for_each" in step_data:
             yield "A step repeats for each item of a setting."
             return
-        method = self._steps_draft.method(path)
+        method = self.method(path)
         if method is None:
             yield f"There's no method {step_data['uses']}."
             return
@@ -605,7 +703,7 @@ class MethodDraft:
             return None
         if cardinality is not None:
             return "A list of steps is written as a template."
-        if has_template(value) and self._steps_draft.bound_setting(value) is None:
+        if has_template(value) and self.bound_setting(value) is None:
             return f"{field.title or path} is written as a template."
         return None
 
@@ -617,13 +715,14 @@ class MethodDraft:
         data = {"version": self.version, **deepcopy(self._file_fields)}
         if not data["settings"]:
             data.pop("settings")
-        workflow_data = self._steps_draft.data
+        workflow_data = self.data
         workflow_data.pop("question", None)
         return data | as_file_steps(workflow_data)
 
     @property
     def problems(self) -> list[Problem]:
-        """What stops the method from being published or tried."""
+        """What stops the method from being finalized or tried: its step problems, then its
+        own."""
         try:
             return self._problems(self._loaded_method())
         except InvalidError as error:
@@ -671,7 +770,7 @@ class MethodDraft:
             return [Problem("Give the method a label.")]
         if not method.marks_question_group and not method.question_types:
             return [Problem("Choose at least one question type.")]
-        if not self.uneditable_reasons and (problems := self._steps_draft.problems):
+        if not self.uneditable_reasons and (problems := self.step_problems):
             return problems
         methods = self._methods_with(method)
         try:
@@ -746,10 +845,6 @@ def _holds_steps(method: Method) -> bool:
     )
 
 
-def _string_or_empty(value: Any) -> str:
-    return value if isinstance(value, str) else ""
-
-
 def _only_question_id(questions: QuestionSet) -> QuestionId | None:
     return next(iter(questions)) if len(questions) == 1 else None
 
@@ -767,3 +862,18 @@ def _with_raw_templates(value: Any) -> Any:
     if isinstance(value, list):
         return [_with_raw_templates(item) for item in value]
     return value
+
+
+def _can_setting_fill(key: str, settings: Mapping[str, FieldInfo]) -> bool:
+    """Whether a declared setting can fill the field ``key`` of a step with these settings."""
+    return key not in TEMPLATE_KEYS and (
+        key not in settings or step_cardinality(settings[key]) is None
+    )
+
+
+def _is_empty(value: Any) -> bool:
+    return value in (None, "", [], {})
+
+
+def _string_or_empty(value: Any) -> str:
+    return value if isinstance(value, str) else ""

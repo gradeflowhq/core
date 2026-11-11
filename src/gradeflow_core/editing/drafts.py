@@ -1,4 +1,4 @@
-"""A marking being edited one step at a time, as YAML holds it."""
+"""Steps being edited one at a time, as YAML holds them: what a marking and a method share."""
 
 import re
 from collections import Counter
@@ -7,11 +7,10 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from itertools import chain, count
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
-from ..common.documents import line_of, load_yaml_with_lines
 from ..common.exceptions import EditingError
 from ..common.hints import HINT_KEY, hint, hint_of
 from ..common.paths import (
@@ -22,12 +21,11 @@ from ..common.paths import (
     patched,
     value_at,
 )
-from ..common.problems import InvalidError, Problem
+from ..common.problems import Problem
 from ..common.schemas import JsonDict, json_schema
 from ..common.text import format_fraction, plain_markdown
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
-from ..questions.base import Question
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
 from ..steps.input_sources import (
@@ -49,11 +47,9 @@ from ..steps.step import (
     OutcomeFeedback,
     Step,
     load_step,
-    needs_workflow_problem,
     settings_of,
 )
 from ..steps.templates import Shape, names_read
-from .by_example import Decision, answer_decisions, mark_by_example
 from .conditions import Condition, condition_template, read_condition
 
 POSITION_KEYS = ("id", "question", "input", "name", "weight", "if")
@@ -170,13 +166,11 @@ class DraftSnapshot:
         )
 
 
-class MarkingDraft:
-    """A marking of ``question``, or of a question group without one, as it is being edited. Its
-    steps are at JSON Pointers such as ``/with/steps/0``; ``""`` is the marking itself. A step's
-    fields are its method's settings and its own properties, as one object. A change to a step or
-    setting that isn't there raises ``EditingError``."""
-
-    _must_give_marks = True
+class Draft:
+    """Steps of ``question``, or of a question group without one, as they are being edited. Its
+    steps are at JSON Pointers such as ``/with/steps/0``; ``""`` is the outermost. A step's fields
+    are its method's settings and its own properties, as one object. A change to a step or setting
+    that isn't there raises ``EditingError``."""
 
     def __init__(
         self,
@@ -189,55 +183,6 @@ class MarkingDraft:
         self.questions, self.question = questions, question
         self._methods = methods
         self._set_data(deepcopy(dict(data)))
-
-    @classmethod
-    def from_yaml(
-        cls,
-        text: str,
-        questions: QuestionSet,
-        question: QuestionId | None,
-        *,
-        methods: Methods = BUILTINS,
-    ) -> MarkingDraft:
-        """The marking ``text`` writes of ``question``, which it needn't name. Raises
-        ``InvalidError`` for text that isn't one check, or names another question."""
-        document, data = load_yaml_with_lines(text)
-        if not isinstance(data, dict):
-            raise InvalidError(
-                [Problem("Write one check, starting with uses: and its method's name.")]
-            )
-        names_other_question = "question" in data and data["question"] != question
-        data = (
-            {**data, "question": question}
-            if question
-            else {key: value for key, value in data.items() if key != "question"}
-        )
-        draft = cls(data, questions, question, methods=methods)
-        draft._snapshot = replace(draft._snapshot, document=document)
-        if names_other_question:
-            fix_message = (
-                f"Set question to {question}."
-                if question
-                else "Remove question; a question group's checks name their own."
-            )
-            question_problem = Problem(fix_message, line=line_of(document, ("question",)))
-            raise InvalidError(list(dict.fromkeys([question_problem, *draft.problems])))
-        return draft
-
-    @classmethod
-    def new(
-        cls,
-        reference: str,
-        questions: QuestionSet,
-        question: QuestionId | None,
-        *,
-        methods: Methods = BUILTINS,
-    ) -> MarkingDraft:
-        """A draft of new marking with the method ``reference`` names. Raises ``EditingError`` if it
-        can't mark it."""
-        draft = cls({}, questions, question, methods=methods)
-        draft.replace(draft._new_step_at("", draft._method(reference), None, names_question=True))
-        return draft
 
     @property
     def data(self) -> JsonDict:
@@ -757,61 +702,16 @@ class MarkingDraft:
         """The steps at ``paths`` that have an ID, by ID; the last of those sharing one."""
         return {step_id: path for path in paths if (step_id := self._step_id(path))}
 
-    def answer_decisions(self) -> dict[str, Decision]:
-        """The answers given marks by example, with what each gets.
-
-        Keys use the question's spelling. Other methods' matches are not decisions. A decision
-        describes the explicit rule, independently of conditions and other methods' results.
-        """
-        return answer_decisions(self._data, self._methods, self._question)
-
-    def mark_by_example(
-        self,
-        answers: Sequence[str],
-        decision: Decision | Literal["cancel"],
-        proportion: float = 0.5,
-    ) -> None:
-        """Gives these answers one of the ``DECISIONS``, ``proportion`` of the marks for
-        ``"partial_marks"``, or takes their decision back with ``"cancel"``. Other answers keep
-        theirs.
-
-        A decision overrides the existing marking. Cancelling leaves the remaining methods to mark
-        the answers; an answer must be cancelled before it gets another decision, and giving one
-        the decision it has changes nothing. Equivalent spellings of the question's answers are
-        one answer; its type must be one that can be marked by example. New checks use the
-        highest version of each method.
-        """
-        marking = mark_by_example(
-            self._data, answers, decision, proportion, self._methods, self._question
-        )
-        if marking is not None:
-            self.replace(marking)
-
     @property
-    def _question(self) -> Question | None:
-        return self.questions[self.question] if self.question else None
-
-    def finalized(self) -> Step:
-        """The marking, once nothing is wrong with it. Raises ``EditingError`` with its first
-        problem."""
-        marking, problems = self._snapshot.marking_places[""].step, self._found_problems()
-        if problems or marking is None:
-            raise EditingError(str(problems[0]))
-        return marking
+    def step_problems(self) -> list[Problem]:
+        """What is wrong with each step, the outermost included, at the step and field at
+        fault."""
+        return list(map(self._condition_order_problem, self._snapshot.problems))
 
     @property
     def problems(self) -> list[Problem]:
-        """What is wrong with the marking, each at the step and field at fault; as read from
-        YAML, each on its line too, and one of those reading alike."""
-        problems, document = self._found_problems(), self._snapshot.document
-        if document is None:
-            return problems
-        problems_by_text: dict[str, Problem] = {}
-        for problem in problems:
-            line = line_of(document, _yaml_location(problem, self._data))
-            problem_with_line = replace(problem, line=line)
-            problems_by_text.setdefault(str(problem_with_line), problem_with_line)
-        return list(problems_by_text.values())
+        """What stops it being finalized: its step problems, unless it is more than its steps."""
+        return self.step_problems
 
     @property
     def _template_names(self) -> Mapping[str, Shape]:
@@ -821,17 +721,6 @@ class MarkingDraft:
     def _resolved_value(self, value: Any) -> Any:
         """``value`` as the marking reads it."""
         return value
-
-    def _found_problems(self) -> list[Problem]:
-        marking = self._snapshot.marking_places[""].step
-        if (
-            self._must_give_marks
-            and marking is not None
-            and not marking.resolution.gives_marks
-            and not marking.resolution.data_problems
-        ):
-            return [needs_workflow_problem(marking)]
-        return list(map(self._condition_order_problem, self._snapshot.problems))
 
     def _condition_order_problem(self, problem: Problem) -> Problem:
         """``problem``, naming the check to move if its condition reads a later one."""
@@ -906,18 +795,6 @@ def _step_property(key: str, choices: Iterable[str] | None = None) -> JsonDict:
         "description": property_schema["description"],
         **json_schema(literal_type(choices)),
     }
-
-
-def _yaml_location(problem: Problem, data: JsonDict) -> Location:
-    """Where the problem is in the YAML."""
-    step_data, field = value_at(data, problem.step_path), problem.field
-    step_location = location_of(problem.step_path)
-    if not field:
-        return (*step_location, "uses")
-    is_property = field[0] in STEP_PROPERTIES or (
-        isinstance(step_data, Mapping) and field[0] in step_data
-    )
-    return (*step_location, *(field if is_property else ("with", *field)))
 
 
 def _type_accepts(annotation: Any, value: Any) -> bool:

@@ -485,9 +485,11 @@ print(draft.notes("/with/steps/1"))
 print(draft.finalized().dump())
 ```
 
-`MethodDraft` writes a composed method from example questions. `bind_new_setting` turns a field of
-a step into a declared setting, and `bind` and `unbind` connect or disconnect them. `tested_step`
-gives the method with its test values as a `Step`:
+`MethodDraft` writes a composed method from example questions. Its steps are one Workflow at `""`,
+edited as a marking's are: both drafts are a `Draft`. `bind_new_setting` turns a field of a step
+into a declared setting, and `bind` and `unbind` connect or disconnect them. Its `problems` are its
+`step_problems`, then the method's own. `tested_step` gives the method with its test values as a
+`Step`:
 
 ```python
 from gradeflow_core import QuestionSet
@@ -500,8 +502,8 @@ draft = MethodDraft.new(
     label="Within range",
     summary="A number in a range.",
 )
-draft.steps_draft.add("/with/steps/0", "gradeflow/number-range@1")
-draft.steps_draft.update("/with/steps/0", {"min_value": 10, "max_value": 20})
+draft.add("/with/steps/0", "gradeflow/number-range@1")
+draft.update("/with/steps/0", {"min_value": 10, "max_value": 20})
 draft.bind_new_setting("/with/steps/0/with/min_value")
 assert draft.problems == []
 print(draft.to_yaml())
