@@ -166,7 +166,7 @@ class ComposedMethod(Method[ComposedSettings]):
         question_id: QuestionId | None,
     ) -> list[TransformResult | Skipped]:
         return [
-            result.transform_result
+            result.transform_result(question_id)
             for result in transform(settings.expansion, contexts, question_id)
         ]
 

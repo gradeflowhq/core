@@ -161,6 +161,7 @@ def _question_result(outcome: Outcome, question: Question, label: str) -> Questi
         is_marked=outcome.marked,
         model_names=outcome.all_model_names(),
         breakdown=breakdown_of(outcome, question.max_marks),
+        spans=outcome.all_spans(),
     )
 
 

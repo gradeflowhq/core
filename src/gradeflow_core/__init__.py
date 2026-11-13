@@ -25,7 +25,7 @@ from .questions.types import Answer, Unreadable
 from .questions.values import ValuesQuestion
 from .steps.context import Progress
 from .steps.method import AnswerMethod, Method, TransformMethod
-from .steps.outcome import Detail, Outcome
+from .steps.outcome import Detail, Outcome, Span, Transformed
 from .steps.settings import Settings
 from .steps.step import Step
 
@@ -60,10 +60,12 @@ __all__ = [
     "ReportLine",
     "ResultsCsv",
     "Settings",
+    "Span",
     "Step",
     "Submission",
     "TextQuestion",
     "TransformMethod",
+    "Transformed",
     "Unreadable",
     "ValuesQuestion",
     "answer_from_files",

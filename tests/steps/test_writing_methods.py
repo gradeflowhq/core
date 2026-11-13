@@ -16,7 +16,9 @@ from gradeflow_core import (
     Question,
     QuestionSet,
     Settings,
+    Span,
     Submission,
+    Transformed,
     TransformMethod,
     Unreadable,
     mark,
@@ -71,12 +73,21 @@ class After(TransformMethod[AfterSettings]):
 
     def transform(
         self, settings: AfterSettings, answer: Answer, question: Question
-    ) -> Answer | Unreadable:
+    ) -> Transformed | Unreadable:
         _, marker, rest = str(answer).partition(settings.marker)
-        return rest.strip() if marker else Unreadable(f"Couldn't find {settings.marker}.")
+        return (
+            Transformed(rest.strip()) if marker else Unreadable(f"Couldn't find {settings.marker}.")
+        )
 
 
-METHODS = Methods([*BUILTINS, StartsWith(), After()])
+class SpanPastTheEnd(After):
+    name = "sample/span-past-the-end"
+
+    def transform(self, settings: AfterSettings, answer: Answer, question: Question) -> Transformed:
+        return Transformed(answer, (Span(0, len(str(answer)) + 1),))
+
+
+METHODS = Methods([*BUILTINS, StartsWith(), After(), SpanPastTheEnd()])
 STARTS_WITH = {"question": "Q1", "uses": "sample/starts-with@1", "with": {"prefix": "photo"}}
 
 
@@ -151,3 +162,35 @@ def test_a_transform_written_in_python_gives_later_steps_their_input() -> None:
         (2, "Correct.", True),
         (0, "Couldn't find answer:.", False),
     ]
+
+
+def test_a_transform_giving_a_span_past_its_input_leaves_the_answer_for_a_person() -> None:
+    workflow = {
+        "question": "Q1",
+        "uses": "gradeflow/workflow@1",
+        "with": {
+            "steps": [
+                {"id": "after", "uses": "sample/span-past-the-end@1", "with": {"marker": ""}},
+                {**STARTS_WITH, "input": "{{ steps.after.output }}"},
+            ]
+        },
+    }
+    assert results_of(workflow, ["photosynthesis"]) == [(0, "Couldn't mark this answer.", False)]
+
+
+class CheckWithSpans(StartsWith):
+    name = "sample/check-with-spans"
+
+    def mark_answer(
+        self, settings: StartsWithSettings, answer: Answer, question: Question
+    ) -> Outcome:
+        return Outcome(1.0, "Correct.", spans=(Span(0, len(settings.prefix)),))
+
+
+def test_spans_a_check_gives_are_dropped() -> None:
+    scheme = MarkScheme.load(
+        [{**STARTS_WITH, "uses": "sample/check-with-spans@1"}],
+        methods=Methods([*BUILTINS, CheckWithSpans()]),
+    )
+    [marked] = mark(QUESTIONS, scheme, [Submission(student_id="1", answers={"Q1": "photo"})])
+    assert marked.results["Q1"].spans == ()

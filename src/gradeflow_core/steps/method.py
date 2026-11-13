@@ -137,8 +137,8 @@ class Method[S: Settings = Any](ABC):
         self, settings: S, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> Sequence[TransformResult | Skipped]:
         """What a transform with ``settings`` gives each student in ``contexts``, reading
-        ``question_id``: skipped when the step whose output it gives didn't run. A method that
-        can give no marks implements it."""
+        ``question_id``, with its spans mapped to the student's answer to it: skipped when the step
+        whose output it gives didn't run. A method that can give no marks implements it."""
         raise NotImplementedError
 
 
@@ -193,7 +193,7 @@ class TransformMethod[S: Settings](Method[S]):
         self, settings: S, contexts: Sequence[Context], question_id: QuestionId | None
     ) -> list[TransformResult]:
         return [
-            self.transform(settings, answer, step_input.question)
+            step_input.mapped_to_answer(self.transform(settings, answer, step_input.question))
             for step_input, answer in map(_readable_input, contexts)
         ]
 
@@ -206,8 +206,9 @@ class TransformMethod[S: Settings](Method[S]):
 
     @abstractmethod
     def transform(self, settings: S, answer: Answer, question: Question) -> TransformResult:
-        """What ``answer``, as ``question`` reads it, turns into: another answer, or
-        ``Unreadable`` with the reason it has none."""
+        """What ``answer``, as ``question`` reads it, turns into: ``Transformed``, another answer
+        with the parts of ``answer`` it extracted it from, or ``Unreadable`` with the reason there
+        is none."""
 
     @abstractmethod
     def output_question(self, settings: S, question: Question) -> Question:

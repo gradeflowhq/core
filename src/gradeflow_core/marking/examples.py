@@ -16,7 +16,13 @@ from ..questions.types import QuestionId, Unreadable
 from ..steps.context import Context
 from ..steps.example import Example, ExampleRow, ExpectedResult, missing_answers_message
 from ..steps.method import Method
-from ..steps.outcome import NO_ANSWER_FEEDBACK, ROUNDING_TOLERANCE, Skipped, StepResult
+from ..steps.outcome import (
+    NO_ANSWER_FEEDBACK,
+    ROUNDING_TOLERANCE,
+    Skipped,
+    StepResult,
+    TransformResult,
+)
 from ..steps.places import marking_position
 from ..steps.problems import located_problems
 from ..steps.running import marked_question_id, transform
@@ -151,24 +157,27 @@ def _transform_row_results(
 def _transform_results(
     result: StepResult, question_ids: Collection[QuestionId], questions: QuestionSet, label: str
 ) -> dict[QuestionId, QuestionResult]:
-    answer = result.transform_result
-    if isinstance(answer, Skipped):
-        return {}
-    proportion, feedback = 0.0, NO_ANSWER_FEEDBACK
-    if isinstance(answer, Unreadable):
-        feedback = answer.reason
-    elif answer is not None:
-        proportion, feedback = 1.0, f"Read as: {write_answer(answer)}"
     return {
-        question_id: QuestionResult(
-            proportion=proportion,
-            max_marks=questions[question_id].max_marks,
-            feedback=feedback,
-            method_label=label,
-            is_marked=not isinstance(answer, Unreadable),
-        )
+        question_id: _transform_result(transformed, questions[question_id].max_marks, label)
         for question_id in question_ids
+        if not isinstance(transformed := result.transform_result(question_id), Skipped)
     }
+
+
+def _transform_result(transformed: TransformResult, max_marks: float, label: str) -> QuestionResult:
+    proportion, feedback = 0.0, NO_ANSWER_FEEDBACK
+    if isinstance(transformed, Unreadable):
+        feedback = transformed.reason
+    elif transformed.answer is not None:
+        proportion, feedback = 1.0, f"Read as: {write_answer(transformed.answer)}"
+    return QuestionResult(
+        proportion=proportion,
+        max_marks=max_marks,
+        feedback=feedback,
+        method_label=label,
+        is_marked=not isinstance(transformed, Unreadable),
+        spans=() if isinstance(transformed, Unreadable) else transformed.spans,
+    )
 
 
 def _row_results(

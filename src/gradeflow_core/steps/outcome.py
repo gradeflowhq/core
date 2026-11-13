@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 
@@ -29,6 +29,45 @@ class Detail:
 
 
 @dataclass(frozen=True)
+class Span:
+    """Characters from ``start`` (inclusive) to ``end`` (exclusive) of an answer as its question
+    reads it, or of its value ``value_number``, from 1."""
+
+    start: int
+    end: int
+    value_number: int | None = None
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.start <= self.end:
+            raise ValueError(
+                f"A span needs 0 ≤ start ≤ end, but has start {self.start} and end {self.end}."
+            )
+
+    def subspan(self, span: Span) -> Span:
+        """``span``, counted from this span's start, as a span of the text this span is in.
+        Raises ``ValueError`` if it ends past this span."""
+        if span.end > self.end - self.start:
+            length = self.end - self.start
+            raise ValueError(
+                f"A subspan ends at {span.end}, past the {length} characters it is in."
+            )
+        return Span(self.start + span.start, self.start + span.end, self.value_number)
+
+
+def merged(spans: Iterable[Span]) -> tuple[Span, ...]:
+    """``spans`` sorted, without empty ones, and with those that overlap or touch merged."""
+    result: list[Span] = []
+    nonempty = (span for span in spans if span.start < span.end)
+    for span in sorted(nonempty, key=lambda span: (span.value_number or 0, span.start)):
+        last = result[-1] if result else None
+        if last and last.value_number == span.value_number and span.start <= last.end:
+            result[-1] = Span(last.start, max(last.end, span.end), span.value_number)
+        else:
+            result.append(span)
+    return tuple(result)
+
+
+@dataclass(frozen=True)
 class Outcome:
     """What a check makes of an answer: the proportion it earns, from 0 to 1, and why."""
 
@@ -48,6 +87,9 @@ class Outcome:
     marked."""
     children: tuple[PartOutcome, ...] = ()
     """What its breakdown shows under it."""
+    spans: tuple[Span, ...] = ()
+    """The parts of the answer the transforms it read extracted their values from. Marking sets
+    it, replacing any a method gives."""
 
     def first_error(self) -> str | None:
         """The first error in its details or those of its parts, such as why code couldn't run."""
@@ -66,6 +108,10 @@ class Outcome:
                 )
             )
         )
+
+    def all_spans(self) -> tuple[Span, ...]:
+        """Its spans and its parts'."""
+        return (*self.spans, *(span for part in self.parts for span in part.outcome.all_spans()))
 
     @property
     def correct(self) -> bool:
@@ -153,18 +199,32 @@ class PartResult(CheckOutput):
 
 type QuestionOutcomes = Mapping[QuestionId, Outcome | Skipped]
 """What a check gives one student, by the question it marks."""
-type TransformResult = Answer | Unreadable
+
+
+@dataclass(frozen=True)
+class Transformed:
+    """What a transform gives: another answer, and the parts of its input it extracted it from."""
+
+    answer: Answer
+    spans: tuple[Span, ...] = ()
+
+
+type TransformResult = Transformed | Unreadable
 
 
 @dataclass(frozen=True)
 class StepResult:
     """An earlier step as later conditions and templates read it, as ``steps.<id>``."""
 
-    value: CheckOutput | TransformResult
+    value: CheckOutput | Answer | Unreadable
     skipped: bool = False
     """Its condition was false."""
     question: Question | None = None
     """The question that reads a transform's value."""
+    spans: tuple[Span, ...] = ()
+    """The parts of the answer to ``spans_question_id`` a transform extracted its value from."""
+    spans_question_id: QuestionId | None = None
+    """The question whose answer ``spans`` are in."""
 
     @property
     def output(self) -> CheckOutput | Answer:
@@ -183,7 +243,15 @@ class StepResult:
                 return Unreadable(feedback)
         return None
 
-    @property
-    def transform_result(self) -> TransformResult | Skipped:
-        """What a later step reads of it: a check has no answer to read."""
-        return Skipped() if self.skipped or isinstance(self.value, dict) else self.value
+    def spans_in(self, question_id: QuestionId | None) -> tuple[Span, ...]:
+        """Its spans, if they are in the answer to ``question_id``."""
+        return self.spans if question_id == self.spans_question_id else ()
+
+    def transform_result(self, question_id: QuestionId | None) -> TransformResult | Skipped:
+        """What a later step that decides the marks of ``question_id`` reads of it: its value,
+        with its spans if they are in that question's answer. A check has no value to read."""
+        if self.skipped or isinstance(self.value, dict):
+            return Skipped()
+        if isinstance(self.value, Unreadable):
+            return self.value
+        return Transformed(self.value, self.spans_in(question_id))

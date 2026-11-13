@@ -12,9 +12,9 @@ from ...questions.reading import Reading, TextReading
 from ...questions.types import Answer, Unreadable
 from ...steps.example import examples_beside
 from ...steps.method import TransformMethod
-from ...steps.outcome import TransformResult
+from ...steps.outcome import Span, Transformed, TransformResult
 from ...steps.settings import Settings
-from .regexes import PATTERN_TIMEOUT_MESSAGE, OneGroupPattern, pattern_captures
+from .regexes import PATTERN_TIMEOUT_MESSAGE, OneGroupPattern, pattern_capture_ranges
 
 _NUMBER = regex.compile(
     r"(?<![\w.^])[-+]?(?:\d+(?:,\d{3})*(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?(?:/\d+)?"
@@ -95,11 +95,14 @@ class Extract(TransformMethod[ExtractSettings]):
         except TimeoutError:
             return Unreadable(PATTERN_TIMEOUT_MESSAGE)
         if not candidates or (settings.occurrence == "only" and len(candidates) > 1):
-            return Unreadable(_extraction_failure_reason(settings, candidates))
-        candidate = candidates[-1] if settings.occurrence == "last" else candidates[0]
-        if _is_blank_marker(candidate, question):
-            return None
-        return self.output_question(settings, question).read(candidate)
+            return Unreadable(
+                _extraction_failure_reason(settings, [text for text, _ in candidates])
+            )
+        text, span = candidates[-1] if settings.occurrence == "last" else candidates[0]
+        if _is_blank_marker(text, question):
+            return Transformed(None)
+        value = self.output_question(settings, question).read(text)
+        return Transformed(value, () if value is None else (span,))
 
 
 def _is_blank_marker(text: str, question: Question) -> bool:
@@ -108,19 +111,37 @@ def _is_blank_marker(text: str, question: Question) -> bool:
     return isinstance(reading, TextReading) and text == reading.normalized(reading.blank_marker)
 
 
-def _candidates(settings: ExtractSettings, answer_text: str, question: Question) -> list[str]:
-    """What ``answer_text``, an answer to ``question``, holds of the setting's type, in order."""
-    regions = (
-        [answer_text]
+def _candidates(
+    settings: ExtractSettings, answer_text: str, question: Question
+) -> list[tuple[str, Span]]:
+    """Each part of ``answer_text``, an answer to ``question``, of the setting's type, in order,
+    with its span."""
+    ranges = (
+        [(0, len(answer_text))]
         if settings.pattern is None
-        else pattern_captures(settings.pattern, answer_text, question)
+        else pattern_capture_ranges(settings.pattern, answer_text, question)
     )
     if settings.type == "text":
-        return regions
+        reading = question.reading
+        trim_spaces = isinstance(reading, TextReading) and reading.trim_spaces
+        spans = [
+            _trimmed(Span(start, end), answer_text) if trim_spaces else Span(start, end)
+            for start, end in ranges
+        ]
+        return [(answer_text[span.start : span.end], span) for span in spans]
     numbers = (
-        match[0].replace(",", "") for region in regions for match in _NUMBER.finditer(region)
+        (match[0].replace(",", ""), Span(start + match.start(), start + match.end()))
+        for start, end in ranges
+        for match in _NUMBER.finditer(answer_text[start:end])
     )
-    return [number for number in numbers if reads_as_number(number, question.reading)]
+    return [(number, span) for number, span in numbers if reads_as_number(number, question.reading)]
+
+
+def _trimmed(span: Span, text: str) -> Span:
+    """``span`` of ``text`` without the spaces at either end."""
+    substring = text[span.start : span.end]
+    start = span.start + len(substring) - len(substring.lstrip())
+    return Span(start, start + len(substring.strip()))
 
 
 def _extraction_failure_reason(settings: ExtractSettings, candidates: list[str]) -> str:

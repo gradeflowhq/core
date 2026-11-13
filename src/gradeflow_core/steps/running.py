@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from ..questions.base import Question
+from ..questions.reading import write_answer
 from ..questions.types import QuestionId, Unreadable
 from .context import Context, StepInput
 from .input_sources import AnswerSource, AnswerValueSource, OtherAnswerSource, StepOutputSource
@@ -15,7 +16,10 @@ from .outcome import (
     Outcome,
     QuestionOutcomes,
     Skipped,
+    Span,
     StepResult,
+    Transformed,
+    TransformResult,
     outcome_of,
     unanswered_outcome,
 )
@@ -87,7 +91,7 @@ def mark(
             outcomes = dict.fromkeys(question_ids, _not_run_result(result))
         else:
             outcomes = {
-                result_question_id: _with_feedback_and_details(
+                result_question_id: _with_feedback_details_and_spans(
                     check, outcome, context, result_question_id
                 )
                 for result_question_id, outcome in result.items()
@@ -114,12 +118,23 @@ def transform(
         (context.input for context, result in results if not isinstance(result, Skipped)), None
     )
     question = _output_question(step, contexts[0], step_input) if step_input else None
-    return [
-        StepResult(None, skipped=True)
-        if isinstance(result, Skipped)
-        else StepResult(None if isinstance(result, Blank) else result, question=question)
-        for _, result in results
-    ]
+    return [_transform_step_result(context, result, question) for context, result in results]
+
+
+def _transform_step_result(
+    context: Context, result: TransformResult | NotRunReason, question: Question | None
+) -> StepResult:
+    """A transform's result for one student."""
+    match result:
+        case Skipped():
+            return StepResult(None, skipped=True)
+        case Blank():
+            return StepResult(None, question=question)
+        case Unreadable():
+            return StepResult(result, question=question)
+        case Transformed(answer=answer, spans=spans):
+            question_id = context.input.question_id if context.input else None
+            return StepResult(answer, question=question, spans=spans, spans_question_id=question_id)
 
 
 def _results[R](
@@ -193,16 +208,32 @@ def _input(
                 marked_id,
                 context.answers.get(other_question_id),
                 context.questions[other_question_id],
+                None,
             )
         case StepOutputSource(step_id=step_id):
             result = context.earlier_results.get(step_id)
             if (
                 result is None
                 or result.question is None
-                or isinstance(answer := result.transform_result, Skipped)
+                or isinstance(transformed := result.transform_result(marked_id), Skipped)
             ):
                 return Skipped()
-            return context.input_from(marked_id, answer, result.question)
+            answer = transformed if isinstance(transformed, Unreadable) else transformed.answer
+            answer_span = _answer_span(context, marked_id, transformed)
+            return context.input_from(marked_id, answer, result.question, answer_span)
+
+
+def _answer_span(
+    context: Context, question_id: QuestionId, transformed: TransformResult
+) -> Span | None:
+    """Where the text of ``transformed``'s answer is in the answer to ``question_id``: its only
+    span; None if it is unreadable, has several spans, or its span's text differs."""
+    if isinstance(transformed, Unreadable) or len(transformed.spans) != 1:
+        return None
+    [span] = transformed.spans
+    if context.text_at(question_id, span) != write_answer(transformed.answer):
+        return None
+    return span
 
 
 def _condition_not_run_reason(step: Step, context: Context) -> Skipped | Unreadable | None:
@@ -244,21 +275,24 @@ def _check_result(results: QuestionOutcomes) -> StepResult:
     return StepResult(output, is_skipped)
 
 
-def _with_feedback_and_details[R: Outcome | Skipped](
+def _with_feedback_details_and_spans[R: Outcome | Skipped](
     check: Step, result: R, context: Context, question_id: QuestionId
 ) -> R:
-    """``result`` with the check's own feedback, and the transform's answer it read."""
+    """``result`` with the check's own feedback. A check that read a transform's answer also gets
+    that answer as a "Read as" detail and the transform's spans; others get no spans."""
     if check.feedback:
         result = replace(
             result, feedback=_feedback(check, outcome_of(result), context, question_id)
         )
-    if (
-        isinstance(result, Skipped)
-        or context.input is None
-        or not isinstance(check.source, StepOutputSource)
-    ):
+    if isinstance(result, Skipped):
         return result
-    return replace(result, details=(Detail("Read as", context.input.written), *result.details))
+    if context.input is None or not isinstance(check.source, StepOutputSource):
+        return replace(result, spans=())
+    return replace(
+        result,
+        details=(Detail("Read as", context.input.written), *result.details),
+        spans=context.earlier_results[check.source.step_id].spans_in(question_id),
+    )
 
 
 def _titled(check: Step, outcome: Outcome, question_id: QuestionId) -> Outcome:

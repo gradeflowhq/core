@@ -53,8 +53,10 @@ def pattern_matches(pattern: str, answer_text: str, question: Question) -> bool:
     )
 
 
-def pattern_captures(pattern: str, answer_text: str, question: Question) -> list[str]:
-    """What the one group of ``pattern`` captures in ``answer_text``, an answer to ``question``.
-    Raises ``TimeoutError`` if that takes too long."""
-    captures = _compiled_for(pattern, question).findall(answer_text, timeout=PATTERN_TIME_LIMIT_S)
-    return list(filter(None, captures))
+def pattern_capture_ranges(
+    pattern: str, answer_text: str, question: Question
+) -> list[tuple[int, int]]:
+    """The start and end of each non-empty capture of the group of ``pattern`` in
+    ``answer_text``, an answer to ``question``. Raises ``TimeoutError`` if that takes too long."""
+    matches = _compiled_for(pattern, question).finditer(answer_text, timeout=PATTERN_TIME_LIMIT_S)
+    return [(start, end) for start, end in (match.span(1) for match in matches) if start < end]

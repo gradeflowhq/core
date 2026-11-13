@@ -1,11 +1,12 @@
 from dataclasses import dataclass
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, computed_field
 
 from ..common.text import format_marks
 from ..questions.submissions import AnswerSheet
 from ..questions.types import QuestionId
-from ..steps.outcome import FULL_MARKS_PROPORTION, Detail, Effect
+from ..steps.outcome import FULL_MARKS_PROPORTION, Detail, Effect, Span, merged
 
 
 class CheckResult(BaseModel):
@@ -37,6 +38,10 @@ class QuestionResult(BaseModel):
     )
     breakdown: CheckResult | None = Field(
         default=None, description="How each check marked it, when the marking has several"
+    )
+    spans: Annotated[tuple[Span, ...], AfterValidator(merged)] = Field(
+        default=(),
+        description="The parts of the answer its marking's transforms extracted, sorted and merged",
     )
 
     @computed_field  # type: ignore[prop-decorator]

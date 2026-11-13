@@ -199,7 +199,7 @@ class Workflow(Method[WorkflowSettings]):
     ) -> list[TransformResult | Skipped]:
         _, final_contexts = run_steps(settings.steps, contexts, question_id)
         return [
-            result.transform_result
+            result.transform_result(question_id)
             if (result := context.earlier_results.get(settings.output_step_id or ""))
             else Skipped()
             for context in final_contexts

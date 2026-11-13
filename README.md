@@ -355,8 +355,10 @@ case, a number, a set of options or a list of values. Blank and unreadable answe
 `Outcome(0.0, reason, marked=False)` leaves an answer for a person to mark, and `details` holds
 each `Detail` a breakdown shows for the check. `guide`, `level` and `examples` are optional.
 
-A `TransformMethod` gives no marks. `transform` gives another answer, or `Unreadable` with the
-reason there is none, and `output_question` gives the question that reads it:
+A `TransformMethod` gives no marks. `transform` gives `Transformed`, another answer with the
+`Span`s of the answer it was extracted from, or `Unreadable` with the reason there is none.
+`output_question` gives the question that reads it. A result's `spans` are the parts of the answer
+its marking's transforms extracted:
 
 ```python
 from pydantic import Field
@@ -369,7 +371,9 @@ from gradeflow_core import (
     Question,
     QuestionSet,
     Settings,
+    Span,
     Submission,
+    Transformed,
     TransformMethod,
     Unreadable,
     mark,
@@ -396,9 +400,13 @@ class After(TransformMethod[AfterSettings]):
 
     def transform(
         self, settings: AfterSettings, answer: Answer, question: Question
-    ) -> Answer | Unreadable:
-        _, marker, rest = str(answer).partition(settings.marker)
-        return rest.strip() if marker else Unreadable(f"Couldn't find {settings.marker}.")
+    ) -> Transformed | Unreadable:
+        text = str(answer)
+        _, marker, rest = text.partition(settings.marker)
+        if not marker:
+            return Unreadable(f"Couldn't find {settings.marker}.")
+        value, start = rest.strip(), len(text) - len(rest.lstrip())
+        return Transformed(value, (Span(start, start + len(value)),))
 
 
 scheme = MarkScheme.from_yaml(
@@ -420,6 +428,7 @@ questions = QuestionSet.load({"Q1": {"type": "text"}})
 students = [Submission(student_id="1", answers={"Q1": "3 × 4. Answer: 12"})]
 [marked] = mark(questions, scheme, students)
 assert marked.results["Q1"].proportion == 1
+assert marked.results["Q1"].spans == (Span(15, 17),)
 ```
 
 ## Examples
