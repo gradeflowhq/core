@@ -1,6 +1,6 @@
 [project]
 name = "gradeflow-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "A Python library for marking students' answers with composable marking methods."
 readme = "README.md"
 authors = [{ name = "GradeFlow Team" }]

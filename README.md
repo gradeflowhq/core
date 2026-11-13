@@ -13,7 +13,7 @@ and methods needs ([Editing](#editing)). Before 1.0.0, minor releases may break 
 Python 3.14 or newer:
 
 ```bash
-uv add "gradeflow-core @ git+https://github.com/gradeflowhq/core@v0.2.0"
+uv add "gradeflow-core @ git+https://github.com/gradeflowhq/core@v0.3.0"
 ```
 
 Two extras add model-based marking:
