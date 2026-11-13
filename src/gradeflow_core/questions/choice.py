@@ -78,7 +78,13 @@ class ChoiceQuestion(Question):
         return {"type": "object", "properties": {self._answer_property: property_schema}}
 
     def answer_values(self, answer: str) -> dict[str, Any]:
-        answer_options = self.read(answer) or frozenset()
+        answer_options = {
+            option for option in self.read(answer) or () if not is_blank(option, self.reading)
+        }
+        if unlisted := sorted(answer_options - set(self.options)):
+            raise ValueError(f"{quoted(unlisted[0])} isn't one of the options.")
+        if len(answer_options) > 1 and not self.allow_multiple:
+            raise ValueError("Only one option can be chosen.")
         chosen_options = [option for option in self.options if option in answer_options]
         if self.allow_multiple:
             return {self._answer_property: chosen_options}

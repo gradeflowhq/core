@@ -103,7 +103,8 @@ class Question(BaseModel, ABC):
         return {"type": "string"}
 
     def answer_values(self, answer: str) -> dict[str, Any]:
-        """``answer`` as the values of `answer_schema`, each as written."""
+        """``answer`` split into the values of `answer_schema`, each as written. Raises
+        ``ValueError`` if ``answer`` doesn't fit the schema."""
         raise ValueError(f"{self.label} answers are written whole.")
 
     def answer_from(self, values: Mapping[str, Any]) -> str:

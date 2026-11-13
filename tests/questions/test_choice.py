@@ -64,7 +64,11 @@ def test_a_choice_answer_is_written_by_choosing_options() -> None:
     option_schema = question.answer_schema()["properties"]["option"]
     assert option_schema["enum"] == ["a", "b", "c"]
     assert question.answer_values("B") == {"option": "b"}
-    assert question.answer_values("z") == {"option": None}
+    assert question.answer_values("") == {"option": None}
+    with pytest.raises(ValueError, match="isn't one of the options"):
+        question.answer_values("z")
+    with pytest.raises(ValueError, match="Only one option"):
+        question.answer_values("a, b")
     assert question.answer_from({"option": "b"}) == "b"
     assert question.answer_from({"option": None}) == ""
 
@@ -81,7 +85,9 @@ def test_a_choice_of_several_options_takes_them_in_order() -> None:
         True,
         ["a", "b", "c"],
     )
-    assert question.answer_values("C, a, z") == {"options": ["a", "c"]}
+    assert question.answer_values("C, a,") == {"options": ["a", "c"]}
+    with pytest.raises(ValueError, match="“z” isn't one of the options"):
+        question.answer_values("C, a, z")
     assert question.answer_from({"options": ["c", "a"]}) == "a,c"
     assert question.answer_from({"options": []}) == ""
 

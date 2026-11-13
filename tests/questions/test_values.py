@@ -74,7 +74,9 @@ def test_a_values_answer_is_written_value_by_value() -> None:
     ]
     assert titles == ["Value 1, number", "Value 2, text"]
     assert question.answer_values("(3, x)") == {"value_1": "3", "value_2": "x"}
-    assert question.answer_values("3") == {"value_1": "3", "value_2": ""}
+    assert question.answer_values(" ") == {"value_1": "", "value_2": ""}
+    with pytest.raises(ValueError, match="Expected 2 values, but got 1"):
+        question.answer_values("3")
     assert question.answer_from({"value_1": " 3", "value_2": "x "}) == "3,x"
     assert question.answer_from({"value_1": "", "value_2": " "}) == ""
 

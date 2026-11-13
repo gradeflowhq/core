@@ -65,11 +65,13 @@ class ValuesQuestion(Question):
 
     def answer_values(self, answer: str) -> dict[str, Any]:
         written_values = (
-            _unbracketed(answer).split(self.reading.separator) if answer.strip() else []
+            self._counted(_unbracketed(answer).split(self.reading.separator))
+            if answer.strip()
+            else [""] * self.value_count
         )
-        written_values += [""] * (self.value_count - len(written_values))
         return {
-            f"value_{number}": written_values[number - 1].strip() for number in self._value_numbers
+            f"value_{number}": value.strip()
+            for number, value in zip(self._value_numbers, written_values, strict=True)
         }
 
     def answer_from(self, values: Mapping[str, Any]) -> str:
@@ -82,6 +84,11 @@ class ValuesQuestion(Question):
     def _value_numbers(self) -> range:
         return range(1, self.value_count + 1)
 
+    def _counted(self, values: list[str]) -> list[str]:
+        if len(values) != self.value_count:
+            raise ValueError(f"Expected {self.value_count} values, but got {len(values)}.")
+        return values
+
     def python_type(self) -> str:
         return "list[str | int | float | None], in order: " + ", ".join(self.value_types)
 
@@ -89,11 +96,9 @@ class ValuesQuestion(Question):
         values = read_list(_unbracketed(answer), self.reading)
         if values is None:
             return None
-        if len(values) != self.value_count:
-            raise ValueError(f"Expected {self.value_count} values, but got {len(values)}.")
         return [
             question.read(value)
-            for question, value in zip(self._value_questions(), values, strict=True)
+            for question, value in zip(self._value_questions(), self._counted(values), strict=True)
         ]
 
 
