@@ -620,6 +620,10 @@ class Draft:
             return f"Value {step.source.value_number}"
         return step.method_label
 
+    def needs_model_endpoint(self, path: str) -> bool:
+        """Whether the step, or a step it holds, asks a language model."""
+        return self._step(path).needs_model_endpoint()
+
     def notes(self, path: str) -> list[str]:
         """Notes beside the step's label: its question, input, weight and condition."""
         step = self._step(path)

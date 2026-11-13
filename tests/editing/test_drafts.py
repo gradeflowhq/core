@@ -419,6 +419,15 @@ def test_a_check_is_labelled_by_its_name_or_else_its_method() -> None:
         draft.position("marks_by")
 
 
+def test_a_step_needs_a_model_endpoint_when_it_or_a_step_it_holds_asks_a_model() -> None:
+    draft = workflow_draft()
+    assert not draft.needs_model_endpoint("")
+    draft.change_method("/with/steps/1", "gradeflow/answer-criteria@1")
+    assert draft.needs_model_endpoint("/with/steps/1")
+    assert draft.needs_model_endpoint("")
+    assert not draft.needs_model_endpoint("/with/steps/0")
+
+
 def test_notes_say_what_a_checks_place_does_to_it() -> None:
     draft = workflow_draft()
     assert draft.notes("/with/steps/1") == []
