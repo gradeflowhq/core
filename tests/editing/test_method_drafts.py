@@ -669,6 +669,13 @@ def test_bound_defaults_and_setting_metadata_survive_unrelated_edits() -> None:
     assert draft.declared_settings["min_value"]["examples"] == [4, 8]
 
 
+def test_a_setting_cannot_fill_whether_a_method_gives_marks() -> None:
+    draft = number_range_draft()
+    assert "output" not in {field.key for field in draft.configurable_fields()}
+    with pytest.raises(EditingError):
+        draft.bind_new_setting("/with/output")
+
+
 def test_only_settings_of_the_same_type_and_a_fitting_default_can_fill_a_field() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")

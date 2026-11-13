@@ -37,7 +37,9 @@ class WorkflowSettings(Settings):
     output: Literal["marks", "step_output"] = Field(
         default="marks",
         title="Output",
-        json_schema_extra=hint(labels={"marks": "Marks", "step_output": "A step's output"}),
+        json_schema_extra=hint(
+            labels={"marks": "Marks", "step_output": "A step's output"}, static=True
+        ),
     )
     marks_by: MarksBySetting = Field(
         default="all_correct",

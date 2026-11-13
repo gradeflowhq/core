@@ -13,6 +13,7 @@ from pydantic.fields import FieldInfo
 from ..common.documents import dump_yaml, load_yaml
 from ..common.error_formatting import IDENTIFIER_RULE
 from ..common.exceptions import EditingError
+from ..common.hints import hint_of
 from ..common.paths import parts_of, pointer, value_at
 from ..common.problems import InvalidError, Problem, invalid_errors, validation_problems
 from ..common.schemas import JsonDict, json_schema
@@ -880,7 +881,8 @@ def _with_raw_templates(value: Any) -> Any:
 def _can_setting_fill(key: str, settings: Mapping[str, FieldInfo]) -> bool:
     """Whether a declared setting can fill the field ``key`` of a step with these settings."""
     return key not in TEMPLATE_KEYS and (
-        key not in settings or step_cardinality(settings[key]) is None
+        key not in settings
+        or (step_cardinality(settings[key]) is None and not hint_of(settings[key]).static)
     )
 
 

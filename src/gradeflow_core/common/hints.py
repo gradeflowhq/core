@@ -25,6 +25,8 @@ class Hint(BaseModel):
     applies_when: dict[str, list[JsonValue]] | None = None
     """The field applies only when each named sibling field of the same object has one of the
     values listed for it."""
+    static: bool = False
+    """Read from the method as written, before settings fill it in, so a declared setting can't."""
     lists_answers: bool = False
     """The field lists accepted or model answers."""
     item_label: str | None = None
