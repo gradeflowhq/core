@@ -75,7 +75,7 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
         "Value 1: Correct.\nValue 2: Expected -3.",
     ]
     assert describe(in_order) == (
-        "Each one counts:\n- **Value 1:** Matches `2`.\n- **Value 2:** Matches `-3`."
+        "A share for each of these:\n- **Value 1:** Matches `2`.\n- **Value 2:** Matches `-3`."
     )
     assert problems_of(
         {

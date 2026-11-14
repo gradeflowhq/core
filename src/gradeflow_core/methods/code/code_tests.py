@@ -49,7 +49,7 @@ class Test(Settings):
     weight: float = Field(
         default=1,
         title="Weight",
-        description="How much the test counts, when each test earns its share.",
+        description="How much the test counts.",
         json_schema_extra=ADVANCED_HINT,
     )
 
@@ -269,7 +269,7 @@ def _which_tests(marks_by: MarksBy, test_count: int) -> str:
         case "none_correct":
             return "none of these tests"
         case "total":
-            return "these tests, marks added up"
+            return "these tests, a mark for each"
         case "proportional":
             return "these tests, a share for each"
 

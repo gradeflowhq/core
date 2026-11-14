@@ -66,7 +66,7 @@ def test_total_gives_weights_as_marks_capped_at_max_marks() -> None:
     four_mark_question = TextQuestion(max_marks=4)
     results = mark_all(total_workflow, ["a", "a b", "a b c", "a b c x", "x"], four_mark_question)
     assert proportions(results) == [0.5, 1, 1, 1, 0]
-    assert describe(total_workflow).startswith("Total of these:\n- ")
+    assert describe(total_workflow).startswith("A mark for each of these:\n- ")
 
 
 def test_feedback_follows_each_name_and_any_correct_gives_only_the_one_that_counted() -> None:
@@ -189,7 +189,7 @@ def test_a_workflow_describes_its_steps_with_their_names_and_weights() -> None:
         key_point("c", name="C", weight=-1),
     )
     assert describe(proportional) == (
-        "Each one counts:\n"
+        "A share for each of these:\n"
         "- Includes `a`.\n"
         "- **Worth 2:** Includes `b`.\n"
         "- **C** (Penalty 1): Includes `c`."

@@ -147,7 +147,7 @@ def test_key_points_count_each_point_or_add_up_a_mark_for_each() -> None:
     full, half = mark_all(a_mark_each, ["light and water", "light"], TextQuestion(max_marks=2))
     assert (full.proportion, full.feedback) == (1, "Has “light”.\nHas “water”.")
     assert half.proportion == 0.5
-    assert describe(a_mark_each) == "Includes `light`, `water` and `glucose`, a mark each."
+    assert describe(a_mark_each) == "Includes `light`, `water` and `glucose`, a mark for each."
 
 
 def test_key_points_any_one_of_which_is_missing_names_them_all() -> None:
@@ -208,7 +208,7 @@ def test_key_points_pass_how_they_match_to_each_point(
         ),
         (
             {"marks_by": "total", "match": "spelling", "strictness": "lenient"},
-            ("Includes these in similar spelling (lenient), a mark each:"),
+            ("Includes these in similar spelling (lenient), a mark for each:"),
         ),
     ],
 )

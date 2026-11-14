@@ -64,7 +64,7 @@ class Combination(ABC):
     uses_weights = True
 
     def description_heading(self, *notes: str) -> str:
-        """How a description of combined checks opens: ``Each one counts, in any order:``."""
+        """How a description of combined checks opens: ``A mark for each of these:``."""
         return f"{', '.join([self.heading, *notes])}:"
 
     def weight_problems(self, weights: Sequence[float], setting_name: str) -> Iterator[Problem]:
@@ -345,8 +345,10 @@ COMBINATIONS: Mapping[MarksBy, Combination] = {
     "all_correct": _AllCorrect(),
     "any_correct": _AnyCorrect(),
     "none_correct": _NoneCorrect(),
-    "total": _Additive("Total", "Total of these", divides_by_max_marks=True),
-    "proportional": _Additive("Proportional", "Each one counts", divides_by_max_marks=False),
+    "total": _Additive("A mark for each", "A mark for each of these", divides_by_max_marks=True),
+    "proportional": _Additive(
+        "A share for each", "A share for each of these", divides_by_max_marks=False
+    ),
 }
 MARKS_BY_LABELS: dict[str, str] = {
     marks_by: combination.label for marks_by, combination in COMBINATIONS.items()
