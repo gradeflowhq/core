@@ -15,7 +15,8 @@ digit."""
 
 
 class Settings(BaseModel):
-    """A method's settings: what a check's ``with`` holds."""
+    """A method's settings: what a check's ``with`` holds. Field descriptions are a line of
+    Markdown."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 

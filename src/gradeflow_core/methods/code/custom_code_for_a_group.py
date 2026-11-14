@@ -34,8 +34,8 @@ STARTER_CODE = (
 
 def group_code_description(answers_description: str) -> str:
     return (
-        f"Reads {answers_description} and any parameters, and sets results[question] to a dict of "
-        f"{RESULT_VARIABLES_HELP}."
+        f"Reads {answers_description} and each parameter by its name, and sets "
+        f"`results[question]` to a dict of {RESULT_VARIABLES_HELP}."
     )
 
 
@@ -50,7 +50,7 @@ class CustomCodeForAGroupSettings(Settings):
         default=STARTER_CODE,
         min_length=1,
         title="Code",
-        description=group_code_description("answers, by question,"),
+        description=group_code_description("`answers`, by question,"),
         json_schema_extra=hint(kind="code", language="python"),
     )
     parameters: dict[ParameterName, Parameter] = PARAMETERS_FIELD
@@ -85,7 +85,7 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
             for question_id, question in position.questions.items()
         )
         answers_description = (
-            f"answers ({typed_questions})" if typed_questions else "answers, by question,"
+            f"`answers` ({typed_questions})" if typed_questions else "`answers`, by question,"
         )
         return specialized(
             self.settings,

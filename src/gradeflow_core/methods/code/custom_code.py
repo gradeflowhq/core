@@ -17,7 +17,7 @@ from . import runner
 from .parameters import PARAMETERS_FIELD, Parameter, ParameterName, parameter_values
 
 RESULT_VARIABLES_HELP = (
-    "correct (True or False) or proportion (from 0 to 1), and feedback if you like"
+    "`correct` (True or False) or `proportion` (from 0 to 1), and `feedback` if you like"
 )
 RESULT_VARIABLES = ("correct", "proportion", "feedback")
 STARTER_CODE = 'correct = False\nfeedback = ""\n'
@@ -52,7 +52,10 @@ MEMORY_LIMIT_FIELD = memory_limit_field("Most memory the code may use before it 
 
 
 def code_description(answer_description: str) -> str:
-    return f"Reads {answer_description} and any parameters, and sets {RESULT_VARIABLES_HELP}."
+    return (
+        f"Reads {answer_description} and each parameter by its name, and sets "
+        f"{RESULT_VARIABLES_HELP}."
+    )
 
 
 class CustomCodeSettings(Settings):
@@ -60,7 +63,7 @@ class CustomCodeSettings(Settings):
         default=STARTER_CODE,
         min_length=1,
         title="Code",
-        description=code_description("answer"),
+        description=code_description("`answer`"),
         json_schema_extra=hint(kind="code", language="python"),
     )
     parameters: dict[ParameterName, Parameter] = PARAMETERS_FIELD
@@ -132,7 +135,7 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
 
     def settings_model_at(self, position: Position) -> type[Settings]:
         question = position.question_model
-        answer_description = f"answer ({question.python_type()})" if question else "answer"
+        answer_description = f"`answer` ({question.python_type()})" if question else "`answer`"
         return specialized(
             self.settings, code={"description": code_description(answer_description)}
         )

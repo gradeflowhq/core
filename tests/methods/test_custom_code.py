@@ -142,10 +142,10 @@ def code_description(method: str, position: Position) -> str:
 
 def test_the_code_description_names_the_type_each_answer_comes_as() -> None:
     questions = QuestionSet({"Q1": TextQuestion(), "Q2": NumberQuestion()})
-    assert "Reads answer (int | float | None)" in code_description(
+    assert "Reads `answer` (int | float | None)" in code_description(
         "gradeflow/custom-code", Position(questions, "Q2")
     )
-    assert "Reads answers (Q1: str | None, Q2: int | float | None)" in code_description(
+    assert "Reads `answers` (Q1: str | None, Q2: int | float | None)" in code_description(
         "gradeflow/custom-code-for-a-group", Position(questions, is_in_group=True)
     )
 
