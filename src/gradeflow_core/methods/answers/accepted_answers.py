@@ -57,12 +57,12 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
     name = "gradeflow/accepted-answers"
     version = 1
     label = "Accepted Answers"
-    summary = "Full marks if the answer is one you accept."
+    summary = "Correct if the answer is one you accept."
     guide = (
         "**Use it when:** There are one or a few correct answers, such as a name, a term, a number "
         "or a one-sentence explanation.\n\n"
         "**How it marks:** The whole answer is compared with each accepted answer, and a match "
-        "gets full marks. **Exactly** needs the same text, and **Similar spelling** forgives "
+        "is correct. **Exactly** needs the same text, and **Similar spelling** forgives "
         "small mistakes. **Same meaning** accepts other words, judged by a language model that "
         "also reads the question's description, and for number questions a **Tolerance** "
         "accepts nearby values.\n\n"

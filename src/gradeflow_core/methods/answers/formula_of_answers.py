@@ -31,12 +31,12 @@ class FormulaOfAnswers(MarkingMethod[FormulaOfAnswersSettings]):
     name = "gradeflow/formula-of-answers"
     version = 1
     label = "Formula of Answers"
-    summary = "Full marks if a number follows from other answers."
+    summary = "Correct if a number follows from other answers."
     guide = (
         "**Use it when:** A number answer is worked out from earlier ones, and a student who got "
         "an earlier one wrong should still get marks for working from it.\n\n"
         "**How it marks:** Write the expected answer as a formula of other answers, such as "
-        "`Q1 * 12`. Each student's own answers go into it, and their answer gets full marks if "
+        "`Q1 * 12`. Each student's own answers go into it, and their answer is correct if "
         "it matches, within the **Tolerance**. Formulas use the operators and functions of "
         "Equivalent Expression.\n\n"
         "**Good to know:** Write a question whose name has spaces or starts with a digit in "

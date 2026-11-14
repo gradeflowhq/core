@@ -40,11 +40,11 @@ class Length(AnswerMethod[LengthSettings]):
     name = "gradeflow/length"
     version = 1
     label = "Length"
-    summary = "Full marks if the answer's length is within limits."
+    summary = "Correct if the answer's length is within limits."
     guide = (
         "**Use it when:** The answer has a word limit, or must be long enough to count.\n\n"
         "**How it marks:** The answer's words or characters are counted, and a count from **At "
-        "least** to **At most** gets full marks. Leave either empty for no limit on that side.\n\n"
+        "least** to **At most** is correct. Leave either empty for no limit on that side.\n\n"
         "**Related:** To check what the answer says as well, combine it with Key Points in a "
         "Workflow."
     )

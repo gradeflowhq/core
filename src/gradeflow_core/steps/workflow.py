@@ -104,7 +104,7 @@ class Workflow(Method[WorkflowSettings]):
         "**Use it when:** One check isn't enough, such as an answer with reasoning and a final "
         "number, or an answer that must name a key term and stay within a word limit.\n\n"
         "**How it marks:** Steps run in order. **How marks are given** sets how the checks count: "
-        "**All must be correct** and **None may be correct** give full marks or none, **Any one "
+        "**All must be correct** and **None may be correct** are all or nothing, **Any one "
         "must be correct** counts the check that gives the most marks, **A mark for each** "
         "gives each correct check its weight in marks, and **A share for each** gives each its "
         "share of the marks by its weight. A transform gives no marks: it finds part of "

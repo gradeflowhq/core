@@ -46,12 +46,12 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
     name = "gradeflow/equivalent-expression"
     version = 1
     label = "Equivalent Expression"
-    summary = "Full marks for any expression equal to yours."
+    summary = "Correct if the expression equals one of yours."
     guide = (
         "**Use it when:** The answer is an algebraic expression that can be written in many "
         "equal forms.\n\n"
         "**How it marks:** The answer and each accepted expression are worked out at several "
-        "values of their variables, and an answer that agrees at every one gets full marks. "
+        "values of their variables, and an answer that agrees at every one is correct. "
         "Letters side by side multiply, so `2xy` is 2 × x × y. Expressions may use `+ - * / ^`, "
         "brackets, `pi`, `e`, `sqrt`, `exp`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `abs`, "
         "`ln` and `log` (base 10).\n\n"

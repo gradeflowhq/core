@@ -53,7 +53,7 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
     name = "gradeflow/code-uses"
     version = 1
     label = "Code Uses"
-    summary = "Full marks if the code uses a construct you choose."
+    summary = "Correct if the code uses a construct you choose."
     guide = (
         "**Use it when:** Code must use a construct, such as a loop, recursion or a call to a "
         "function.\n\n"

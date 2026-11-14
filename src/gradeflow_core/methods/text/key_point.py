@@ -46,7 +46,7 @@ class KeyPoint(AnswerMethod[KeyPointSettings]):
     name = "gradeflow/key-point"
     version = 1
     label = "Key Point"
-    summary = "Full marks if the answer includes one point."
+    summary = "Correct if the answer includes one point."
     level = "internal"
     question_types = frozenset({"text"})
     settings = KeyPointSettings

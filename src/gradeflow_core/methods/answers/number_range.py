@@ -49,11 +49,11 @@ class NumberRange(AnswerMethod[NumberRangeSettings]):
     name = "gradeflow/number-range"
     version = 1
     label = "Number Range"
-    summary = "Full marks for a number within a range."
+    summary = "Correct if the number is within a range."
     guide = (
         "**Use it when:** Any number in a range is correct, such as an estimate, a measurement or "
         "a rounded result.\n\n"
-        "**How it marks:** A number from **From** to **To**, both included, gets full marks. "
+        "**How it marks:** A number from **From** to **To**, both included, is correct. "
         "Leave either empty for no limit on that side.\n\n"
         "**Related:** To accept numbers near one value, use Accepted Answers with a "
         "**Tolerance**."

@@ -22,11 +22,11 @@ class Pattern(AnswerMethod[PatternSettings]):
     name = "gradeflow/pattern"
     version = 1
     label = "Pattern"
-    summary = "Full marks if the answer matches a regular expression."
+    summary = "Correct if the answer matches a regular expression."
     guide = (
         "**Use it when:** Correct answers follow a pattern that a list can't cover, such as any "
         "date written as DD/MM/YYYY.\n\n"
-        "**How it marks:** The answer gets full marks if the pattern is found anywhere in it. "
+        "**How it marks:** The answer is correct if the pattern is found anywhere in it. "
         "Patterns use [Python's regular expression syntax]"
         "(https://docs.python.org/3/library/re.html#regular-expression-syntax). Start the "
         "pattern with `^` and end it with `$` to match the whole answer. On a question that keeps "

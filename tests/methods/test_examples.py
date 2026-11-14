@@ -42,7 +42,14 @@ GUIDE_PATTERN = re.compile(
     r"(\n\n\*\*Good to know:\*\* [A-Z*].+)?"
     r"(\n\n\*\*Related:\*\* [A-Z*].+)?$"
 )
-SUMMARY_OPENINGS = ("Finds ", "Full marks ", "Marks ", "Several steps ", "Your Python code ")
+SUMMARY_OPENINGS = (
+    "Correct ",
+    "Finds ",
+    "Full marks ",
+    "Marks ",
+    "Several steps ",
+    "Your Python code ",
+)
 PUBLIC_METHODS = [method for method in BUILTINS if method.level != "internal"]
 BY_NAME = {method.name: method for method in BUILTINS}
 

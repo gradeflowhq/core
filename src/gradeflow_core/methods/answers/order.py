@@ -48,7 +48,7 @@ class Order(AnswerMethod[OrderSettings]):
         "**Use it when:** Students put items in order, such as the stages of a process or events "
         "in time.\n\n"
         "**How it marks:** **Marks for** sets how the answer is compared with **Correct order**. "
-        "**Only the correct order** gives full marks or none, and **Items in order** gives a share "
+        "**Only the correct order** is all or nothing, and **Items in order** gives a share "
         "for the most items kept in order, so one item out of place costs one share. "
         "**Pairs in order** gives a share for each pair side by side as in the correct "
         "order.\n\n"

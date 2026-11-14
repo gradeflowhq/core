@@ -323,7 +323,7 @@ class StartsWith(AnswerMethod[StartsWithSettings]):
     name = "examples/starts-with"
     version = 1
     label = "Starts With"
-    summary = "Full marks if the answer starts with the text."
+    summary = "Correct if the answer starts with the text."
     question_types = frozenset({"text"})
     settings = StartsWithSettings
 
