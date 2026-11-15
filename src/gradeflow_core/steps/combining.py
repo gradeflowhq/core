@@ -4,7 +4,7 @@ marks."""
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from ..common.paths import pointer
 from ..common.problems import Problem
@@ -51,6 +51,17 @@ class Part:
         return self.feedback_name or self.method_label
 
 
+class WeightField(NamedTuple):
+    """The title and description of a check's weight in a list."""
+
+    title: str
+    description: str
+
+
+_COUNTS_OR_NOT = WeightField(
+    "Weight", "1 counts it, and 0 lets later steps read it without counting it."
+)
+
 type PartAndOutcome = tuple[Part, Outcome]
 """A part and its outcome for one answer."""
 
@@ -61,10 +72,12 @@ class Combination(ABC):
     label: str
     heading: str
     """How a description of the checks opens."""
+    weight_field: WeightField
+    """The title and description of a check's weight."""
     uses_weights = True
 
     def description_heading(self, *notes: str) -> str:
-        """How a description of combined checks opens: ``A mark for each of these:``."""
+        """How a description of combined checks opens: ``Marks added up from these:``."""
         return f"{', '.join([self.heading, *notes])}:"
 
     def weight_problems(self, weights: Sequence[float], setting_name: str) -> Iterator[Problem]:
@@ -77,6 +90,21 @@ class Combination(ABC):
                     f"“{self.label}” doesn't use weights.",
                     field=pointer(setting_name, index, "weight"),
                 )
+
+    def weight_notes(self, weights: Sequence[float]) -> list[str | None]:
+        """What each of the ``weights`` of the checks in a list makes its check worth."""
+        return [self._weight_note(weight) for weight in weights]
+
+    def _weight_note(self, weight: float) -> str | None:
+        """What ``weight`` makes a check worth, unless it is 1: ``½ of the marks``,
+        ``Penalty 1``."""
+        if weight == 1:
+            return None
+        if weight == 0:
+            return "Gives no marks"
+        if weight > 0:
+            return f"{format_fraction(weight)} of the marks"
+        return f"Penalty {format_fraction(-weight)}"
 
     def denominator(self, weights: Sequence[float], max_marks: float) -> float:
         """What added marks are divided by, given the ``weights`` of every check counted."""
@@ -160,6 +188,7 @@ class _QuestionByQuestion(Combination):
 class _AllCorrect(_QuestionByQuestion):
     label = "All must be correct"
     heading = "All of these"
+    weight_field = _COUNTS_OR_NOT
     uses_weights = False
 
     def proportion(
@@ -180,6 +209,7 @@ class _AllCorrect(_QuestionByQuestion):
 class _NoneCorrect(_QuestionByQuestion):
     label = "None may be correct"
     heading = "None of these"
+    weight_field = _COUNTS_OR_NOT
     uses_weights = False
 
     def proportion(
@@ -223,6 +253,20 @@ class _NoneCorrect(_QuestionByQuestion):
 class _AnyCorrect(Combination):
     label = "Any one must be correct"
     heading = "Any one of these"
+    weight_field = WeightField(
+        "Weight",
+        "How much of the full marks it gives: 1 for full marks, 0.5 for half. Zero lets later "
+        "steps read it without giving marks.",
+    )
+
+    def weight_problems(self, weights: Sequence[float], setting_name: str) -> Iterator[Problem]:
+        """A problem at each weight below 0 or above 1, which gives no more than 0 or 1 would."""
+        for index, weight in enumerate(weights):
+            if not 0 <= weight <= 1:
+                yield Problem(
+                    f"“{self.label}” takes weights from 0 to 1.",
+                    field=pointer(setting_name, index, "weight"),
+                )
 
     def proportion(
         self, weighted_proportions: Sequence[tuple[float, float]], denominator: float
@@ -302,6 +346,28 @@ class _Additive(_QuestionByQuestion):
     heading: str
     divides_by_max_marks: bool
     """Whether weights are marks of the question, not shares of them."""
+    weight_field: WeightField
+
+    def weight_notes(self, weights: Sequence[float]) -> list[str | None]:
+        """In marks, as ``_weight_note`` writes them. Split by weight, each check's share of the
+        marks, ``80% of the marks``, unless the checks that count all have the same weight."""
+        if self.divides_by_max_marks:
+            return super().weight_notes(weights)
+        counted = {weight for weight in weights if weight}
+        if len(counted) == 1 and min(counted) > 0:
+            return [None if weight else "Gives no marks" for weight in weights]
+        denominator = self.denominator(weights, max_marks=1)
+        return [
+            _share_note(weight / denominator) if weight else "Gives no marks" for weight in weights
+        ]
+
+    def _weight_note(self, weight: float) -> str | None:
+        """What ``weight`` makes a check worth in marks, unless it is 1: ``2 marks``,
+        ``Penalty 1 mark``."""
+        if weight in (0, 1):
+            return super()._weight_note(weight)
+        amount = f"{format_fraction(abs(weight))} mark{'s' if abs(weight) > 1 else ''}"
+        return amount if weight > 0 else f"Penalty {amount}"
 
     def denominator(self, weights: Sequence[float], max_marks: float) -> float:
         if self.divides_by_max_marks:
@@ -345,9 +411,25 @@ COMBINATIONS: Mapping[MarksBy, Combination] = {
     "all_correct": _AllCorrect(),
     "any_correct": _AnyCorrect(),
     "none_correct": _NoneCorrect(),
-    "total": _Additive("A mark for each", "A mark for each of these", divides_by_max_marks=True),
+    "total": _Additive(
+        "Add up marks",
+        "Marks added up from these",
+        divides_by_max_marks=True,
+        weight_field=WeightField(
+            "Marks",
+            "The marks it gives when correct. Zero lets later steps read it without giving marks, "
+            "and a negative number takes marks off.",
+        ),
+    ),
     "proportional": _Additive(
-        "A share for each", "A share for each of these", divides_by_max_marks=False
+        "Split by weight",
+        "Split by weight between these",
+        divides_by_max_marks=False,
+        weight_field=WeightField(
+            "Weight",
+            "How much it counts against the other checks: 2 counts twice as much as 1. Zero lets "
+            "later steps read it without giving marks, and a negative weight takes marks off.",
+        ),
     ),
 }
 MARKS_BY_LABELS: dict[str, str] = {
@@ -355,15 +437,11 @@ MARKS_BY_LABELS: dict[str, str] = {
 }
 
 
-def weight_note(weight: float) -> str | None:
-    """What ``weight`` makes a check worth, unless it is 1: ``Worth ½``, ``Penalty 1``."""
-    if weight == 1:
-        return None
-    if weight == 0:
-        return "Gives no marks"
-    if weight > 0:
-        return f"Worth {format_fraction(weight)}"
-    return f"Penalty {format_fraction(-weight)}"
+def _share_note(share: float) -> str:
+    """What a check's ``share`` of the marks makes it worth: ``80% of the marks``,
+    ``Penalty 40% of the marks``."""
+    amount = f"{abs(share):.0%} of the marks"
+    return amount if share > 0 else f"Penalty {amount}"
 
 
 def combine(

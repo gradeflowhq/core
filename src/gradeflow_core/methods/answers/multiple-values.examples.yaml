@@ -1,7 +1,7 @@
 examples:
   - title: Name the highest mountain on Earth and its height in metres.
     description: |-
-      A share for each of these:
+      Split by weight between these:
       - **Value 1:** Matches `Everest`.
       - **Value 2:** Is between `8800` and `8900`.
     questions:
@@ -37,7 +37,7 @@ examples:
               Value 2: Too low. Expected between 8800 and 8900.
   - title: What are the roots of x² + x - 6 = 0?
     description: |-
-      A share for each of these, in any order:
+      Split by weight between these, in any order:
       - **Value 1:** Matches `2`.
       - **Value 2:** Matches `-3`.
     questions:

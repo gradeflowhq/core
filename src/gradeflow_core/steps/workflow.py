@@ -105,14 +105,14 @@ class Workflow(Method[WorkflowSettings]):
         "number, or an answer that must name a key term and stay within a word limit.\n\n"
         "**How it marks:** Steps run in order. **How marks are given** sets how the checks count: "
         "**All must be correct** and **None may be correct** are all or nothing, **Any one "
-        "must be correct** counts the check that gives the most marks, **A mark for each** "
-        "gives each correct check its weight in marks, and **A share for each** gives each its "
-        "share of the marks by its weight. A transform gives no marks: it finds part of "
+        "must be correct** counts the check that gives the most marks, **Add up marks** "
+        "adds up each correct check's weight in marks, and **Split by weight** splits the marks "
+        "between the checks by their weights. A transform gives no marks: it finds part of "
         "the answer for a later step to read as its **Input**.\n\n"
-        "**Good to know:** A weight below 1, such as `0.5`, makes a check worth part of the marks. "
-        "A weight of `0` lets later steps read a check without it giving marks, and a negative "
-        "weight is a penalty. With **Any one must be correct**, list the correct answer first, "
-        "then partly correct answers with lower weights.\n\n"
+        "**Good to know:** Each step's weight says what it is worth, as **How marks are given** "
+        "reads it. A weight of `0` lets later steps read a check without it giving marks. With "
+        "**Any one must be correct**, list the correct answer first, then partly correct answers "
+        "with lower weights.\n\n"
         "**Related:** To forbid something, add a Not Allowed check. To mark several questions "
         "together, make a question group."
     )
@@ -150,9 +150,12 @@ class Workflow(Method[WorkflowSettings]):
             for inner_step in settings.steps
             if inner_step.id
         }
+        weight_notes = combination.weight_notes(
+            [inner_step.weight for inner_step in settings.steps]
+        )
         step_list_markdown = markdown_list(
-            inner_step.described_in_list(inner_step.notes(check_labels))
-            for inner_step in settings.steps
+            inner_step.described_in_list(inner_step.notes(check_labels, weight_note))
+            for inner_step, weight_note in zip(settings.steps, weight_notes, strict=True)
         )
         return f"{combination.description_heading()}\n{step_list_markdown}"
 

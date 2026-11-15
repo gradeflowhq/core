@@ -21,6 +21,7 @@ from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
+from ..steps.combining import Combination
 from ..steps.conditions import Condition, condition_template, read_condition
 from ..steps.input_sources import (
     ANSWER_INPUT,
@@ -30,6 +31,7 @@ from ..steps.input_sources import (
     input_text,
 )
 from ..steps.method import Method
+from ..steps.nested_steps import combination_of
 from ..steps.places import StepPlace, marking_position, places
 from ..steps.position import Position
 from ..steps.problems import located_problems
@@ -294,6 +296,11 @@ class Draft:
             )
             if not (is_transform and key in CHECK_PROPERTIES)
         }
+        if "weight" in properties and (combination := self._list_combination(path)):
+            weight = combination.weight_field
+            properties["weight"] |= {"title": weight.title, "description": weight.description}
+            if combination.uses_weights:
+                properties["weight"][HINT_KEY].pop("advanced")
         for property_schema in properties.values():
             if property_schema.get(HINT_KEY, {}).get("kind") == "output_step":
                 steps_path = path + "/with/steps"
@@ -634,7 +641,26 @@ class Draft:
             step_id: self.label(check_path)
             for step_id, check_path in self._paths_by_id(self.earlier_checks(path)).items()
         }
-        return notes + step.notes(check_labels)
+        return notes + step.notes(check_labels, self._weight_note(path))
+
+    def _weight_note(self, path: str) -> str | None:
+        """What the step at ``path`` is worth among the steps of its list; None outside one."""
+        combination = self._list_combination(path)
+        if combination is None:
+            return None
+        list_paths = [
+            step_path
+            for step_path in self.paths()
+            if is_list_item(step_path) and parent(step_path) == parent(path)
+        ]
+        weights = [self._step(step_path).weight for step_path in list_paths]
+        return combination.weight_notes(weights)[list_paths.index(path)]
+
+    def _list_combination(self, path: str) -> Combination | None:
+        """How the list holding the step at ``path`` combines its checks; None outside one."""
+        if not self._place(path).position.is_in_list:
+            return None
+        return combination_of(settings_of(self._step_data(_enclosing_step_path(path))))
 
     def _input_label(self, path: str) -> str | None:
         """What the step at ``path`` reads, in words, if it isn't the answer as it is."""

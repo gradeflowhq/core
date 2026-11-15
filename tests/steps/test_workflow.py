@@ -66,7 +66,7 @@ def test_total_gives_weights_as_marks_capped_at_max_marks() -> None:
     four_mark_question = TextQuestion(max_marks=4)
     results = mark_all(total_workflow, ["a", "a b", "a b c", "a b c x", "x"], four_mark_question)
     assert proportions(results) == [0.5, 1, 1, 1, 0]
-    assert describe(total_workflow).startswith("A mark for each of these:\n- ")
+    assert describe(total_workflow).startswith("Marks added up from these:\n- ")
 
 
 def test_feedback_follows_each_name_and_any_correct_gives_only_the_one_that_counted() -> None:
@@ -180,7 +180,7 @@ def test_any_correct_across_questions_picks_one_check_by_its_total_marks() -> No
 def test_a_workflow_describes_its_steps_with_their_names_and_weights() -> None:
     check = workflow("any_correct", key_point("a", name="A"), key_point("b", weight=0.5))
     assert describe(check) == (
-        "Any one of these:\n- **A:** Includes `a`.\n- **Worth ½:** Includes `b`."
+        "Any one of these:\n- **A:** Includes `a`.\n- **½ of the marks:** Includes `b`."
     )
     proportional = workflow(
         "proportional",
@@ -189,10 +189,10 @@ def test_a_workflow_describes_its_steps_with_their_names_and_weights() -> None:
         key_point("c", name="C", weight=-1),
     )
     assert describe(proportional) == (
-        "A share for each of these:\n"
-        "- Includes `a`.\n"
-        "- **Worth 2:** Includes `b`.\n"
-        "- **C** (Penalty 1): Includes `c`."
+        "Split by weight between these:\n"
+        "- **33% of the marks:** Includes `a`.\n"
+        "- **67% of the marks:** Includes `b`.\n"
+        "- **C** (Penalty 33% of the marks): Includes `c`."
     )
 
 
@@ -208,7 +208,7 @@ def test_a_workflow_describes_each_steps_condition() -> None:
     )
     assert describe(check).splitlines()[1:] == [
         "- **A:** Includes `a`.",
-        "- **Worth ½ · Only when A isn't correct:** Includes `b`.",
+        "- **½ mark · Only when A isn't correct:** Includes `b`.",
         "- **Only when its condition holds:** Includes `c`.",
         "- **Gives no marks:** Includes `d`.",
         "- **Only when Key Point is correct:** Includes `e`.",
@@ -233,6 +233,14 @@ def test_a_weight_where_weights_arent_used_is_a_problem(marks_by: str) -> None:
     label = {"all_correct": "All must be correct", "none_correct": "None may be correct"}[marks_by]
     assert problems_of(check) == [("/with/steps/1", "/weight", f"“{label}” doesn't use weights.")]
     assert problems_of({**check, "with": {**check["with"], "marks_by": "any_correct"}}) == []
+
+
+@pytest.mark.parametrize("weight", [2, -1])
+def test_any_one_correct_takes_weights_from_0_to_1(weight: float) -> None:
+    check = workflow("any_correct", key_point("a"), key_point("b", weight=weight))
+    assert problems_of(check) == [
+        ("/with/steps/1", "/weight", "“Any one must be correct” takes weights from 0 to 1.")
+    ]
 
 
 def test_a_step_left_unmarked_says_why_even_when_it_would_be_a_penalty() -> None:

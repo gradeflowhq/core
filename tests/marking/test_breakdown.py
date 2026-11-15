@@ -49,7 +49,7 @@ def test_code_tests_break_down_into_their_tests_with_what_each_gave() -> None:
     )
     result = mark(tests, DECODE, CODE_QUESTION)
     assert result.breakdown is not None
-    assert result.breakdown.title == "Passes these tests, a share for each"
+    assert result.breakdown.title == "Passes these tests, split by weight"
     assert breakdown_rows(result) == [
         ("Makes `decode([\"a\", 2])` give `'aa'`.", "earned", 0.5),
         ("Makes `decode([])` give `'x'`.", "no_marks", 0.0),
@@ -275,10 +275,10 @@ def test_a_marking_of_unindented_code_gives_each_checks_marks() -> None:
     unindented = "def count(xs):\nif not xs:\nreturn 0\nreturn 1 + count(xs[1:])"
     result = mark(COUNT_MARKING, unindented, COUNT_QUESTION)
     assert result.breakdown is not None
-    assert result.breakdown.title == "A mark for each of these"
+    assert result.breakdown.title == "Marks added up from these"
     [(title, effect, marks, tests), *others] = breakdown_tree(result)
     assert (title, effect, marks) == (
-        "Passes these tests, a share for each",
+        "Passes these tests, split by weight",
         "earned",
         2.0,
     )
@@ -408,7 +408,7 @@ def test_a_conditional_shows_its_branch_with_marks_only_at_the_top() -> None:
     assert breakdown_tree(result) == [
         ("**Q1:** Chooses exactly `a`.", "met", None, []),
         (
-            "A mark for each of these",
+            "Marks added up from these",
             "partial",
             None,
             [

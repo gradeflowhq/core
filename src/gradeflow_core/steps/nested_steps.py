@@ -1,7 +1,7 @@
 """Settings that hold steps: a check's own check, or the steps of a workflow, and how their
 outcomes are combined."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, PlainValidator, ValidationInfo
@@ -10,7 +10,7 @@ from pydantic_core import InitErrorDetails, PydanticCustomError, ValidationError
 from ..common.hints import hint
 from ..common.problems import InvalidError, problem_error
 from ..questions.types import QuestionId
-from .combining import MARKS_BY_LABELS, MarksBy, Part
+from .combining import COMBINATIONS, MARKS_BY_LABELS, Combination, MarksBy, Part
 from .step import (
     METHODS_CONTEXT_KEY,
     Step,
@@ -71,6 +71,15 @@ MarksBySetting = Annotated[
     MarksBy, Field(title="How marks are given", json_schema_extra=hint(labels=MARKS_BY_LABELS))
 ]
 """How the checks a setting holds are combined."""
+
+
+def combination_of(settings: Mapping[str, Any]) -> Combination | None:
+    """How ``settings``, as YAML holds them, combine the checks they hold; None if their
+    ``marks_by`` is none of the ways."""
+    marks_by = settings.get("marks_by", "all_correct")
+    return next(
+        (combination for name, combination in COMBINATIONS.items() if name == marks_by), None
+    )
 
 
 def combined_part(check: Step, default_name: str | None = None) -> Part:

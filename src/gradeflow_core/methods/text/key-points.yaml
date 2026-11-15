@@ -21,6 +21,12 @@ settings:
   marks_by:
     title: How points count
     default: proportional
+    labels:
+      all_correct: All must be correct
+      any_correct: Any one must be correct
+      none_correct: None may be correct
+      total: A mark for each
+      proportional: A share for each
   whole_words:
     default: false
 marks_by: "{{ settings.marks_by }}"

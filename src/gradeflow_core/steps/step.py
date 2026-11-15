@@ -26,7 +26,6 @@ from ..common.paths import is_within, pointer
 from ..common.problems import InvalidError, Problem, validation_problem, validation_problems
 from ..common.text import capitalized
 from ..questions.types import QuestionId
-from .combining import weight_note
 from .conditions import condition_note
 from .input_sources import InputSource, OtherAnswerSource, input_source
 from .method import Method
@@ -121,7 +120,6 @@ class Step(BaseModel):
         title="Weight",
         description="How much it counts. Zero lets later steps read it without giving marks, and "
         "a negative weight is a penalty.",
-        examples=[2, 1, 0.5, 0.25, -1],
         json_schema_extra=ADVANCED_HINT,
     )
     """0 for a transform."""
@@ -158,17 +156,18 @@ class Step(BaseModel):
         method, settings = method_and_settings(self)
         return method.describe(settings)
 
-    def notes(self, check_labels: Mapping[str, str]) -> list[str]:
-        """Its weight and condition in words, naming each check its condition reads by
-        ``check_labels``, by ID: ``Worth ½``, ``Only when Units isn't correct``."""
-        weight = weight_note(self.weight) if self.resolution.gives_marks else None
+    def notes(self, check_labels: Mapping[str, str], weight_note: str | None) -> list[str]:
+        """Its ``weight_note``, if it is a check, and condition in words, naming each check its
+        condition reads by ``check_labels``, by ID: ``½ of the marks``, ``Only when Units isn't
+        correct``."""
+        weight = weight_note if self.resolution.gives_marks else None
         condition = condition_note(self.if_, check_labels) if self.if_ else None
         return [note for note in (weight, condition) if note]
 
     def described_in_list(self, notes: Sequence[str]) -> str:
         """What it does, as an item of a list. A check comes after its question and its name, or
         the label of a method that is described by its steps, with ``notes`` after them:
-        ``**Q2, Sign error** (Worth ½): …``."""
+        ``**Q2, Sign error** (½ of the marks): …``."""
         description = self.describe()
         if not self.resolution.gives_marks:
             return description

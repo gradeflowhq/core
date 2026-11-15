@@ -17,7 +17,7 @@ from ...common.text import (
 from ...questions.base import Question
 from ...questions.code_files import python_files, split_answer
 from ...questions.types import Answer
-from ...steps.combining import COMBINATIONS, MARKS_BY_LABELS, MarksBy, Part, weight_note
+from ...steps.combining import COMBINATIONS, MARKS_BY_LABELS, MarksBy, Part
 from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import CORRECT_FEEDBACK, Detail, Outcome
@@ -131,14 +131,15 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
 
     def describe(self, settings: CodeTestsSettings) -> str:
         tests, marks_by = settings.tests, settings.marks_by
+        weight_notes = COMBINATIONS[marks_by].weight_notes([test.weight for test in tests])
         if len(tests) == 1:
-            [test] = tests
+            [test], [weight_note] = tests, weight_notes
             is_negated = marks_by == "none_correct"
-            return f"{_weight_prefix(test)}{_test_title(test, is_negated=is_negated)}"
+            return f"{_weight_prefix(weight_note)}{_test_title(test, is_negated=is_negated)}"
         test_lines = "\n".join(
-            f"- {_weight_prefix(test)}{code_span(test.expression)} gives "
+            f"- {_weight_prefix(weight_note)}{code_span(test.expression)} gives "
             f"{code_span(test.expected)}."
-            for test in tests
+            for test, weight_note in zip(tests, weight_notes, strict=True)
         )
         return f"Passes {_which_tests(marks_by, len(tests))}:\n{test_lines}"
 
@@ -255,9 +256,8 @@ def _test_title(test: Test, *, is_negated: bool = False) -> str:
     return f"{makes} {code_span(test.expression)} give {code_span(test.expected)}."
 
 
-def _weight_prefix(test: Test) -> str:
-    note = weight_note(test.weight)
-    return f"**{note}:** " if note else ""
+def _weight_prefix(weight_note: str | None) -> str:
+    return f"**{weight_note}:** " if weight_note else ""
 
 
 def _which_tests(marks_by: MarksBy, test_count: int) -> str:
@@ -269,9 +269,9 @@ def _which_tests(marks_by: MarksBy, test_count: int) -> str:
         case "none_correct":
             return "none of these tests"
         case "total":
-            return "these tests, a mark for each"
+            return "these tests, marks added up"
         case "proportional":
-            return "these tests, a share for each"
+            return "these tests, split by weight"
 
 
 _TEST_PROGRAM = """

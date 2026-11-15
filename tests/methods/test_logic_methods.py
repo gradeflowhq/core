@@ -75,7 +75,7 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
         "Value 1: Correct.\nValue 2: Expected -3.",
     ]
     assert describe(in_order) == (
-        "A share for each of these:\n- **Value 1:** Matches `2`.\n- **Value 2:** Matches `-3`."
+        "Split by weight between these:\n- **Value 1:** Matches `2`.\n- **Value 2:** Matches `-3`."
     )
     assert problems_of(
         {
@@ -108,6 +108,23 @@ def test_multiple_values_needs_a_check_for_each_value(any_order: bool) -> None:
         count_problem,
         ("/with/checks/2", "/input", "The answer has 2 values."),
     ]
+
+
+def test_multiple_values_checks_its_weights_against_how_marks_are_given() -> None:
+    roots = ValuesQuestion(value_types=["number", "number"])
+    checks = with_value_inputs(accepted_answer("2"), {**accepted_answer("-3"), "weight": 2})
+
+    def problems_with(marks_by: str) -> list[tuple[str, str, str]]:
+        check = {
+            "uses": "gradeflow/multiple-values@1",
+            "with": {"marks_by": marks_by, "checks": checks},
+        }
+        return problems_of(check, roots)
+
+    assert problems_with("all_correct") == [
+        ("/with/checks/1", "/weight", "“All must be correct” doesn't use weights.")
+    ]
+    assert problems_with("total") == []
 
 
 def test_multiple_values_in_any_order_need_values_of_one_type() -> None:

@@ -292,8 +292,8 @@ def test_one_test_is_described_in_a_line() -> None:
         ("all_correct", "Passes both tests:"),
         ("any_correct", "Passes any one of these tests:"),
         ("none_correct", "Passes none of these tests:"),
-        ("proportional", "Passes these tests, a share for each:"),
-        ("total", "Passes these tests, a mark for each:"),
+        ("proportional", "Passes these tests, split by weight:"),
+        ("total", "Passes these tests, marks added up:"),
     ],
 )
 def test_several_tests_are_listed_under_how_they_count(marks_by: str, opening: str) -> None:
@@ -306,12 +306,14 @@ def test_several_tests_are_listed_under_how_they_count(marks_by: str, opening: s
 def test_tests_are_listed_with_their_weights() -> None:
     weighted = {**G_GIVES_2, "weight": 2}
     assert describe(code_tests(F_GIVES_1, weighted, marks_by="total")) == (
-        "Passes these tests, a mark for each:\n- `f()` gives `1`.\n- **Worth 2:** `g()` gives `2`."
+        "Passes these tests, marks added up:\n- `f()` gives `1`.\n- **2 marks:** `g()` gives `2`."
     )
     assert describe(
         code_tests(F_GIVES_1, {**G_GIVES_2, "weight": 0.5}, marks_by="any_correct")
-    ) == ("Passes any one of these tests:\n- `f()` gives `1`.\n- **Worth ½:** `g()` gives `2`.")
-    assert describe(code_tests(weighted, marks_by="total")) == "**Worth 2:** Makes `g()` give `2`."
+    ) == (
+        "Passes any one of these tests:\n- `f()` gives `1`.\n- **½ of the marks:** `g()` gives `2`."
+    )
+    assert describe(code_tests(weighted, marks_by="total")) == "**2 marks:** Makes `g()` give `2`."
 
 
 def test_tests_ignore_surrounding_spaces() -> None:

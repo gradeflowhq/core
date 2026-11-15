@@ -286,8 +286,8 @@ steps:
 A declared setting takes the type of the field it fills, and is required without a `default`.
 `for_each` repeats a check with `item` and `index`. With `marks_by: proportional`, weights share out
 the marks. With `marks_by: total`, each weight is a number of marks, capped at full marks. With
-`marks_by: any_correct`, a weight is the share of the marks a check can give; `all_correct` and
-`none_correct` take only weights of 0 and 1. A file with `output: step_output` and
+`marks_by: any_correct`, a weight from 0 to 1 is the share of the marks a check can give;
+`all_correct` and `none_correct` take only weights of 0 and 1. A file with `output: step_output` and
 `output_step: "{{ steps.id.output }}"` is a transform. Templates are sandboxed Jinja, and `{{ … }}`
 on its own keeps its value's type.
 

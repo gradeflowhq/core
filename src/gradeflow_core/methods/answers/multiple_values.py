@@ -167,6 +167,9 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
         return questions_read_by(settings.checks, question_id)
 
     def problems(self, settings: MultipleValuesSettings, position: Position) -> Iterator[Problem]:
+        yield from COMBINATIONS[settings.marks_by].weight_problems(
+            [check.weight for check in settings.checks], "checks"
+        )
         question = position.question_model
         if not isinstance(question, ValuesQuestion):
             return

@@ -26,7 +26,7 @@ examples:
       - **Expected:** All of these:
         - **Q1:** Matches `20`.
         - **Q2:** Matches `25`.
-      - **Perimeter as 6 + 4** (Worth ½): All of these:
+      - **Perimeter as 6 + 4** (½ of the marks): All of these:
         - **Q1:** Matches `10`.
         - **Q2:** Matches `6.25`.
     questions:

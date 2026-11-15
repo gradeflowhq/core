@@ -168,6 +168,32 @@ def test_a_check_for_each_value_is_fixed_and_reads_the_value_in_its_place() -> N
     assert "input" not in draft.schema("/with/checks/1")["properties"]
 
 
+@pytest.mark.parametrize(
+    ("new_draft", "path"),
+    [
+        (workflow_draft, "/with/steps/0"),
+        (
+            lambda: MarkingDraft.new("gradeflow/multiple-values@1", QUESTIONS, "Q2"),
+            "/with/checks/0",
+        ),
+    ],
+)
+def test_a_weight_is_named_for_how_its_list_counts_weights(
+    new_draft: Callable[[], MarkingDraft], path: str
+) -> None:
+    draft = new_draft()
+
+    def weight() -> tuple[str, bool]:
+        weight_schema = draft.schema(path)["properties"]["weight"]
+        return weight_schema["title"], bool(weight_schema[HINT_KEY].get("advanced"))
+
+    assert weight() == ("Weight", True)
+    titles = {"total": "Marks", "proportional": "Weight", "any_correct": "Weight"}
+    for marks_by, title in titles.items():
+        draft.update("", {"marks_by": marks_by})
+        assert weight() == (title, False)
+
+
 def test_fields_are_settings_and_keys_together_and_defaults_are_left_out() -> None:
     draft = workflow_draft()
     draft.update("/with/steps/1", {"points": ["capital"]})
@@ -434,7 +460,7 @@ def test_notes_say_what_a_checks_place_does_to_it() -> None:
     draft.update("/with/steps/0", {"name": "Capital", "weight": 0.5})
     incorrect = Condition((ConditionRow("/with/steps/0", "incorrect"),))
     draft.update("/with/steps/1", {"weight": -1, "if": incorrect})
-    assert draft.notes("/with/steps/0") == ["Worth ½"]
+    assert draft.notes("/with/steps/0") == ["½ of the marks"]
     assert draft.notes("/with/steps/1") == ["Penalty 1", "Only when Capital isn't correct"]
     draft.update("/with/steps/1", {"if": "{{ steps.capital.output.proportion > 0.2 }}"})
     assert draft.notes("/with/steps/1")[-1] == "Only when its condition holds"
