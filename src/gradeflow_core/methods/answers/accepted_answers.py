@@ -21,7 +21,7 @@ from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import CORRECT_FEEDBACK, Outcome
 from ...steps.position import Position
-from ...steps.settings import NonBlankText, Settings, specialized
+from ...steps.settings import NonBlankText, Number, Settings, specialized
 from ..matching import (
     MATCH_FIELD,
     SPELLING_CUTOFFS,
@@ -50,7 +50,7 @@ class AcceptedAnswersSettings(Settings):
     )
     match: MatchMode = MATCH_FIELD
     strictness: Strictness = STRICTNESS_FIELD
-    tolerance: float = TOLERANCE_FIELD
+    tolerance: Number = TOLERANCE_FIELD
 
 
 class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):

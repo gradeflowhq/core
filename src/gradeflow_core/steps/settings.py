@@ -3,11 +3,21 @@
 from collections.abc import Iterable, Mapping
 from typing import Annotated, Any, Literal, get_args, get_origin
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    create_model,
+)
 from pydantic.fields import FieldInfo
 
 from ..common.hints import hint_of
 from ..common.problems import Problem, problem_error
+from ..common.text import written_fraction
+from ..questions.reading import parse_number
 
 IDENTIFIER = r"^[A-Za-z_][A-Za-z0-9_]*$"
 """A name code and conditions can use: letters, digits and underscores, not starting with a
@@ -29,6 +39,24 @@ def _require_not_blank(text: str) -> str:
 
 NonBlankText = Annotated[str, AfterValidator(_require_not_blank)]
 """Text a check marks with, such as an accepted answer, which can't be only spaces."""
+
+
+def _read_number(value: object) -> object:
+    """Text such as ``1/3`` as its number; anything else, unreadable text included, left for the
+    float check."""
+    try:
+        return parse_number(value) if isinstance(value, str) else value
+    except ValueError:
+        return value
+
+
+def _written_number(number: float) -> float | str:
+    return written_fraction(number) or number
+
+
+Number = Annotated[float, BeforeValidator(_read_number), PlainSerializer(_written_number)]
+"""A number setting, which may be written as a fraction: ``1/3`` reads as 0.333… and is written
+back as ``1/3``."""
 
 
 def check_limits_in_order(

@@ -9,7 +9,7 @@ from pydantic import AfterValidator, ConfigDict, Field, JsonValue
 
 from ...common.hints import hint
 from ...common.schemas import type_field
-from ...steps.settings import IDENTIFIER, Settings
+from ...steps.settings import IDENTIFIER, Number, Settings
 
 RESERVED_NAMES = frozenset({"answer", "answers", "results", "correct", "proportion", "feedback"})
 
@@ -23,7 +23,7 @@ class IntegerParameter(Settings):
 class NumberParameter(Settings):
     model_config = ConfigDict(title="Number")
     type: Literal["number"] = type_field()
-    value: float = Field(title="Value", description="A number, such as 2.5.")
+    value: Number = Field(title="Value", description="A number, such as 2.5.")
 
 
 class TextParameter(Settings):

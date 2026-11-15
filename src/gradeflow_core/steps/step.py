@@ -30,7 +30,7 @@ from .conditions import condition_note
 from .input_sources import InputSource, OtherAnswerSource, input_source
 from .method import Method
 from .outcome import Outcome
-from .settings import IDENTIFIER, Settings, step_cardinality
+from .settings import IDENTIFIER, Number, Settings, step_cardinality
 
 METHODS_CONTEXT_KEY = "methods"
 """The validation context key of the methods by ref, for settings that hold steps."""
@@ -114,7 +114,7 @@ class Step(BaseModel):
         title="Only when",
         json_schema_extra=hint(kind="condition", advanced=True),
     )
-    weight: float = Field(
+    weight: Number = Field(
         default=1,
         allow_inf_nan=False,
         title="Weight",

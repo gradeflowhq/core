@@ -10,16 +10,16 @@ from ...questions.types import Answer
 from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import CORRECT_FEEDBACK, Outcome
-from ...steps.settings import Settings, check_limits_in_order
+from ...steps.settings import Number, Settings, check_limits_in_order
 
 
 class NumberRangeSettings(Settings):
-    min_value: float | None = Field(
+    min_value: Number | None = Field(
         default=None,
         title="From",
         description="Leave empty for no lower limit.",
     )
-    max_value: float | None = Field(
+    max_value: Number | None = Field(
         default=None,
         title="To",
         description="Leave empty for no upper limit.",

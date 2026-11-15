@@ -11,7 +11,7 @@ from ...steps.example import examples_beside
 from ...steps.method import MarkingMethod
 from ...steps.outcome import CORRECT_FEEDBACK, Outcome, unanswered_outcome
 from ...steps.position import Position
-from ...steps.settings import NonBlankText, Settings, literal_type, specialized
+from ...steps.settings import NonBlankText, Number, Settings, literal_type, specialized
 from ..matching import TOLERANCE_FIELD, expected_text, is_within_tolerance
 from . import expressions
 from .expressions import Expression
@@ -24,7 +24,7 @@ class FormulaOfAnswersSettings(Settings):
         description="A formula of other answers.",
         examples=["Q1 * 12"],
     )
-    tolerance: float = TOLERANCE_FIELD
+    tolerance: Number = TOLERANCE_FIELD
 
 
 class FormulaOfAnswers(MarkingMethod[FormulaOfAnswersSettings]):

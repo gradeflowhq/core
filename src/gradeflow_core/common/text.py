@@ -2,6 +2,7 @@ import re
 import textwrap
 from collections.abc import Iterable
 from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
 from .latex import typed_latex
@@ -20,15 +21,28 @@ _ESCAPE_OR_FORMULA = re.compile(
 
 
 _FRACTIONS = {0.5: "½", 0.25: "¼", 0.75: "¾"}
+_LARGEST_DENOMINATOR = 1000
+"""The largest denominator written: 1/999 is a fraction, 1/1001 a decimal."""
 _MAX_INLINE_LIST_LENGTH = 80
 """How long items may run, joined in a sentence, before a description lists them."""
 
 
 def format_number(number: float) -> str:
-    """``number`` as people write it: 3 not 3.0, 0.000001 not 1e-06, and 6.02e23 not 602000…000."""
+    """``number`` as people write it: 3 not 3.0, 1/3 not 0.333…, 0.000001 not 1e-06, and 6.02e23
+    not 602000…000."""
     if number and not 1e-6 <= abs(number) < 1e15:
         return f"{number:.15g}".replace("e+", "e")
-    return format(Decimal(repr(number)).normalize(), "f")
+    return written_fraction(number) or format(Decimal(repr(number)).normalize(), "f")
+
+
+def written_fraction(number: float) -> str | None:
+    """``number`` as a fraction, such as 1/3, when no decimal writes it exactly."""
+    fraction = Fraction(number).limit_denominator(_LARGEST_DENOMINATOR)
+    # Only 2s and 5s in the denominator, as in 1/8, make a decimal that ends: 0.125.
+    denominator = fraction.denominator
+    if float(fraction) != number or 10 ** denominator.bit_length() % denominator == 0:
+        return None
+    return str(fraction)
 
 
 def format_fraction(number: float) -> str:

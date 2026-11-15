@@ -21,7 +21,7 @@ from ...steps.context import Context, Progress
 from ...steps.example import Example, examples_beside
 from ...steps.method import Method
 from ...steps.outcome import FULL_MARKS_PROPORTION, Outcome, QuestionOutcomes
-from ...steps.settings import NonBlankText, Settings
+from ...steps.settings import NonBlankText, Number, Settings
 from ..matching import model_context
 
 ModelRole = Literal["fast", "careful"]
@@ -65,7 +65,7 @@ _ANSWER_TAG = re.compile(r"<(?=\s*/?\s*answer)", re.IGNORECASE)
 
 class Criterion(Settings):
     text: NonBlankText = Field(title="Criterion")
-    marks: float = Field(default=1, title="Marks")
+    marks: Number = Field(default=1, title="Marks")
 
 
 class AnswerCriteriaSettings(Settings):
@@ -100,7 +100,7 @@ class AnswerCriteriaSettings(Settings):
             },
         ),
     )
-    confidence_needed: float = Field(
+    confidence_needed: Number = Field(
         default=0.9,
         ge=0.5,
         le=1,

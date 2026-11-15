@@ -26,7 +26,7 @@ from ...common.python_layouts import (
 from ...common.text import capitalized, format_number, quoted
 from ...questions.code_files import join_answer, python_files, split_answer
 from ...steps.outcome import Detail, Outcome
-from ...steps.settings import Settings
+from ...steps.settings import Number, Settings
 
 type LineColumn = tuple[int, int]
 FixKind = Literal["indentation", "colons", "brackets", "equals", "keywords", "names"]
@@ -121,37 +121,37 @@ class CodeFixSettings(Settings):
         title="Indentation",
         description="Lost indentation is rebuilt.",
     )
-    indentation_penalty: float = _penalty_field("indentation")
+    indentation_penalty: Number = _penalty_field("indentation")
     colons: bool = Field(
         default=False,
         title="Missing colons",
         description="“if x > 0” reads as “if x > 0:”.",
     )
-    colons_penalty: float = _penalty_field("colons")
+    colons_penalty: Number = _penalty_field("colons")
     brackets: bool = Field(
         default=False,
         title="Brackets and quotes",
         description="“print(x” reads as “print(x)”.",
     )
-    brackets_penalty: float = _penalty_field("brackets")
+    brackets_penalty: Number = _penalty_field("brackets")
     equals: bool = Field(
         default=False,
         title="Equals in conditions",
         description="“if x = 1” reads as “if x == 1”.",
     )
-    equals_penalty: float = _penalty_field("equals")
+    equals_penalty: Number = _penalty_field("equals")
     keywords: bool = Field(
         default=False,
         title="Misspelt keywords",
         description="“retrun” reads as “return”.",
     )
-    keywords_penalty: float = _penalty_field("keywords")
+    keywords_penalty: Number = _penalty_field("keywords")
     names: bool = Field(
         default=False,
         title="Misspelt names",
         description="“lenght” reads as “length”, and “true” as “True”.",
     )
-    names_penalty: float = _penalty_field("names")
+    names_penalty: Number = _penalty_field("names")
 
     @property
     def enabled_kinds(self) -> frozenset[FixKind]:

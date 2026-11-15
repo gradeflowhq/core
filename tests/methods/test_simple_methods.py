@@ -45,6 +45,13 @@ def test_a_number_range_allows_only_rounding_relative_to_its_limits() -> None:
     assert proportions(mark_all(tiny, ["1.5e-9", "5e-7", "0"], NumberQuestion())) == [1, 0, 0]
 
 
+def test_a_number_range_reads_and_writes_its_limits_as_fractions() -> None:
+    third = {"uses": "gradeflow/number-range@1", "with": {"min_value": "1/3", "max_value": 0.5}}
+    [inside, below] = mark_all(third, ["0.4", "1/4"], NumberQuestion())
+    assert (inside.proportion, below.feedback) == (1, "Too low. Expected between 1/3 and 0.5.")
+    assert mark_scheme_of({"question": "Q1", **third}).dump()[0]["with"] == third["with"]
+
+
 def test_length_counts_words_or_characters() -> None:
     check = {
         "uses": "gradeflow/length@1",

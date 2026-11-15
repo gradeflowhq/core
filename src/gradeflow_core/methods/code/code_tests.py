@@ -22,7 +22,7 @@ from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import CORRECT_FEEDBACK, Detail, Outcome
 from ...steps.position import Position
-from ...steps.settings import Settings
+from ...steps.settings import Number, Settings
 from . import runner
 from .code_fixes import FIXES_FIELD, CodeFixSettings, best_fixed_outcome
 from .custom_code import code_problems, memory_limit_field, time_limit_field
@@ -46,7 +46,7 @@ class Test(Settings):
         description="The Python value the expression should give.",
         examples=["5"],
     )
-    weight: float = Field(
+    weight: Number = Field(
         default=1,
         title="Weight",
         description="How much the test counts.",

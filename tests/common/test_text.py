@@ -61,6 +61,16 @@ def test_numbers_are_written_as_people_do() -> None:
     ]
 
 
+def test_a_number_with_no_exact_decimal_is_written_as_a_fraction() -> None:
+    assert [format_number(number) for number in (1 / 3, -2 / 7, 0.1, 0.1 + 0.2, 0.3333)] == [
+        "1/3",
+        "-2/7",
+        "0.1",
+        "0.30000000000000004",
+        "0.3333",
+    ]
+
+
 def test_fractions_are_written_as_people_would() -> None:
     assert [format_fraction(number) for number in (0.5, 0.25, 0.75, 2, 0.3)] == [
         "½",
