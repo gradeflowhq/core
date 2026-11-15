@@ -70,7 +70,9 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
         "**Reading answers** can change. Same meaning is reliable only for a sentence or two, "
         "and Similar spelling can accept a look-alike word, such as “ilium” for “ileum”, so "
         "check which answers it accepts.\n\n"
-        "**Related:** To mark the points an answer includes, use Key Points."
+        "**Related:** To mark the points an answer includes, use Key Points. To give part marks "
+        "for some answers, put them in another Accepted Answers check with a lower weight, in a "
+        "Workflow with **Any one must be correct**."
     )
     question_types = frozenset({"text", "number", "code"})
     settings = AcceptedAnswersSettings
