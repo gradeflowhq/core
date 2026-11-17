@@ -94,9 +94,8 @@ class Step(BaseModel):
     name: str | None = Field(
         default=None,
         title="Name",
-        description="What lists and feedback call this step.",
+        description="Students see it in feedback.",
         examples=["Sign error"],
-        json_schema_extra=hint(advanced=True),
     )
     question: QuestionId | None = Field(
         default=None,
