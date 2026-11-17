@@ -2,8 +2,9 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core import BUILTINS, QuestionSet
+from gradeflow_core import BUILTINS, MarkScheme, QuestionSet
 from gradeflow_core.editing import EditingError, MarkingDraft, MethodDraft
+from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.values import ValuesQuestion
 from gradeflow_core.steps.step import valid_step
@@ -12,6 +13,33 @@ from tests.methods.helpers import mark_all, proportions, with_value_inputs
 from ..methods.helpers import WRAPPED_NUMBER_RANGE, located
 
 QUESTIONS = QuestionSet({"Q1": TextQuestion()})
+NUMBER_QUESTIONS = QuestionSet({"Q1": NumberQuestion()})
+LIMITED_RANGE = (
+    "sample/limited-range",
+    """label: Limited range
+version: 1
+question_types: [number]
+settings:
+  lower:
+    title: Lower limit
+    default: 1/4
+  upper:
+    title: Upper limit
+    default: 3/4
+steps:
+  - uses: gradeflow/number-range@1
+    with: {min_value: "{{ settings.lower }}", max_value: "{{ settings.upper }}"}
+  - uses: gradeflow/number-range@1
+    with: {min_value: "{{ settings.lower }}", max_value: 1}
+""",
+)
+"""A method file whose settings fill limits that must stay in order."""
+LIMITED_RANGE_METHODS = BUILTINS.with_files([LIMITED_RANGE])
+
+
+def limited_range_draft(settings: dict[str, Any]) -> MarkingDraft:
+    marking = {"question": "Q1", "uses": "sample/limited-range@1", "with": settings}
+    return MarkingDraft(marking, NUMBER_QUESTIONS, "Q1", methods=LIMITED_RANGE_METHODS)
 
 
 def test_any_order_values_give_their_checks_no_earlier_checks() -> None:
@@ -39,6 +67,30 @@ def test_a_composed_methods_check_that_cant_mark_the_question_is_its_users_probl
     )
     assert located(draft.problems) == [("", "", "Number Range can't be used on a text question.")]
     assert draft.settings_holding_steps("") == []
+
+
+def test_a_setting_that_breaks_a_rule_of_the_step_it_fills_is_a_problem_at_the_setting() -> None:
+    draft = limited_range_draft({"upper": 0.2})
+    problem = ("", "/with/upper", "The highest number is below the lowest.")
+    assert located(draft.problems) == [problem]
+    assert draft.describe("") == ""
+    mark_scheme = MarkScheme.load([draft.data], methods=LIMITED_RANGE_METHODS)
+    marking_problems = mark_scheme.problems(NUMBER_QUESTIONS)
+    assert located(marking_problems) == [("/markings/0", *problem[1:])]
+
+
+def test_a_rule_broken_at_a_field_the_method_file_writes_is_a_problem_of_the_step() -> None:
+    draft = limited_range_draft({"lower": 1.5, "upper": 2})
+    assert located(draft.problems) == [
+        ("", "", "Limited range: The highest number is below the lowest.")
+    ]
+
+
+def test_a_cleared_setting_with_a_default_is_unset_and_takes_its_default() -> None:
+    draft = limited_range_draft({"upper": 0.5})
+    draft.update("", {"upper": None})
+    assert draft.data["with"] == {}
+    assert "Is between `0.25` and `0.75`." in draft.describe("")
 
 
 def test_a_drafts_problems_are_where_the_check_is_in_a_branch() -> None:

@@ -194,6 +194,13 @@ def test_a_weight_is_named_for_how_its_list_counts_weights(
         assert weight() == (title, False)
 
 
+def test_a_field_of_a_row_left_empty_takes_its_default() -> None:
+    draft = MarkingDraft.new("gradeflow/code-tests@1", QuestionSet({"Q1": CodeQuestion()}), "Q1")
+    draft.update("", {"tests": [{"expression": "f()", "expected": "1", "weight": None}]})
+    assert draft.data["with"]["tests"] == [{"expression": "f()", "expected": "1"}]
+    assert not draft.step_problems
+
+
 def test_fields_are_settings_and_keys_together_and_defaults_are_left_out() -> None:
     draft = workflow_draft()
     draft.update("/with/steps/1", {"points": ["capital"]})

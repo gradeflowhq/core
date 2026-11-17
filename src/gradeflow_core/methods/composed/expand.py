@@ -1,11 +1,14 @@
 """A composed method's steps with its settings filled in, ready to run."""
 
 from collections.abc import Iterator, Mapping
+from dataclasses import replace
 from functools import cached_property
 from typing import Any, ClassVar
 
 from pydantic import JsonValue, PrivateAttr
 
+from ...common.paths import pointer, value_at
+from ...common.problems import InvalidError, Problem
 from ...steps.method import Method
 from ...steps.settings import Settings
 from ...steps.step import METHODS_CONTEXT_KEY, Step, valid_step
@@ -77,12 +80,26 @@ def expanded_step(
     methods_by_ref: Mapping[str, Method],
 ) -> Step:
     """``step_data``, a step as a file writes it, with its references filled in. Raises
-    ``InvalidError`` if what fills them makes no step."""
+    ``InvalidError`` if what fills them makes no step, each problem at the setting at fault."""
     expanded_step_data = {
         name: value if name in TEMPLATE_KEYS else expanded(value, scope, methods_by_ref)
         for name, value in step_data.items()
     }
-    return valid_step(expanded_step_data, methods_by_ref, scope)
+    try:
+        return valid_step(expanded_step_data, methods_by_ref, scope)
+    except InvalidError as error:
+        raise InvalidError(
+            [_at_setting(problem, step_data) for problem in error.problems]
+        ) from None
+
+
+def _at_setting(problem: Problem, step_data: Mapping[str, JsonValue]) -> Problem:
+    """``problem`` of the step ``step_data`` writes, at the setting that fills its field; else of
+    the settings as a whole."""
+    expression = reference_expression(value_at(step_data, problem.where)) or ""
+    root, *names = expression.split(".")
+    field = pointer(names[0]) if root == "settings" and names else ""
+    return replace(problem, step_path="", field=field)
 
 
 def _expanded_entries(

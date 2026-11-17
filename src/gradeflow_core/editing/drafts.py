@@ -451,7 +451,7 @@ class Draft:
             if key not in written_settings and key in defaults and value == defaults[key]:
                 return True
             return (
-                value in EMPTY_VALUES
+                value == ""
                 and key not in schema.get("required", ())
                 and (
                     defaults.get(key) is None
@@ -462,11 +462,13 @@ class Draft:
         extra_fields = {
             key: value for key, value in step_data.items() if key not in STEP_PROPERTIES
         }
-        settings = {
-            key: value
-            for key, value in merged_values.items()
-            if key not in (*STEP_OWN_PROPERTIES, *extra_fields) and not is_unset(key, value)
-        }
+        settings = _without_empty_fields(
+            {
+                key: value
+                for key, value in merged_values.items()
+                if key not in (*STEP_OWN_PROPERTIES, *extra_fields) and not is_unset(key, value)
+            }
+        )
         step_own_values = {
             key: value
             for key, value in merged_values.items()
@@ -801,6 +803,15 @@ def _step_property(key: str, choices: Iterable[str] | None = None) -> JsonDict:
         "description": property_schema["description"],
         **json_schema(literal_type(choices)),
     }
+
+
+def _without_empty_fields(value: Any) -> Any:
+    """``value`` without its fields left empty (None), in the objects it holds too."""
+    if isinstance(value, Mapping):
+        return {key: _without_empty_fields(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [_without_empty_fields(item) for item in value]
+    return value
 
 
 def _type_accepts(annotation: Any, value: Any) -> bool:

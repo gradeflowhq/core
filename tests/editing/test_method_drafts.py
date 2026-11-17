@@ -639,6 +639,15 @@ def test_a_test_value_the_setting_it_fills_refuses_is_a_problem_at_its_field() -
     ]
 
 
+def test_a_test_value_that_breaks_a_rule_of_the_step_it_fills_is_a_problem_at_its_field() -> None:
+    draft = number_range_draft()
+    draft.bind_new_setting("/with/steps/0/with/max_value")
+    draft.test_values = {"max_value": 5}
+    assert draft.problems == [
+        Problem("The highest number is below the lowest.", field="/with/max_value")
+    ]
+
+
 def test_a_complex_field_value_becomes_its_settings_default() -> None:
     draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
     draft.add("/with/steps/0", "gradeflow/custom-code@1")

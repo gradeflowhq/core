@@ -71,7 +71,9 @@ class ComposedMethod(Method[ComposedSettings]):
         return True
 
     def describe(self, settings: ComposedSettings) -> str:
-        expansion = settings.expansion
+        expansion = _expansion_or_none(settings)
+        if expansion is None:
+            return ""
         if self.file.description is None:
             return expansion.describe()
         step_descriptions = [
@@ -110,8 +112,13 @@ class ComposedMethod(Method[ComposedSettings]):
         try:
             expansion = settings.expansion
         except InvalidError as error:
-            # Name the settings at fault, not where the file's steps put them.
-            yield Problem(f"{self.label}: {' '.join(map(str, error.problems))}")
+            # One at no setting is inside the file's steps, which only the label names.
+            for problem in error.problems:
+                yield (
+                    problem
+                    if problem.field
+                    else replace(problem, message=f"{self.label}: {problem.message}")
+                )
             return
         except TemplateError as error:
             yield Problem(f"{self.label}: {error}")
