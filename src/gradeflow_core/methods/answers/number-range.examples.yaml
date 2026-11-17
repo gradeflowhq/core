@@ -19,7 +19,7 @@ examples:
       - answers:
           Q1: '3'
         expected: {Q1: {marks: 0.0, feedback: Too high. Expected between 1.8 and 2.5.}}
-  - title: What percentage of the class correct?
+  - title: What percentage of the class answered correctly?
     description: Is at most `100`.
     questions:
       Q1: {type: number}
