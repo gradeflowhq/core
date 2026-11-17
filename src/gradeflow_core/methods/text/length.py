@@ -42,11 +42,12 @@ class Length(AnswerMethod[LengthSettings]):
     label = "Length"
     summary = "Correct if the answer's length is within limits."
     guide = (
-        "**Use it when:** The answer has a word limit, or must be long enough to count.\n\n"
-        "**How it marks:** The answer's words or characters are counted, and a count from **At "
-        "least** to **At most** is correct. Leave either empty for no limit on that side.\n\n"
-        "**Related:** To check what the answer says as well, combine it with Key Points in a "
-        "Workflow."
+        "For a word limit, or a minimum length an answer needs to count.\n\n"
+        "**Count** chooses words or characters, and counts characters unless you set it to "
+        "**Words**. A count from **At least** to **At most** is correct, and both ends count. "
+        "Leave either empty for no limit on that side.\n\n"
+        "To check what the answer says as well, put Length and Key Points in a Workflow with **All "
+        "must be correct**."
     )
     question_types = frozenset({"text"})
     settings = LengthSettings

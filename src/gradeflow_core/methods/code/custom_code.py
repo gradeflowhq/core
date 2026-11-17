@@ -53,8 +53,8 @@ MEMORY_LIMIT_FIELD = memory_limit_field("Most memory the code may use before it 
 
 def code_description(answer_description: str) -> str:
     return (
-        f"Reads {answer_description} and each parameter by its name, and sets "
-        f"{RESULT_VARIABLES_HELP}."
+        f"The answer is in {answer_description}, and each parameter in a variable of its name. "
+        f"Set {RESULT_VARIABLES_HELP}."
     )
 
 
@@ -119,14 +119,27 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
     label = "Custom Code"
     summary = "Your Python code decides the marks."
     guide = (
-        "**Use it when:** No other method fits, and you can write Python.\n\n"
-        "**How it marks:** Your code gets the student's answer as `answer`, and sets `correct` to "
-        "True or False, or `proportion` to a number from 0 to 1. It may also set `feedback`, which "
-        "students see as plain text.\n\n"
-        "**Good to know:** Put values you may change in **Parameters**, so you can change them "
-        "without editing the code. A code answer of several files comes as one string, each file "
-        "after a line such as `-- board.py --`.\n\n"
-        "**Related:** To mark several questions together in code, use Custom Code for a Group."
+        "For a marking rule no other method covers, written in Python.\n\n"
+        "Your code runs once for each answer, with the answer in `answer` as the question reads "
+        "it: text for a text or code question, a number for a number question, a set of options "
+        "for a choice question and a list for a values question. The question's **Reading "
+        "answers** apply first, so text is trimmed and lowercased by default. Blank answers get no "
+        "marks without reaching your code.\n\n"
+        "Set `correct` to `True` or `False`, or `proportion` to a number from 0 to 1 for part "
+        "marks. Set `feedback` to tell the student why. They see it as plain text, and see nothing "
+        "if you don't set it. If your code raises an error or runs past its **Time limit**, the "
+        "answer is left for you to mark, with the error as the reason.\n\n"
+        "```python\n"
+        'correct = answer in {"h2o", "water"}\n'
+        "if not correct:\n"
+        '    feedback = "Expected H2O."\n'
+        "```\n\n"
+        "Each of the **Parameters** is a variable with that name in your code, of the type you "
+        "give it. Put values you may change there, such as a threshold, to change them without "
+        "editing the code.\n\n"
+        "A code answer of several files comes as one text, each file after a line such as `-- "
+        "board.py --`.\n\n"
+        "To mark several questions together in code, use Custom Code for a Group."
     )
     level = "advanced"
     question_types = ALL_QUESTION_TYPES
@@ -135,7 +148,11 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
 
     def settings_model_at(self, position: Position) -> type[Settings]:
         question = position.question_model
-        answer_description = f"`answer` ({question.python_type()})" if question else "`answer`"
+        answer_description = (
+            f"`answer` ({question.python_type().removesuffix(' | None')})"
+            if question
+            else "`answer`"
+        )
         return specialized(
             self.settings, code={"description": code_description(answer_description)}
         )

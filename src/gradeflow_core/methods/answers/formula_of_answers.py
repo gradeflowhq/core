@@ -21,7 +21,7 @@ class FormulaOfAnswersSettings(Settings):
     question_to_mark: QuestionId = Field(title="Question to mark")
     formula: NonBlankText = Field(
         title="Expected answer",
-        description="A formula of other answers.",
+        description="Worked out from other answers by their IDs.",
         examples=["Q1 * 12"],
     )
     tolerance: Number = TOLERANCE_FIELD
@@ -33,16 +33,17 @@ class FormulaOfAnswers(MarkingMethod[FormulaOfAnswersSettings]):
     label = "Formula of Answers"
     summary = "Correct if a number follows from other answers."
     guide = (
-        "**Use it when:** A number answer is worked out from earlier ones, and a student who got "
-        "an earlier one wrong should still get marks for working from it.\n\n"
-        "**How it marks:** Write the expected answer as a formula of other answers, such as "
-        "`Q1 * 12`. Each student's own answers go into it, and their answer is correct if "
-        "it matches, within the **Tolerance**. Formulas use the operators and functions of "
-        "Equivalent Expression.\n\n"
-        "**Good to know:** Write a question whose name has spaces or starts with a digit in "
-        "brackets, such as `[1a]`. Mark the earlier questions on their own too, so they get "
-        "marks only when they're correct.\n\n"
-        "**Related:** For known mistakes, or answers that aren't numbers, use Answer Sets."
+        "For a number worked out from earlier answers, when a student who got an earlier answer "
+        "wrong should still get marks for using it correctly.\n\n"
+        "Choose the **Question to mark** and write its **Expected answer** as a formula of other "
+        "answers, such as `Q1 * 12`. Each student's own answers go into the formula, and their "
+        "answer is correct if it matches within the **Tolerance**. A student who answered Q1 with "
+        "`3` is correct with `36`, whatever Q1 should have been.\n\n"
+        "Formulas use the operators and functions of Equivalent Expression. Write a question ID "
+        "that has spaces or starts with a digit in square brackets: `[1a] * 2`.\n\n"
+        "Mark the earlier questions with their own checks too, so they get marks only when they "
+        "are right.\n\n"
+        "For known mistakes, or answers that aren't numbers, use Answer Sets."
     )
     level = "advanced"
     marks_question_group = True

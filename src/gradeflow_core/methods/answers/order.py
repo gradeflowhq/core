@@ -45,16 +45,17 @@ class Order(AnswerMethod[OrderSettings]):
     label = "Order"
     summary = "Marks for putting items in the correct order."
     guide = (
-        "**Use it when:** Students put items in order, such as the stages of a process or events "
-        "in time.\n\n"
-        "**How it marks:** **Marks for** sets how the answer is compared with **Correct order**. "
-        "**Only the correct order** is all or nothing, and **Items in order** gives a share "
-        "for the most items kept in order, so one item out of place costs one share. "
-        "**Pairs in order** gives a share for each pair side by side as in the correct "
-        "order.\n\n"
-        "**Good to know:** The question needs one value for each item, all text or all "
-        "numbers.\n\n"
-        "**Related:** When each value has its own correct answer, use Multiple Values."
+        "For putting items in order, such as the stages of a process or events in time. The "
+        "question needs one value for each item, all text or all numbers.\n\n"
+        "Enter the **Correct order**, first to last, and choose what earns **Marks for**. With the "
+        "correct order A, B, C, D:\n\n"
+        "- **Items in order**: a share for each item in the longest sequence that keeps the "
+        "correct order, skipping the others. B, A, C, D keeps A, C, D in order, 3 of 4, and gets "
+        "three quarters of the marks.\n"
+        "- **Pairs in order**: a share for each neighbouring pair kept from the correct order. B, "
+        "A, C, D keeps only C, D of the 3 pairs and gets a third of the marks.\n"
+        "- **Only the correct order**: all or nothing.\n\n"
+        "When each value has its own right answer, use Multiple Values."
     )
     question_types = frozenset({"values"})
     settings = OrderSettings

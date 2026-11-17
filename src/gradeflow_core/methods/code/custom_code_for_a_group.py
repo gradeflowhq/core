@@ -34,7 +34,7 @@ STARTER_CODE = (
 
 def group_code_description(answers_description: str) -> str:
     return (
-        f"Reads {answers_description} and each parameter by its name, and sets "
+        f"The answers are in {answers_description}, a dict by question ID. Set "
         f"`results[question]` to a dict of {RESULT_VARIABLES_HELP}."
     )
 
@@ -50,7 +50,7 @@ class CustomCodeForAGroupSettings(Settings):
         default=STARTER_CODE,
         min_length=1,
         title="Code",
-        description=group_code_description("`answers`, by question,"),
+        description=group_code_description("`answers`"),
         json_schema_extra=hint(kind="code", language="python"),
     )
     parameters: dict[ParameterName, Parameter] = PARAMETERS_FIELD
@@ -64,13 +64,23 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
     label = "Custom Code for a Group"
     summary = "Your Python code marks several questions together."
     guide = (
-        "**Use it when:** The marks for several questions depend on each other in a way no other "
-        "method covers, and you can write Python.\n\n"
-        "**How it marks:** Your code gets every answer in `answers`, by question, and sets "
-        "`results` to give each question `correct` or `proportion`, and `feedback` if you like.\n\n"
-        "**Good to know:** Put values you may change in **Parameters**, so you can change them "
-        "without editing the code.\n\n"
-        "**Related:** For one question, use Custom Code."
+        "For several questions whose marks depend on each other in a way no other method covers, "
+        "written in Python.\n\n"
+        "Choose the **Questions** it marks. Your code gets their answers in `answers`, a dict by "
+        "question ID, each read as its question reads it. Set `results` to a dict with an entry "
+        "for each question, holding `correct` or `proportion`, and `feedback` if you like. A blank "
+        "answer is `None`. If your code raises an error, every answer in the group is left for you "
+        "to mark.\n\n"
+        "```python\n"
+        'gases = {"helium", "neon", "argon", "krypton", "xenon", "radon"}\n'
+        'first, second = answers["Q1"], answers["Q2"]\n'
+        "results = {\n"
+        '    "Q1": {"correct": first in gases},\n'
+        '    "Q2": {"correct": second in gases and second != first},\n'
+        "}\n"
+        "```\n\n"
+        "Each of the **Parameters** is a variable with that name in your code.\n\n"
+        "To mark one question, use Custom Code."
     )
     level = "advanced"
     marks_question_group = True
@@ -84,9 +94,7 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
             f"{question_id}: {question.python_type()}"
             for question_id, question in position.questions.items()
         )
-        answers_description = (
-            f"`answers` ({typed_questions})" if typed_questions else "`answers`, by question,"
-        )
+        answers_description = f"`answers` ({typed_questions})" if typed_questions else "`answers`"
         return specialized(
             self.settings,
             questions={"annotation": annotation},

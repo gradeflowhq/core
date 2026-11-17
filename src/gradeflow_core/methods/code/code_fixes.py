@@ -108,6 +108,7 @@ def _penalty_field(kind: FixKind) -> float:
         ge=0,
         le=1,
         title="Penalty",
+        description="A share taken off the marks, from 0 to 1.",
         examples=[0.1, 0.25, 0.5],
         json_schema_extra=hint(applies_when={kind: [True]}),
     )

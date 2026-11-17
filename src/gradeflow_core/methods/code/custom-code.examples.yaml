@@ -5,7 +5,7 @@ examples:
 
       ```python
       number = int(answer)
-      correct = number > 100 and all(number % divisor for divisor in range(2, int(number**0.5) + 1))
+      correct = number == answer and number > 100 and all(number % divisor for divisor in range(2, int(number**0.5) + 1))
       feedback = "Correct." if correct else "Expected a prime greater than 100."
       ```
     questions:
@@ -13,7 +13,7 @@ examples:
     with:
       code: |
         number = int(answer)
-        correct = number > 100 and all(number % divisor for divisor in range(2, int(number**0.5) + 1))
+        correct = number == answer and number > 100 and all(number % divisor for divisor in range(2, int(number**0.5) + 1))
         feedback = "Correct." if correct else "Expected a prime greater than 100."
     rows:
       - answers:
@@ -30,7 +30,7 @@ examples:
       Python code decides the marks:
 
       ```python
-      word = answer.strip().lower()
+      word = answer
       correct = len(word) > 1 and word == word[::-1]
       feedback = "Correct." if correct else "Expected a word that reads the same backwards."
       ```
@@ -38,7 +38,7 @@ examples:
       Q1: {type: text}
     with:
       code: |
-        word = answer.strip().lower()
+        word = answer
         correct = len(word) > 1 and word == word[::-1]
         feedback = "Correct." if correct else "Expected a word that reads the same backwards."
     rows:

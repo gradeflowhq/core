@@ -3,13 +3,23 @@ label: Key Points
 summary: Marks for each point the answer includes.
 question_types: [text]
 guide: |-
-  **Use it when:** A good answer includes certain words or makes certain points, such as the key terms or ideas of an explanation.
+  For explanations marked by the terms or ideas they include.
 
-  **How it marks:** **Exactly** and **Similar spelling** look for each point's words anywhere in the answer. **Same meaning** looks for its idea in any words, judged by a language model that also reads the question's description. **How points count** sets whether all are needed, any one is enough, none may appear, or each earns a mark or a share of the marks.
+  Each point is looked for anywhere in the answer. **Match** sets how:
 
-  **Good to know:** A short point also matches inside longer words, so “evaporat” finds “evaporation”, and “for” finds “format” unless **Whole words only** is on. Same meaning works best with each point written as a sentence, and only on short answers.
+  - **Exactly**: the point's words appear as written. A short point also matches inside a longer word, so “evaporat” finds “evaporation”. Turn on **Whole words only** to stop “for” matching “format”.
+  - **Similar spelling**: the words appear, with small typos allowed.
+  - **Same meaning**: the idea appears, in any words. A language model that runs within GradeFlow judges, reading the question's description too, and answers aren't sent to your AI service. Write each point as a sentence, and keep to answers of a few sentences.
 
-  **Related:** To compare the whole answer, use Accepted Answers. To forbid a point, choose **None may be correct**.
+  **How points count**, for a question worth 3 marks with 3 points:
+
+  - **A share for each**: each point found earns a third of the marks, here 1 mark. With a fourth point, each would earn 0.75.
+  - **A mark for each**: each point found earns 1 mark, up to the question's 3.
+  - **All must be correct**: 3 marks only if every point is found.
+  - **Any one must be correct**: 3 marks if at least one point is found.
+  - **None may be correct**: 3 marks only if no point is found. Use it to list words an answer must not use.
+
+  To compare the whole answer with a list of right answers, use Accepted Answers. To judge reasoning or working, use Answer Criteria.
 settings:
   points:
     title: Points

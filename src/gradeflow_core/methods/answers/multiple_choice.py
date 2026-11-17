@@ -42,8 +42,8 @@ class MultipleChoiceSettings(Settings):
     compare: Comparison = Field(
         default="exactly",
         title="How to compare",
-        description="A share for each gives a share for each correct option and a penalty of one "
-        "share for each wrong one.",
+        description="With A share for each, each correct option chosen earns a share, and each "
+        "wrong one takes a share off.",
         json_schema_extra=hint(labels=COMPARISON_LABELS),
     )
 
@@ -69,11 +69,16 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
     label = "Multiple Choice"
     summary = "Marks for choosing the correct options."
     guide = (
-        "**Use it when:** Students choose one or more options.\n\n"
-        "**How it marks:** The options chosen are compared with the correct ones, as **How to "
-        "compare** says. **Exactly these** needs the correct options and nothing else. **A share "
-        "for each** gives a share for each correct option and a penalty of one share for each "
-        "wrong one, never below zero."
+        "For questions where students choose one or more options.\n\n"
+        "Choose the **Correct options**, then **How to compare**. With correct options A and C:\n\n"
+        "- **Exactly these**: A and C, and nothing else. A alone gets no marks, and so does A, B "
+        "and C.\n"
+        "- **All of these, other options allowed**: both A and C. A, B and C is correct.\n"
+        "- **Any one of these**: A, C or both.\n"
+        "- **None of these**: neither A nor C.\n"
+        "- **A share for each**: the marks are split equally between the correct options, here "
+        "half each. Each correct option chosen earns its share, and each wrong option chosen takes "
+        "a share off. A alone gets half, and A and B get nothing. Marks never go below 0."
     )
     question_types = frozenset({"choice"})
     settings = MultipleChoiceSettings

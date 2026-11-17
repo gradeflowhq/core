@@ -51,12 +51,11 @@ class NumberRange(AnswerMethod[NumberRangeSettings]):
     label = "Number Range"
     summary = "Correct if the number is within a range."
     guide = (
-        "**Use it when:** Any number in a range is correct, such as an estimate, a measurement or "
-        "a rounded result.\n\n"
-        "**How it marks:** A number from **From** to **To**, both included, is correct. "
-        "Leave either empty for no limit on that side.\n\n"
-        "**Related:** To accept numbers near one value, use Accepted Answers with a "
-        "**Tolerance**."
+        "For a number answer where anything in a range is right, such as an estimate or a "
+        "measurement.\n\n"
+        "A number from **From** to **To** is correct, and both ends count. Leave either empty for "
+        "no limit on that side: **From** `0` alone accepts any number that isn't negative.\n\n"
+        "To accept numbers near one value, use Accepted Answers with a **Tolerance**."
     )
     question_types = frozenset({"number"})
     settings = NumberRangeSettings

@@ -49,8 +49,7 @@ class Test(Settings):
     weight: Number = Field(
         default=1,
         title="Weight",
-        description="The marks it gives under Add up marks; otherwise how much it counts against "
-        "the other tests.",
+        description="How much the test counts. Under Add up marks, the marks it gives.",
         json_schema_extra=ADVANCED_HINT,
     )
 
@@ -113,17 +112,26 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
     label = "Code Tests"
     summary = "Marks for each test the student's code passes."
     guide = (
-        "**Use it when:** Students write Python, such as a function, and you want to check what "
-        "it does.\n\n"
-        "**How it marks:** The student's code runs, then each test runs an expression and "
-        "compares what it gives with the expected value, so `add(2, 3)` should give `5`. **How "
-        "tests count** sets whether all tests are needed, any one is enough, or each earns its "
-        "share. **Fix code** also tests the code with common errors fixed, such as lost "
-        "indentation. Each fix can carry a **Penalty**.\n\n"
-        "**Good to know:** Test an ordinary case and an edge case, such as an empty list or "
-        "zero. Each test has a time limit, under **Test setup**. In an answer of several files, "
-        "the first runs and the others can be imported.\n\n"
-        "**Related:** To check how the code is written, not what it does, use Code Uses."
+        "For Python answers, such as a function, marked by what the code does.\n\n"
+        "The student's code runs first. Then each test runs an **Expression**, such as `add(2, "
+        "3)`, and passes if it equals the **Expected value**, such as `5`. The expected value is "
+        'Python too: `[1, 2]`, `"done"` or `True`. The value must also be of the same type, so '
+        "`(1, 2)` fails against `[1, 2]`. Whole numbers and decimals count as one type: `2.0` "
+        "passes for `2`. Floats must be equal exactly, so test `round(mean([0.1, 0.2]), 2)` "
+        "against `0.15`. Student code that doesn't run fails every test, and the feedback shows "
+        "the error.\n\n"
+        "**How tests count** works as in a Workflow. **All must be correct** needs every test to "
+        "pass, and **Split by weight** gives a share of the marks for each test that passes. Each "
+        "test has a **Weight**.\n\n"
+        "Test an ordinary case and an edge case, such as an empty list or zero. Under **Test "
+        "setup**, **Code before** runs before the student's code, for imports or helper functions, "
+        "and **Time limit** caps how long each test may run.\n\n"
+        "Under **Fix code**, turn on the errors students often make, such as lost indentation or a "
+        "missing colon. Code with those errors is fixed, then tested, and the feedback tells the "
+        "student what was fixed. Each fix can have a **Penalty**, a share taken off the marks the "
+        "code earns: `0.25` takes off a quarter. Penalties of several fixes add up.\n\n"
+        "In an answer of several files, the first file runs and can import the others.\n\n"
+        "To check how the code is written, not what it does, use Code Uses."
     )
     level = "advanced"
     question_types = frozenset({"code"})

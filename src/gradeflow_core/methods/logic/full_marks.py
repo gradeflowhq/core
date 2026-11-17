@@ -16,11 +16,10 @@ class FullMarks(AnswerMethod[FullMarksSettings]):
     label = "Full Marks"
     summary = "Full marks for every student."
     guide = (
-        "**Use it when:** A question was faulty or dropped, and every student should get its "
-        "marks.\n\n"
-        "**How it marks:** Every student gets full marks, blank answers included.\n\n"
-        "**Related:** To give marks only to students who answered, use Length with **At least** "
-        "`1` character."
+        "For a question that was faulty or dropped. Every student gets the question's marks, "
+        "including those who left it blank.\n\n"
+        "To give the marks only to students who answered a text question, use Length with **At "
+        "least** `1` character."
     )
     question_types = ALL_QUESTION_TYPES
     marks_blank_answers = True

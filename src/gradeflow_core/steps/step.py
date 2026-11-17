@@ -118,8 +118,8 @@ class Step(BaseModel):
         default=1,
         allow_inf_nan=False,
         title="Weight",
-        description="How much it counts. Zero lets later steps read it without giving marks, and "
-        "a negative weight is a penalty.",
+        description="How much it counts. 0 leaves it out of the mark, and a negative weight takes "
+        "marks off.",
         json_schema_extra=ADVANCED_HINT,
     )
     """0 for a transform."""

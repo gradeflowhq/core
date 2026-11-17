@@ -50,6 +50,9 @@ examples:
           Q1: Its density is lower than that of water
         expected: {Q1: {marks: 1.0, feedback: Accepted as “Ice is less dense than liquid water”.}}
       - answers:
+          Q1: Ice is less dense than water because water expands when it freezes
+        expected: {Q1: {marks: 0.0, feedback: Expected “Ice is less dense than liquid water”.}}
+      - answers:
           Q1: Ice is not less dense than water
         expected: {Q1: {marks: 0.0, feedback: Expected “Ice is less dense than liquid water”.}}
       - answers:

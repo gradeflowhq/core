@@ -39,8 +39,7 @@ class MultipleValuesSettings(Settings):
     any_order: bool = Field(
         default=False,
         title="Values in any order",
-        description="Each check may mark any value, and the pairing that gives the most marks "
-        "counts.",
+        description="Values and checks are paired in the way that gives the most marks.",
         json_schema_extra=ADVANCED_HINT,
     )
 
@@ -51,15 +50,20 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
     label = "Multiple Values"
     summary = "Marks for each value of a multi-part answer."
     guide = (
-        "**Use it when:** The answer has several values, such as a place and a year, or the roots "
-        "of an equation.\n\n"
-        "**How it marks:** Each value gets its own check, set up as for a single answer. **How "
-        "marks are given** sets whether all are needed, any one is enough, or each earns its "
-        "share. With **Values in any order**, the pairing of values and checks that gives the "
-        "most marks counts.\n\n"
-        "**Good to know:** The question sets how many values there are, and there's one check "
-        f"for each. Any order works for up to {MAX_ANY_ORDER_VALUES} values of one type.\n\n"
-        "**Related:** To mark items in a sequence, use Order."
+        "For an answer with several values, such as a place and a year, or the two roots of an "
+        "equation. The question sets how many values there are.\n\n"
+        "Each value gets its own check, set up like a check of a single answer: Accepted Answers "
+        "for the place, Number Range for the year. **How marks are given** combines them:\n\n"
+        "- **All must be correct**: full marks only if every value is right.\n"
+        "- **Any one must be correct**: full marks if at least one value is right.\n"
+        "- **Split by weight**: the question's marks are shared between the values by their "
+        "checks' weights. Equal weights give each value an equal share.\n"
+        "- **Add up marks**: each check's **Marks** are what its value earns when right.\n"
+        "- **None may be correct**: full marks only if no value matches its check.\n\n"
+        "Turn on **Values in any order** when students may give the values in any order, as with "
+        "the roots of an equation. Values and checks are then paired in the way that gives the "
+        "most marks. It works for up to 6 values of one type.\n\n"
+        "To mark the order of a list of items, use Order."
     )
     question_types = frozenset({"values"})
     settings = MultipleValuesSettings

@@ -4,13 +4,13 @@ summary: Marks for the best of several sets of answers.
 level: advanced
 marks_question_group: true
 guide: |-
-  **Use it when:** More than one consistent set of answers deserves marks: the expected answers, an early mistake carried through later parts, or a second valid reading or method.
+  For several questions where more than one set of answers deserves marks, such as when a mistake in an early part carries through to later parts.
 
-  **How it marks:** Each set has checks for the questions it covers and a share of the marks. Every set is tried, and the one that gives the most marks counts.
+  Each set holds checks for the questions it covers, and its weight is its share of the marks. Within a set, each question is marked by its own check. Every set is tried, and the set that gives the student the most marks over all its questions counts.
 
-  **Good to know:** The first set holds the expected answers. Add a set for each common mistake or reading, worked through to the later questions, with a share such as 50%.
+  For example, Q1 asks for a rectangle's perimeter and Q2 uses that perimeter. The first set, Expected, checks the right answers to both. A second set at 50% checks the answers that follow from a common slip in Q1. A student who made that slip gets half marks on both questions instead of none.
 
-  **Related:** When a later number follows from earlier answers by a formula, Formula of Answers covers every mistake at once.
+  To work a later number out from whatever each student answered earlier, use Formula of Answers.
 settings:
   sets:
     title: Sets

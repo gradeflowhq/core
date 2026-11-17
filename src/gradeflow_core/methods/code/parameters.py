@@ -78,7 +78,7 @@ ParameterName = Annotated[str, AfterValidator(_validated_parameter_name)]
 PARAMETERS_FIELD: dict[ParameterName, Parameter] = Field(
     default_factory=dict,
     title="Parameters",
-    description="Named values your code can use as variables.",
+    description="Values your code reads as variables, each with a name and a type.",
     json_schema_extra={
         "propertyNames": {"pattern": IDENTIFIER},
         **hint(item_label="parameter"),

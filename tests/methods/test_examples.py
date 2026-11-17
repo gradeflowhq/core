@@ -36,12 +36,13 @@ BASIC_METHOD_NAMES = {
     "gradeflow/extract",
     "gradeflow/full-marks",
 }
-GUIDE_PATTERN = re.compile(
-    r"^\*\*Use it when:\*\* [A-Z].+"
-    r"\n\n\*\*How it marks:\*\* [A-Z*].+"
-    r"(\n\n\*\*Good to know:\*\* [A-Z*].+)?"
-    r"(\n\n\*\*Related:\*\* [A-Z*].+)?$"
+FILLER_WORDS = re.compile(
+    r"\b(seamless|robust|powerful|leverage|ensure|streamline|enhance|empower|unlock|effortless"
+    r"|intuitive|comprehensive|crucial|essential|vital|delve|navigate|journey|landscape|tailored"
+    r"|elevate|harness|foster|simply|just|easily|quickly|actually|really)\b",
+    re.IGNORECASE,
 )
+CODE_AND_LINKS = re.compile(r"```.*?```|`[^`]*`|\]\([^)]*\)", re.DOTALL)
 SUMMARY_OPENINGS = (
     "Correct ",
     "Finds ",
@@ -60,7 +61,11 @@ def test_every_method_explains_itself_plainly(method: Method) -> None:
     assert ". " not in method.summary
     assert len(method.summary.split()) <= 10, method.summary
     assert method.summary.startswith(SUMMARY_OPENINGS), method.summary
-    assert GUIDE_PATTERN.match(method.guide), method.guide
+    assert method.guide.startswith("For "), method.guide
+    for text in (method.summary, method.guide):
+        prose = CODE_AND_LINKS.sub("", text)
+        assert not FILLER_WORDS.search(prose), FILLER_WORDS.search(prose)
+        assert not set('—!;"') & set(prose), text
     assert method.level == ("basic" if method.name in BASIC_METHOD_NAMES else "advanced")
     assert bool(method.question_types) or method.marks_question_group
     assert len(method.examples) >= 2
@@ -85,7 +90,7 @@ def test_example_feedback_is_never_empty() -> None:
 
 
 EXAMPLE_ROW_MARKS = {
-    "gradeflow/accepted-answers": [[1, 1, 0, 0], [1, 1, 0, 0], [1, 0, 0]],
+    "gradeflow/accepted-answers": [[1, 1, 0, 0], [1, 1, 0, 0], [1, 0, 0, 0]],
     "gradeflow/key-points": [[3, 2, 1], [1, 1, 0], [2, 1, 0]],
     "gradeflow/answer-criteria": [[3, 0, 2], [2, 1, 0], [2, 1, 0], [3, 2, 0]],
     "gradeflow/equivalent-expression": [[1, 1, 0, 0], [1, 0, 0]],

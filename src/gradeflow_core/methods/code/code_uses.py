@@ -55,13 +55,14 @@ class CodeUses(AnswerMethod[CodeUsesSettings]):
     label = "Code Uses"
     summary = "Correct if the code uses a construct you choose."
     guide = (
-        "**Use it when:** Code must use a construct, such as a loop, recursion or a call to a "
-        "function.\n\n"
-        "**How it marks:** The code is read as written, not run, so comments and strings don't "
-        "count. Code that can't be read gets no marks. "
-        "**Fix code** can fix common errors first.\n\n"
-        "**Related:** To forbid a construct, put it in Not Allowed. To check what the code does, "
-        "use Code Tests."
+        "For Python answers that must use a construct: a loop, recursion, a comprehension, an "
+        "import or a call to a function you name.\n\n"
+        "The code is read, not run, so a loop in a comment or a string doesn't count. A loop is a "
+        "`for` or `while` loop, and comprehensions count only as **A comprehension**. Code that "
+        "can't be read, such as code with a syntax error, gets no marks. Turn on fixes under **Fix "
+        "code** to read it with common errors fixed first.\n\n"
+        "To forbid a construct, put Code Uses inside Not Allowed. To check what the code does, use "
+        "Code Tests."
     )
     level = "advanced"
     question_types = frozenset({"code"})

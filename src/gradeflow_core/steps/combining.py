@@ -58,9 +58,7 @@ class WeightField(NamedTuple):
     description: str
 
 
-_COUNTS_OR_NOT = WeightField(
-    "Weight", "1 counts it, and 0 lets later steps read it without counting it."
-)
+_COUNTS_OR_NOT = WeightField("Weight", "1 counts it, and 0 leaves it out of the mark.")
 
 type PartAndOutcome = tuple[Part, Outcome]
 """A part and its outcome for one answer."""
@@ -259,8 +257,7 @@ class _AnyCorrect(Combination):
     heading = "Any one of these"
     weight_field = WeightField(
         "Weight",
-        "The share of the marks it gives, from 0 to 1. Zero lets later steps read it without "
-        "giving marks.",
+        "The share of the marks it gives, from 0 to 1.",
     )
 
     weight_rule = "takes weights from 0 to 1"
@@ -419,8 +416,7 @@ COMBINATIONS: Mapping[MarksBy, Combination] = {
         divides_by_max_marks=True,
         weight_field=WeightField(
             "Marks",
-            "The marks it gives when correct. Zero lets later steps read it without giving marks, "
-            "and a negative number takes marks off.",
+            "The marks it gives when correct. A negative number takes marks off.",
         ),
     ),
     "proportional": _Additive(
@@ -429,8 +425,8 @@ COMBINATIONS: Mapping[MarksBy, Combination] = {
         divides_by_max_marks=False,
         weight_field=WeightField(
             "Weight",
-            "How much it counts against the other checks: 2 counts twice as much as 1. Zero lets "
-            "later steps read it without giving marks, and a negative weight takes marks off.",
+            "How much it counts against the other checks: 2 counts twice as much as 1. A negative "
+            "weight takes marks off.",
         ),
     ),
 }

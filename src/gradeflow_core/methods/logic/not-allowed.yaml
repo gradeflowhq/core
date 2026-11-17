@@ -4,13 +4,13 @@ summary: Correct unless the answer does what you forbid.
 level: advanced
 question_types: all
 guide: |-
-  **Use it when:** An answer must not do something, such as make a common mistake or use a forbidden loop or function.
+  For something an answer must not do, such as use a loop or make a common mistake.
 
-  **How it marks:** The check inside is marked and its result reversed: the answer is correct when the check inside isn't, and gets no marks when it is.
+  Inside it, add a check that finds the forbidden thing, such as Code Uses looking for a loop. If that check finds it, the answer gets no marks. If not, the answer gets full marks.
 
-  **Good to know:** On its own it gives marks to any answer that avoids the mistake. Put it in a Workflow with **All must be correct**, beside the check for the correct answer.
+  On its own, Not Allowed gives full marks to every answer that avoids the mistake, right or wrong. To mark the answer as well, put it in a Workflow with **All must be correct**, beside the check for the right answer.
 
-  **Related:** To forbid words or points, Key Points with **None may be correct** is simpler.
+  To forbid certain words, Key Points with **None may be correct** is simpler.
 settings:
   check:
     title: Check

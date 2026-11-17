@@ -4,13 +4,15 @@ summary: Marks questions differently depending on another answer.
 level: advanced
 marks_question_group: true
 guide: |-
-  **Use it when:** How a question is marked depends on another answer, such as when students choose which part to answer.
+  For questions marked one way or another depending on another answer, such as when students choose which part to answer.
 
-  **How it marks:** The **If** checks run first and give no marks. When they're correct, the **Then** checks mark their questions; when they aren't, the **Otherwise** checks do.
+  The **If** checks run first and give no marks. When they are correct, the **Then** checks mark the questions. When they aren't, the **Otherwise** checks do. **Then applies when** sets whether all the If checks must be correct, or any one.
 
-  **Good to know:** Mark the same questions under Then and Otherwise, so every student is marked one way or the other.
+  For example, Q1 asks which part the student answered, A or B, and Q2 holds the answer. The If check is Multiple Choice on Q1 with “A”. Then marks Q2 as an answer to part A, and Otherwise marks it as an answer to part B.
 
-  **Related:** To accept several consistent sets of answers, use Answer Sets.
+  Mark the same questions under Then and Otherwise, so every student is marked one way or the other.
+
+  To accept several consistent sets of answers, use Answer Sets.
 settings:
   condition:
     title: If
@@ -25,7 +27,7 @@ settings:
     description: Checks that mark the questions when the If checks are correct.
   otherwise:
     title: Otherwise
-    description: Checks that mark the questions otherwise.
+    description: Checks that mark the questions when the If checks aren't correct.
     default: []
 steps:
   - id: condition

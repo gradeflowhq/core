@@ -39,6 +39,7 @@ MATCH_FIELD: MatchMode = Field(
 STRICTNESS_FIELD: Strictness = Field(
     default="normal",
     title="How strict",
+    description="Lenient accepts answers further from yours, and Strict only closer ones.",
     json_schema_extra=hint(
         labels={"lenient": "Lenient", "normal": "Normal", "strict": "Strict"},
         applies_when={"match": ["spelling", "meaning"]},
