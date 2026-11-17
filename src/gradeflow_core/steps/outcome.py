@@ -171,7 +171,7 @@ def unanswered_outcome(answer: Unreadable | None) -> Outcome:
     """The outcome of an unreadable or blank answer, which no method marks."""
     if answer is None:
         return Outcome(0.0, NO_ANSWER_FEEDBACK)
-    return Outcome(0.0, answer.reason, marked=False)
+    return Outcome(0.0, answer.reason, marked=answer.marked)
 
 
 def clamped(proportion: float) -> float:

@@ -160,7 +160,7 @@ class AnswerCriteria(Method[AnswerCriteriaSettings]):
         "is right as well. A **Model answer** gives the AI a worked answer to compare with.\n\n"
         "**How to decide**:\n\n"
         "- **Fast**: decides each answer in seconds.\n"
-        "- **Careful**: takes minutes, and leaves answers it isn't sure of for you to mark.\n"
+        "- **Careful**: takes minutes. Answers it isn't sure of need marking.\n"
         "- **Fast, then careful if unsure**: gives a careful second look to answers where the fast "
         "decision is less sure than **Confidence needed**.\n\n"
         "To mark only the terms or ideas an answer includes, use Key Points. It doesn't use your "

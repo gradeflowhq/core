@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -91,6 +92,15 @@ def test_the_breakdown_shows_what_a_check_read_and_no_row_for_the_transform() ->
 def test_nothing_to_extract_leaves_the_answer_for_a_person_and_other_steps_still_mark() -> None:
     result = result_of(REASONING_AND_NUMBER_MARKING, Q1="By the formula, no idea")
     assert not result.is_marked
+    assert result.marks == 4
+    assert "Couldn't find a number." in result.feedback
+
+
+def test_nothing_to_extract_can_give_no_marks() -> None:
+    marking = deepcopy(REASONING_AND_NUMBER_MARKING)
+    marking["with"]["steps"][0]["with"]["nothing_found"] = "no_marks"
+    result = result_of(marking, Q1="By the formula, no idea")
+    assert result.is_marked
     assert result.marks == 4
     assert "Couldn't find a number." in result.feedback
 

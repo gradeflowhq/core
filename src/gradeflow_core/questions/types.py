@@ -17,3 +17,5 @@ class Unreadable:
     """An answer the question couldn't read, and why."""
 
     reason: str
+    marked: bool = False
+    """Whether it counts as marked, with no marks, instead of being left to a person."""

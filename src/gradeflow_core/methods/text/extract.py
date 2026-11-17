@@ -41,6 +41,11 @@ class ExtractSettings(Settings):
         description="Which one counts when the answer has several.",
         json_schema_extra=hint(labels={"only": "Only one", "first": "First", "last": "Last"}),
     )
+    nothing_found: Literal["unmarked", "no_marks"] = Field(
+        default="unmarked",
+        title="When nothing is found",
+        json_schema_extra=hint(labels={"unmarked": "Needs marking", "no_marks": "No marks"}),
+    )
 
     @model_validator(mode="after")
     def _check_text_has_pattern(self) -> Self:
@@ -65,8 +70,9 @@ class Extract(TransformMethod[ExtractSettings]):
         "group in brackets around the part to find. `Conclusion:\\s*(.+)` finds the text after "
         "“Conclusion:”. Patterns ignore capitals when the question's **Ignore case** is on.\n\n"
         "**Occurrence** says which one counts when there are several: **First**, **Last** or "
-        "**Only one**. An answer with nothing to find is left for you to mark, and so is one with "
-        "several when Occurrence is Only one.\n\n"
+        "**Only one**. An answer with nothing to find needs marking, or gets no marks when **When "
+        "nothing is found** is **No marks**. One with several needs marking when Occurrence is "
+        "Only one.\n\n"
         "To check that a whole answer follows a format, use Pattern."
     )
     question_types = frozenset({"text"})
@@ -78,7 +84,8 @@ class Extract(TransformMethod[ExtractSettings]):
             settings.occurrence
         ]
         pattern_phrase = f" matching {code_span(settings.pattern)}" if settings.pattern else ""
-        return f"Finds {occurrence_phrase} {settings.type}{pattern_phrase}."
+        no_marks_phrase = ", or gives no marks" if settings.nothing_found == "no_marks" else ""
+        return f"Finds {occurrence_phrase} {settings.type}{pattern_phrase}{no_marks_phrase}."
 
     def output_question(self, settings: ExtractSettings, question: Question) -> Question:
         """The question reading what is found in an answer to ``question``."""
@@ -99,7 +106,8 @@ class Extract(TransformMethod[ExtractSettings]):
             return Unreadable(PATTERN_TIMEOUT_MESSAGE)
         if not candidates or (settings.occurrence == "only" and len(candidates) > 1):
             return Unreadable(
-                _extraction_failure_reason(settings, [text for text, _ in candidates])
+                _extraction_failure_reason(settings, [text for text, _ in candidates]),
+                marked=not candidates and settings.nothing_found == "no_marks",
             )
         text, span = candidates[-1] if settings.occurrence == "last" else candidates[0]
         if _is_blank_marker(text, question):

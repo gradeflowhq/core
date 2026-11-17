@@ -128,7 +128,7 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
         "Set `correct` to `True` or `False`, or `proportion` to a number from 0 to 1 for part "
         "marks. Set `feedback` to tell the student why. They see it as plain text, and see nothing "
         "if you don't set it. If your code raises an error or runs past its **Time limit**, the "
-        "answer is left for you to mark, with the error as the reason.\n\n"
+        "answer needs marking, with the error as the reason.\n\n"
         "```python\n"
         'correct = answer in {"h2o", "water"}\n'
         "if not correct:\n"
