@@ -158,21 +158,25 @@ class Step(BaseModel):
 
     def notes(self, check_labels: Mapping[str, str], weight_note: str | None) -> list[str]:
         """Its ``weight_note``, if it is a check, and condition in words, naming each check its
-        condition reads by ``check_labels``, by ID: ``½ of the marks``, ``Only when Units isn't
+        condition reads by ``check_labels``, by ID: ``50% of the marks``, ``Only when Units isn't
         correct``."""
         weight = weight_note if self.resolution.gives_marks else None
         condition = condition_note(self.if_, check_labels) if self.if_ else None
         return [note for note in (weight, condition) if note]
 
-    def described_in_list(self, notes: Sequence[str]) -> str:
-        """What it does, as an item of a list. A check comes after its question and its name, or
-        the label of a method that is described by its steps, with ``notes`` after them:
-        ``**Q2, Sign error** (½ of the marks): …``."""
+    def described_in_list(self, notes: Sequence[str], default_name: str | None = None) -> str:
+        """What it does, as an item of a list. A check comes after its question and its name, else
+        ``default_name``, such as "Value 2", or the label of a method that is described by its
+        steps, with ``notes`` after them: ``**Q2, Sign error** (50% of the marks): …``."""
         description = self.describe()
         if not self.resolution.gives_marks:
             return description
         method = self.resolution.method
-        name = self.name or (self.method_label if method and method.describes_by_steps else None)
+        name = (
+            self.name
+            or default_name
+            or (self.method_label if method and method.describes_by_steps else None)
+        )
         heading = ", ".join(part for part in (self.question, name) if part)
         notes_text = " · ".join(notes)
         if heading and notes_text:

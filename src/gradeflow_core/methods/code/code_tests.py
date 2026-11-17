@@ -49,7 +49,8 @@ class Test(Settings):
     weight: Number = Field(
         default=1,
         title="Weight",
-        description="How much the test counts.",
+        description="The marks it gives under Add up marks; otherwise how much it counts against "
+        "the other tests.",
         json_schema_extra=ADVANCED_HINT,
     )
 

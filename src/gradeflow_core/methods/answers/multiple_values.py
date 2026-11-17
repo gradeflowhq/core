@@ -91,13 +91,15 @@ class MultipleValues(MarkingMethod[MultipleValuesSettings]):
         }
 
     def describe(self, settings: MultipleValuesSettings) -> str:
+        combination = COMBINATIONS[settings.marks_by]
+        weight_notes = combination.weight_notes([check.weight for check in settings.checks])
         check_lines = markdown_list(
-            f"**{check.name or f'Value {value_number}'}:** {check.describe()}"
-            for value_number, check in enumerate(settings.checks, start=1)
+            check.described_in_list([weight_note] if weight_note else [], f"Value {value_number}")
+            for value_number, (check, weight_note) in enumerate(
+                zip(settings.checks, weight_notes, strict=True), start=1
+            )
         )
-        heading = COMBINATIONS[settings.marks_by].description_heading(
-            *(["in any order"] if settings.any_order else [])
-        )
+        heading = combination.description_heading(*(["in any order"] if settings.any_order else []))
         return f"{heading}\n{check_lines}"
 
     def mark_student(

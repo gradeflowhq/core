@@ -460,8 +460,10 @@ def test_notes_say_what_a_checks_place_does_to_it() -> None:
     draft.update("/with/steps/0", {"name": "Capital", "weight": 0.5})
     incorrect = Condition((ConditionRow("/with/steps/0", "incorrect"),))
     draft.update("/with/steps/1", {"weight": -1, "if": incorrect})
-    assert draft.notes("/with/steps/0") == ["½ of the marks"]
-    assert draft.notes("/with/steps/1") == ["Penalty 1", "Only when Capital isn't correct"]
+    assert draft.notes("/with/steps/0") == [], "a weight All must be correct doesn't use"
+    draft.update("", {"marks_by": "total"})
+    assert draft.notes("/with/steps/0") == ["0.5 marks"]
+    assert draft.notes("/with/steps/1") == ["Penalty 1 mark", "Only when Capital isn't correct"]
     draft.update("/with/steps/1", {"if": "{{ steps.capital.output.proportion > 0.2 }}"})
     assert draft.notes("/with/steps/1")[-1] == "Only when its condition holds"
 

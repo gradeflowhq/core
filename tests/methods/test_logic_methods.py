@@ -89,6 +89,22 @@ def test_multiple_values_checks_each_value_in_order_or_in_any_order() -> None:
     ]
 
 
+def test_multiple_values_says_what_each_value_is_worth() -> None:
+    roots = ValuesQuestion(value_types=["number", "number"])
+    checks = [accepted_answer("2", weight=2), accepted_answer("-3", name="Second root", weight=-1)]
+    marking = {
+        "uses": "gradeflow/multiple-values@1",
+        "with": {"marks_by": "total", "checks": with_value_inputs(*checks)},
+    }
+    assert describe(marking) == (
+        "Marks added up from these:\n- **Value 1** (2 marks): Matches `2`.\n"
+        "- **Second root** (Penalty 1 mark): Matches `-3`."
+    )
+    assert [result.feedback for result in mark_all(marking, ["5, -3"], roots)] == [
+        "Value 1: Expected 2.\nPenalty: Second root."
+    ]
+
+
 @pytest.mark.parametrize("any_order", [False, True])
 def test_multiple_values_needs_a_check_for_each_value(any_order: bool) -> None:
     roots = ValuesQuestion(value_types=["number", "number"])

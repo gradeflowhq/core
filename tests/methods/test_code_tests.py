@@ -311,7 +311,8 @@ def test_tests_are_listed_with_their_weights() -> None:
     assert describe(
         code_tests(F_GIVES_1, {**G_GIVES_2, "weight": 0.5}, marks_by="any_correct")
     ) == (
-        "Passes any one of these tests:\n- `f()` gives `1`.\n- **½ of the marks:** `g()` gives `2`."
+        "Passes any one of these tests:\n- `f()` gives `1`.\n"
+        "- **50% of the marks:** `g()` gives `2`."
     )
     assert describe(code_tests(weighted, marks_by="total")) == "**2 marks:** Makes `g()` give `2`."
 

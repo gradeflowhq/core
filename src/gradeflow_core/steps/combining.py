@@ -8,7 +8,7 @@ from typing import Literal, NamedTuple
 
 from ..common.paths import pointer
 from ..common.problems import Problem
-from ..common.text import as_sentence, format_fraction, plain_markdown
+from ..common.text import as_sentence, marks_text, plain_markdown
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
 from .outcome import (
@@ -75,36 +75,40 @@ class Combination(ABC):
     weight_field: WeightField
     """The title and description of a check's weight."""
     uses_weights = True
+    weight_rule = "doesn't use weights"
+    """The rule a weight problem states after the label."""
 
     def description_heading(self, *notes: str) -> str:
         """How a description of combined checks opens: ``Marks added up from these:``."""
         return f"{', '.join([self.heading, *notes])}:"
 
+    def takes_weight(self, weight: float) -> bool:
+        """Whether a check may have ``weight``: any, or only 0 and 1 when weights aren't used."""
+        return self.uses_weights or weight in (0, 1)
+
     def weight_problems(self, weights: Sequence[float], setting_name: str) -> Iterator[Problem]:
-        """A problem at each weight other than 0 and 1, when weights aren't used."""
-        if self.uses_weights:
-            return
+        """A problem at each weight a check may not have."""
         for index, weight in enumerate(weights):
-            if weight not in (0, 1):
+            if not self.takes_weight(weight):
                 yield Problem(
-                    f"“{self.label}” doesn't use weights.",
+                    f"“{self.label}” {self.weight_rule}.",
                     field=pointer(setting_name, index, "weight"),
                 )
 
     def weight_notes(self, weights: Sequence[float]) -> list[str | None]:
-        """What each of the ``weights`` of the checks in a list makes its check worth."""
-        return [self._weight_note(weight) for weight in weights]
+        """What each of the ``weights`` of the checks in a list makes its check worth; None for a
+        weight it may not have, which has a problem instead."""
+        return [
+            self._weight_note(weight) if self.takes_weight(weight) else None for weight in weights
+        ]
 
     def _weight_note(self, weight: float) -> str | None:
-        """What ``weight`` makes a check worth, unless it is 1: ``½ of the marks``,
-        ``Penalty 1``."""
+        """What ``weight`` makes a check worth, unless it is 1: ``50% of the marks``."""
         if weight == 1:
             return None
         if weight == 0:
             return "Gives no marks"
-        if weight > 0:
-            return f"{format_fraction(weight)} of the marks"
-        return f"Penalty {format_fraction(-weight)}"
+        return f"{weight:.0%} of the marks"
 
     def denominator(self, weights: Sequence[float], max_marks: float) -> float:
         """What added marks are divided by, given the ``weights`` of every check counted."""
@@ -255,18 +259,15 @@ class _AnyCorrect(Combination):
     heading = "Any one of these"
     weight_field = WeightField(
         "Weight",
-        "How much of the full marks it gives: 1 for full marks, 0.5 for half. Zero lets later "
-        "steps read it without giving marks.",
+        "The share of the marks it gives, from 0 to 1. Zero lets later steps read it without "
+        "giving marks.",
     )
 
-    def weight_problems(self, weights: Sequence[float], setting_name: str) -> Iterator[Problem]:
-        """A problem at each weight below 0 or above 1, which gives no more than 0 or 1 would."""
-        for index, weight in enumerate(weights):
-            if not 0 <= weight <= 1:
-                yield Problem(
-                    f"“{self.label}” takes weights from 0 to 1.",
-                    field=pointer(setting_name, index, "weight"),
-                )
+    weight_rule = "takes weights from 0 to 1"
+
+    def takes_weight(self, weight: float) -> bool:
+        """Whether ``weight`` is from 0 to 1: one outside gives no more than 0 or 1 would."""
+        return 0 <= weight <= 1
 
     def proportion(
         self, weighted_proportions: Sequence[tuple[float, float]], denominator: float
@@ -366,7 +367,7 @@ class _Additive(_QuestionByQuestion):
         ``Penalty 1 mark``."""
         if weight in (0, 1):
             return super()._weight_note(weight)
-        amount = f"{format_fraction(abs(weight))} mark{'s' if abs(weight) > 1 else ''}"
+        amount = marks_text(abs(weight))
         return amount if weight > 0 else f"Penalty {amount}"
 
     def denominator(self, weights: Sequence[float], max_marks: float) -> float:
@@ -392,7 +393,8 @@ class _Additive(_QuestionByQuestion):
                 lines.append((part.feedback_name, outcome.feedback))
             elif weighted_proportion > 0 or (falls_short and not is_correct):
                 if part.weight < 0 and not part.has_own_feedback:
-                    lines.append((None, f"Penalty: {part.name}." if part.name else "Penalty."))
+                    name = part.feedback_name
+                    lines.append((None, f"Penalty: {name}." if name else "Penalty."))
                 else:
                     lines.append((part.feedback_name, outcome.feedback))
         return _joined_feedback(lines)

@@ -180,7 +180,7 @@ def test_any_correct_across_questions_picks_one_check_by_its_total_marks() -> No
 def test_a_workflow_describes_its_steps_with_their_names_and_weights() -> None:
     check = workflow("any_correct", key_point("a", name="A"), key_point("b", weight=0.5))
     assert describe(check) == (
-        "Any one of these:\n- **A:** Includes `a`.\n- **½ of the marks:** Includes `b`."
+        "Any one of these:\n- **A:** Includes `a`.\n- **50% of the marks:** Includes `b`."
     )
     proportional = workflow(
         "proportional",
@@ -208,7 +208,7 @@ def test_a_workflow_describes_each_steps_condition() -> None:
     )
     assert describe(check).splitlines()[1:] == [
         "- **A:** Includes `a`.",
-        "- **½ mark · Only when A isn't correct:** Includes `b`.",
+        "- **0.5 marks · Only when A isn't correct:** Includes `b`.",
         "- **Only when its condition holds:** Includes `c`.",
         "- **Gives no marks:** Includes `d`.",
         "- **Only when Key Point is correct:** Includes `e`.",

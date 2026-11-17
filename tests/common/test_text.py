@@ -11,8 +11,8 @@ from gradeflow_core.common.text import (
     code_join,
     code_span,
     escaped_markdown,
-    format_fraction,
     format_number,
+    marks_text,
     plain_markdown,
     plural,
     quoted,
@@ -71,13 +71,13 @@ def test_a_number_with_no_exact_decimal_is_written_as_a_fraction() -> None:
     ]
 
 
-def test_fractions_are_written_as_people_would() -> None:
-    assert [format_fraction(number) for number in (0.5, 0.25, 0.75, 2, 0.3)] == [
-        "½",
-        "¼",
-        "¾",
-        "2",
-        "0.3",
+def test_marks_are_written_as_decimals_unless_a_fraction_says_them_exactly() -> None:
+    assert [marks_text(marks) for marks in (1, 0.5, 1 / 3, 2, -1)] == [
+        "1 mark",
+        "0.5 marks",
+        "1/3 marks",
+        "2 marks",
+        "-1 mark",
     ]
 
 

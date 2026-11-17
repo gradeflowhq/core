@@ -11,7 +11,12 @@ from pydantic import Field, model_validator
 
 from ...common.hints import hint
 from ...common.problems import Problem, problem_error
-from ...common.text import as_sentence, escaped_markdown, format_number, markdown_list, plural
+from ...common.text import (
+    as_sentence,
+    escaped_markdown,
+    markdown_list,
+    marks_text,
+)
 from ...models import model_service
 from ...models.model_service import ModelEndpoint, ReasoningEffort
 from ...questions.base import Question
@@ -166,8 +171,7 @@ class AnswerCriteria(Method[AnswerCriteriaSettings]):
 
     def describe(self, settings: AnswerCriteriaSettings) -> str:
         lines = [
-            f"{escaped_markdown(criterion.text)} ({format_number(criterion.marks)} "
-            f"{plural('mark', abs(criterion.marks))})"
+            f"{escaped_markdown(criterion.text)} ({marks_text(criterion.marks)})"
             for criterion in settings.criteria
         ]
         if settings.marks_by == "best_fit":

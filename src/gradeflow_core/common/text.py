@@ -20,7 +20,6 @@ _ESCAPE_OR_FORMULA = re.compile(
 )
 
 
-_FRACTIONS = {0.5: "½", 0.25: "¼", 0.75: "¾"}
 _LARGEST_DENOMINATOR = 1000
 """The largest denominator written: 1/999 is a fraction, 1/1001 a decimal."""
 _MAX_INLINE_LIST_LENGTH = 80
@@ -45,9 +44,9 @@ def written_fraction(number: float) -> str | None:
     return str(fraction)
 
 
-def format_fraction(number: float) -> str:
-    """``number`` as a fraction is written: ½ for 0.5, and as `format_number` otherwise."""
-    return _FRACTIONS.get(number) or format_number(number)
+def marks_text(marks: float) -> str:
+    """``marks`` as a number of marks: ``1 mark``, ``0.5 marks``, ``1/3 marks``."""
+    return f"{format_number(marks)} {plural('mark', abs(marks))}"
 
 
 def format_marks(marks: float) -> str:
