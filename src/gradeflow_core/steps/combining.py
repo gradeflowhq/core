@@ -52,13 +52,17 @@ class Part:
 
 
 class WeightField(NamedTuple):
-    """The title and description of a check's weight in a list."""
+    """The title and description of a check's weight in a list, and its choices if it takes only
+    a few, with their labels."""
 
     title: str
     description: str
+    choices: tuple[tuple[int, str], ...] = ()
 
 
-_COUNTS_OR_NOT = WeightField("Weight", "1 counts it, and 0 leaves it out of the mark.")
+_COUNTS_OR_NOT = WeightField(
+    "Counts toward the mark", "No leaves it out of the mark.", choices=((1, "Yes"), (0, "No"))
+)
 
 type PartAndOutcome = tuple[Part, Outcome]
 """A part and its outcome for one answer."""
@@ -256,11 +260,10 @@ class _AnyCorrect(Combination):
     label = "Any one must be correct"
     heading = "Any one of these"
     weight_field = WeightField(
-        "Weight",
-        "The share of the marks it gives, from 0 to 1.",
+        "Share", "The share of the marks it gives, from 0 to 1: 0.5 is half."
     )
 
-    weight_rule = "takes weights from 0 to 1"
+    weight_rule = "takes shares from 0 to 1"
 
     def takes_weight(self, weight: float) -> bool:
         """Whether ``weight`` is from 0 to 1: one outside gives no more than 0 or 1 would."""

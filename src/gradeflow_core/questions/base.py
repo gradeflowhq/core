@@ -36,7 +36,6 @@ class Question(BaseModel, ABC):
         ge=0,
         allow_inf_nan=False,
         title="Maximum marks",
-        description="The most marks a student can get for this question.",
     )
     description: str | None = Field(
         default=None,

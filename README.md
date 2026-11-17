@@ -273,7 +273,7 @@ settings:
   points:
     title: Points
   marks_by:
-    title: How points count
+    title: How marks are given
     default: proportional
 marks_by: "{{ settings.marks_by }}"
 steps:

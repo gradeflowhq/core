@@ -34,7 +34,7 @@ class OrderSettings(Settings):
     )
     marks_for: Literal["exact", "items_in_order", "pairs_in_order"] = Field(
         default="items_in_order",
-        title="Marks for",
+        title="How marks are given",
         json_schema_extra=hint(labels=MARKS_FOR_LABELS),
     )
 
@@ -47,7 +47,7 @@ class Order(AnswerMethod[OrderSettings]):
     guide = (
         "For putting items in order, such as the stages of a process or events in time. The "
         "question needs one value for each item, all text or all numbers.\n\n"
-        "Enter the **Correct order**, first to last, and choose what earns **Marks for**. With the "
+        "Enter the **Correct order**, first to last, and choose **How marks are given**. With the "
         "correct order A, B, C, D:\n\n"
         "- **Items in order**: a share for each item in the longest sequence that keeps the "
         "correct order, skipping the others. B, A, C, D keeps A, C, D in order, 3 of 4, and gets "

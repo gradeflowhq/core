@@ -81,10 +81,8 @@ class AnswerCriteriaSettings(Settings):
     )
     marks_by: Literal["total", "best_fit"] = Field(
         default="total",
-        title="How criteria count",
-        json_schema_extra=hint(
-            labels={"total": "Add up each that fits", "best_fit": "Only the best fit"}
-        ),
+        title="How marks are given",
+        json_schema_extra=hint(labels={"total": "Add up marks", "best_fit": "Best fit only"}),
     )
     model_answer: str | None = Field(
         default=None,
@@ -94,8 +92,6 @@ class AnswerCriteriaSettings(Settings):
     decide_with: Literal["fast", "careful", "fast_then_careful"] = Field(
         default="fast",
         title="How to decide",
-        description="Careful takes minutes rather than seconds, and leaves what it's unsure of to "
-        "you.",
         json_schema_extra=hint(
             advanced=True,
             labels={
@@ -153,13 +149,13 @@ class AnswerCriteria(Method[AnswerCriteriaSettings]):
         "For answers that need a marker's judgement, such as a calculation where the working earns "
         "marks. AI reads each answer and decides which of your **Criteria** fit it. Answers are "
         "sent to the AI service you connect in Settings.\n\n"
-        "Each criterion has marks. **How criteria count**:\n\n"
-        "- **Add up each that fits**: every criterion that fits adds its marks. A criterion with "
-        "negative marks takes marks off, such as “Forgot the units” at `-1`. The total stays "
-        "between 0 and the question's marks.\n"
-        "- **Only the best fit**: the answer gets the marks of the one criterion that fits best. "
-        "Use it for levels, such as “Complete” at `3`, “Right method, wrong result” at `2` and "
-        "“Off topic” at `0`.\n\n"
+        "Each criterion has marks. **How marks are given**:\n\n"
+        "- **Add up marks**: every criterion that fits adds its marks. A criterion with negative "
+        "marks takes marks off, such as “Forgot the units” at `-1`. The total stays between 0 and "
+        "the question's marks.\n"
+        "- **Best fit only**: the answer gets the marks of the one criterion that fits best. Use "
+        "it for levels, such as “Complete” at `3`, “Right method, wrong result” at `2` and “Off "
+        "topic” at `0`.\n\n"
         "Marks start at 0, so a list of only penalties gives every answer 0. Give marks for what "
         "is right as well. A **Model answer** gives the AI a worked answer to compare with.\n\n"
         "**How to decide**:\n\n"

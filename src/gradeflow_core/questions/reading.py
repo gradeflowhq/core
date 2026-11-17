@@ -33,7 +33,6 @@ class TextReading(Reading):
     trim_spaces: bool = Field(
         default=True,
         title="Ignore spaces at the ends",
-        description="Spaces before and after an answer are removed before marking.",
         json_schema_extra=ADVANCED_HINT,
     )
     ignore_case: bool = Field(
@@ -79,7 +78,6 @@ def reading_field[R: Reading](factory: Callable[[], R]) -> R:
     return Field(
         default_factory=factory,
         title="Reading answers",
-        description="How answers are read before marking.",
     )
 
 

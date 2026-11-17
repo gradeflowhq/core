@@ -27,7 +27,7 @@ class _SchemaWithoutDefaultTitles(GenerateJsonSchema):
 
 
 @pytest.mark.parametrize("model", FORM_MODELS, ids=lambda model: model.__name__)
-def test_form_fields_have_plain_titles_help_and_enum_labels(model: type[BaseModel]) -> None:
+def test_form_fields_have_plain_titles_and_enum_labels(model: type[BaseModel]) -> None:
     schema = model.model_json_schema(
         mode="validation", schema_generator=_SchemaWithoutDefaultTitles
     )
@@ -40,9 +40,10 @@ def test_form_fields_have_plain_titles_help_and_enum_labels(model: type[BaseMode
         field_path = f"{model.__name__}.{name}"
         # Pydantic leaves out a $ref field's title when it equals the model's title.
         assert property_schema.get("title") or "$ref" in property_schema, field_path
-        assert property_schema.get("description", "").endswith("."), field_path
+        description = property_schema.get("description", "")
+        assert not description or description.endswith("."), field_path
         assert not CAPITALISED_ID_WORD.search(
-            property_schema.get("title", "") + " " + property_schema["description"]
+            property_schema.get("title", "") + " " + description
         ), field_path
         enum = property_schema.get("enum") or property_schema.get("items", {}).get("enum")
         if enum:

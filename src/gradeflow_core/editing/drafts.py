@@ -299,6 +299,12 @@ class Draft:
         if "weight" in properties and (combination := self._list_combination(path)):
             weight = combination.weight_field
             properties["weight"] |= {"title": weight.title, "description": weight.description}
+            if weight.choices:
+                properties["weight"]["enum"] = [value for value, _ in weight.choices]
+                properties["weight"][HINT_KEY] = {
+                    **properties["weight"][HINT_KEY],
+                    "labels": {str(value): label for value, label in weight.choices},
+                }
             if combination.uses_weights:
                 properties["weight"][HINT_KEY].pop("advanced")
         for property_schema in properties.values():

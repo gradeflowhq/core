@@ -183,15 +183,16 @@ def test_a_weight_is_named_for_how_its_list_counts_weights(
 ) -> None:
     draft = new_draft()
 
-    def weight() -> tuple[str, bool]:
+    def weight() -> tuple[str, bool, list[float] | None]:
         weight_schema = draft.schema(path)["properties"]["weight"]
-        return weight_schema["title"], bool(weight_schema[HINT_KEY].get("advanced"))
+        hint = weight_schema[HINT_KEY]
+        return weight_schema["title"], bool(hint.get("advanced")), weight_schema.get("enum")
 
-    assert weight() == ("Weight", True)
-    titles = {"total": "Marks", "proportional": "Weight", "any_correct": "Weight"}
+    assert weight() == ("Counts toward the mark", True, [1, 0])
+    titles = {"total": "Marks", "proportional": "Weight", "any_correct": "Share"}
     for marks_by, title in titles.items():
         draft.update("", {"marks_by": marks_by})
-        assert weight() == (title, False)
+        assert weight() == (title, False, None)
 
 
 def test_a_field_of_a_row_left_empty_takes_its_default() -> None:

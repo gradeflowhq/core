@@ -65,7 +65,7 @@ def test_catalogue_fields_read_like_a_form() -> None:
             for name, property_schema in config["properties"].items():
                 assert property_schema[HINT_KEY]["advanced"] is True, name
                 assert property_schema["title"], name
-                assert property_schema["description"].endswith("."), name
+                assert property_schema.get("description", ".").endswith("."), name
 
 
 @pytest.mark.parametrize("question_type", QUESTION_CLASSES)

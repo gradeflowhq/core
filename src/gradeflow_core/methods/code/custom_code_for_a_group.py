@@ -43,7 +43,6 @@ class CustomCodeForAGroupSettings(Settings):
     questions: list[QuestionId] = Field(
         min_length=1,
         title="Questions",
-        description="The questions this code marks.",
         json_schema_extra=hint(item_label="question"),
     )
     code: str = Field(

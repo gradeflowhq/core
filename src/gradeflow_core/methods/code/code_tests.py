@@ -43,13 +43,14 @@ class Test(Settings):
     expected: str = Field(
         min_length=1,
         title="Expected value",
-        description="The Python value the expression should give.",
+        description='Written in Python, so text needs quotes: `"done"`.',
         examples=["5"],
     )
     weight: Number = Field(
         default=1,
         title="Weight",
-        description="How much the test counts. Under Add up marks, the marks it gives.",
+        description="How much the test counts: the marks it gives under Add up marks, and its "
+        "share from 0 to 1 under Any one must be correct.",
         json_schema_extra=ADVANCED_HINT,
     )
 
@@ -66,7 +67,7 @@ class TestSetup(Settings):
     code_after: str = Field(
         default="",
         title="Code after",
-        description="Runs after the student's code.",
+        description="Runs after the student's code, before each test.",
         json_schema_extra=hint(kind="code", language="python", advanced=True),
     )
     indent_spaces: int = Field(
@@ -90,18 +91,16 @@ class CodeTestsSettings(Settings):
     tests: list[Test] = Field(
         min_length=1,
         title="Tests",
-        description="An expression to run, and the value it should give.",
     )
     setup: TestSetup = Field(
         default_factory=TestSetup,
         title="Test setup",
-        description="Code before and after the student's, and each test's time limit.",
         json_schema_extra=ADVANCED_HINT,
     )
     fixes: CodeFixSettings = FIXES_FIELD
     marks_by: MarksBy = Field(
         default="all_correct",
-        title="How tests count",
+        title="How marks are given",
         json_schema_extra=hint(labels=MARKS_BY_LABELS),
     )
 
@@ -120,9 +119,9 @@ class CodeTests(AnswerMethod[CodeTestsSettings]):
         "passes for `2`. Floats must be equal exactly, so test `round(mean([0.1, 0.2]), 2)` "
         "against `0.15`. Student code that doesn't run fails every test, and the feedback shows "
         "the error.\n\n"
-        "**How tests count** works as in a Workflow. **All must be correct** needs every test to "
-        "pass, and **Split by weight** gives a share of the marks for each test that passes. Each "
-        "test has a **Weight**.\n\n"
+        "**How marks are given** works as in a Workflow. **All must be correct** needs every test "
+        "to pass, and **Split by weight** gives a share of the marks for each test that passes. "
+        "Each test has a **Weight**.\n\n"
         "Test an ordinary case and an edge case, such as an empty list or zero. Under **Test "
         "setup**, **Code before** runs before the student's code, for imports or helper functions, "
         "and **Time limit** caps how long each test may run.\n\n"

@@ -13,9 +13,7 @@ class CodeQuestion(Question):
     summary: ClassVar[str] = "A program, such as a Python function."
 
     type: Literal["code"] = type_field("code")
-    language: Literal["python"] = Field(
-        default="python", title="Language", description="What the answers are written in."
-    )
+    language: Literal["python"] = Field(default="python", title="Language")
     reading: Reading = reading_field(Reading)
 
     def python_type(self) -> str:

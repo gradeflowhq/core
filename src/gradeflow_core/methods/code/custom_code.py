@@ -23,7 +23,7 @@ RESULT_VARIABLES = ("correct", "proportion", "feedback")
 STARTER_CODE = 'correct = False\nfeedback = ""\n'
 
 
-def time_limit_field(description: str) -> int:
+def time_limit_field(description: str | None = None) -> int:
     """A time limit setting, within the runner's bounds."""
     return Field(
         default=runner.TIME_LIMIT_S,
@@ -35,7 +35,7 @@ def time_limit_field(description: str) -> int:
     )
 
 
-def memory_limit_field(description: str) -> int:
+def memory_limit_field(description: str | None = None) -> int:
     """A memory limit setting, within the runner's bounds."""
     return Field(
         default=runner.MEMORY_LIMIT_MB,
@@ -47,8 +47,8 @@ def memory_limit_field(description: str) -> int:
     )
 
 
-TIME_LIMIT_FIELD = time_limit_field("Longest time the code may run before it fails.")
-MEMORY_LIMIT_FIELD = memory_limit_field("Most memory the code may use before it fails.")
+TIME_LIMIT_FIELD = time_limit_field()
+MEMORY_LIMIT_FIELD = memory_limit_field()
 
 
 def code_description(answer_description: str) -> str:

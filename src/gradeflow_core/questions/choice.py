@@ -20,12 +20,10 @@ class ChoiceQuestion(Question):
         min_length=1,
         strict=True,
         title="Options",
-        description="The options students can choose from.",
     )
     allow_multiple: bool = Field(
         default=False,
         title="Allow more than one option",
-        description="Students may choose several options.",
     )
 
     @field_validator("options", mode="before")

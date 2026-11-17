@@ -29,7 +29,7 @@ COMPARISON_LABELS = {
     "all": "All of these, other options allowed",
     "none": "None of these",
     "any": "Any one of these",
-    "share_each": "A share for each",
+    "share_each": "A share each, minus wrong options",
 }
 
 
@@ -42,8 +42,6 @@ class MultipleChoiceSettings(Settings):
     compare: Comparison = Field(
         default="exactly",
         title="How to compare",
-        description="With A share for each, each correct option chosen earns a share, and each "
-        "wrong one takes a share off.",
         json_schema_extra=hint(labels=COMPARISON_LABELS),
     )
 
@@ -76,9 +74,10 @@ class MultipleChoice(AnswerMethod[MultipleChoiceSettings]):
         "- **All of these, other options allowed**: both A and C. A, B and C is correct.\n"
         "- **Any one of these**: A, C or both.\n"
         "- **None of these**: neither A nor C.\n"
-        "- **A share for each**: the marks are split equally between the correct options, here "
-        "half each. Each correct option chosen earns its share, and each wrong option chosen takes "
-        "a share off. A alone gets half, and A and B get nothing. Marks never go below 0."
+        "- **A share each, minus wrong options**: the marks are split equally between the correct "
+        "options, here half each. Each correct option chosen earns its share, and each wrong "
+        "option chosen takes a share off. A alone gets half, and A and B get nothing. Marks never "
+        "go below 0."
     )
     question_types = frozenset({"choice"})
     settings = MultipleChoiceSettings

@@ -6,7 +6,7 @@ marks_question_group: true
 guide: |-
   For several questions where more than one set of answers deserves marks, such as when a mistake in an early part carries through to later parts.
 
-  Each set holds checks for the questions it covers, and its weight is its share of the marks. Within a set, each question is marked by its own check. Every set is tried, and the set that gives the student the most marks over all its questions counts.
+  Each set holds checks for the questions it covers, and its **Share** of the marks. Within a set, each question is marked by its own check. Every set is tried, and the set that gives the student the most marks over all its questions counts.
 
   For example, Q1 asks for a rectangle's perimeter and Q2 uses that perimeter. The first set, Expected, checks the right answers to both. A second set at 50% checks the answers that follow from a common slip in Q1. A student who made that slip gets half marks on both questions instead of none.
 

@@ -11,10 +11,10 @@ guide: |-
   - **Similar spelling**: the words appear, with small typos allowed.
   - **Same meaning**: the idea appears, in any words. A language model that runs within GradeFlow judges, reading the question's description too, and answers aren't sent to your AI service. Write each point as a sentence, and keep to answers of a few sentences.
 
-  **How points count**, for a question worth 3 marks with 3 points:
+  **How marks are given**, for a question worth 3 marks with 3 points:
 
-  - **A share for each**: each point found earns a third of the marks, here 1 mark. With a fourth point, each would earn 0.75.
-  - **A mark for each**: each point found earns 1 mark, up to the question's 3.
+  - **Split equally**: each point found earns a third of the marks, here 1 mark. With a fourth point, each would earn 0.75.
+  - **Add up marks**: each point found earns 1 mark, up to the question's 3.
   - **All must be correct**: 3 marks only if every point is found.
   - **Any one must be correct**: 3 marks if at least one point is found.
   - **None may be correct**: 3 marks only if no point is found. Use it to list words an answer must not use.
@@ -29,14 +29,14 @@ settings:
   strictness:
     default: normal
   marks_by:
-    title: How points count
+    title: How marks are given
     default: proportional
     labels:
       all_correct: All must be correct
       any_correct: Any one must be correct
       none_correct: None may be correct
-      total: A mark for each
-      proportional: A share for each
+      total: Add up marks
+      proportional: Split equally
   whole_words:
     default: false
 marks_by: "{{ settings.marks_by }}"

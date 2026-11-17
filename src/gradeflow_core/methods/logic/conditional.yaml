@@ -21,7 +21,7 @@ settings:
     title: Then applies when
     default: all_correct
     choices: [all_correct, any_correct]
-    labels: {all_correct: All are correct, any_correct: Any one is correct}
+    labels: {all_correct: All must be correct, any_correct: Any one must be correct}
   then:
     title: Then
     description: Checks that mark the questions when the If checks are correct.

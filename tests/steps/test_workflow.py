@@ -239,7 +239,7 @@ def test_a_weight_where_weights_arent_used_is_a_problem(marks_by: str) -> None:
 def test_any_one_correct_takes_weights_from_0_to_1(weight: float) -> None:
     check = workflow("any_correct", key_point("a"), key_point("b", weight=weight))
     assert problems_of(check) == [
-        ("/with/steps/1", "/weight", "“Any one must be correct” takes weights from 0 to 1.")
+        ("/with/steps/1", "/weight", "“Any one must be correct” takes shares from 0 to 1.")
     ]
 
 
