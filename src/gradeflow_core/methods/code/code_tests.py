@@ -49,8 +49,10 @@ class Test(Settings):
     weight: Number = Field(
         default=1,
         title="Weight",
-        description="How much the test counts: the marks it gives under Add up marks, and its "
-        "share from 0 to 1 under Any one must be correct.",
+        description="How much the test counts: the marks it gives under Add up marks, its weight "
+        "against the other tests under Split by weight, its share from 0 to 1 under Any one must "
+        "be correct, and 1 (counts) or 0 (ignored) under All must be correct and None may be "
+        "correct.",
         json_schema_extra=ADVANCED_HINT,
     )
 

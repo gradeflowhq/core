@@ -138,7 +138,11 @@ def test_multiple_values_checks_its_weights_against_how_marks_are_given() -> Non
         return problems_of(check, roots)
 
     assert problems_with("all_correct") == [
-        ("/with/checks/1", "/weight", "“All must be correct” doesn't use weights.")
+        (
+            "/with/checks/1",
+            "/weight",
+            "“All must be correct” takes only 1 (counts) or 0 (ignored).",
+        )
     ]
     assert problems_with("total") == []
 

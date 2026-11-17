@@ -44,6 +44,7 @@ class ExtractSettings(Settings):
     nothing_found: Literal["unmarked", "no_marks"] = Field(
         default="unmarked",
         title="When nothing is found",
+        description="Needs marking leaves the answer for you to mark.",
         json_schema_extra=hint(labels={"unmarked": "Needs marking", "no_marks": "No marks"}),
     )
 
@@ -84,7 +85,9 @@ class Extract(TransformMethod[ExtractSettings]):
             settings.occurrence
         ]
         pattern_phrase = f" matching {code_span(settings.pattern)}" if settings.pattern else ""
-        no_marks_phrase = ", or gives no marks" if settings.nothing_found == "no_marks" else ""
+        no_marks_phrase = (
+            ", and gives no marks if there's none" if settings.nothing_found == "no_marks" else ""
+        )
         return f"Finds {occurrence_phrase} {settings.type}{pattern_phrase}{no_marks_phrase}."
 
     def output_question(self, settings: ExtractSettings, question: Question) -> Question:

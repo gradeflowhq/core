@@ -61,7 +61,9 @@ class WeightField(NamedTuple):
 
 
 _COUNTS_OR_NOT = WeightField(
-    "Counts toward the mark", "No leaves it out of the mark.", choices=((1, "Yes"), (0, "No"))
+    "Counts toward the mark",
+    "No ignores whether this check is correct.",
+    choices=((1, "Yes"), (0, "No")),
 )
 
 type PartAndOutcome = tuple[Part, Outcome]
@@ -77,7 +79,7 @@ class Combination(ABC):
     weight_field: WeightField
     """The title and description of a check's weight."""
     uses_weights = True
-    weight_rule = "doesn't use weights"
+    weight_rule = "takes only 1 (counts) or 0 (ignored)"
     """The rule a weight problem states after the label."""
 
     def description_heading(self, *notes: str) -> str:
