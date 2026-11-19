@@ -40,8 +40,8 @@ class Question(BaseModel, ABC):
     description: str | None = Field(
         default=None,
         title="Description",
-        description="A note about the question, such as what it asks, in Markdown. Formulas go "
-        "between $ signs in LaTeX, like $x^2$.",
+        description="A note about the question in Markdown, with formulas in LaTeX between $ "
+        "signs.",
         json_schema_extra=hint(kind="markdown"),
     )
 

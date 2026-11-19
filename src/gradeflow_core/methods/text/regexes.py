@@ -3,7 +3,7 @@
 from typing import Annotated
 
 import regex
-from pydantic import AfterValidator
+from pydantic import AfterValidator, Field
 
 from ...questions.base import Question
 from ...questions.text import TextQuestion
@@ -32,9 +32,12 @@ def _check_one_group(pattern: str) -> str:
     return pattern
 
 
-ValidPattern = Annotated[str, AfterValidator(_check_compiles)]
+_REGEX_FORMAT = Field(json_schema_extra={"format": "regex"})
+"""A string's JSON Schema format when it is a regular expression."""
+
+ValidPattern = Annotated[str, AfterValidator(_check_compiles), _REGEX_FORMAT]
 """A pattern that compiles, checked by its type, which a setting that fills one takes on."""
-OneGroupPattern = Annotated[str, AfterValidator(_check_one_group)]
+OneGroupPattern = Annotated[str, AfterValidator(_check_one_group), _REGEX_FORMAT]
 """A pattern with one group, around the part to find."""
 
 
