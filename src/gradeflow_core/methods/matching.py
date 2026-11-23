@@ -11,8 +11,6 @@ from rapidfuzz.distance import Levenshtein
 from ..common.hints import hint
 from ..common.paths import pointer
 from ..common.problems import Problem
-from ..models import nli
-from ..models.local import MISSING_MODEL_MESSAGE
 from ..questions.base import Question
 
 type MatchMode = Literal["exact", "spelling", "meaning"]
@@ -62,11 +60,6 @@ def closest_spelling_index(text: str, candidates: Sequence[str], cutoff: float) 
 def model_context(question: Question) -> str:
     """What a language model reads of ``question`` before the texts it compares."""
     return (question.description or "").strip()
-
-
-def match_problems(match: MatchMode) -> Iterator[Problem]:
-    if match == "meaning" and not nli.is_available():
-        yield Problem(MISSING_MODEL_MESSAGE, field="/match")
 
 
 TOLERANCE_FIELD = Field(

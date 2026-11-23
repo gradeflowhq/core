@@ -1,3 +1,4 @@
+import sys
 from typing import Any
 
 import pytest
@@ -93,16 +94,14 @@ def test_same_meaning_without_a_description_compares_the_answers_alone(
     assert meaning_model_calls == [("c", ["a", "b"], "", 0.005)]
 
 
-def test_same_meaning_without_the_meaning_model_installed_is_a_problem(
+def test_same_meaning_without_the_meaning_model_installed_leaves_answers_unmarked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(nli, "is_available", lambda: False)
+    monkeypatch.setitem(sys.modules, "onnxruntime", None)
+    nli._model.cache_clear()
     check = {"uses": ACCEPTED_ANSWERS, "with": {"answers": ["a"], "match": "meaning"}}
-    assert problems_of(check) == [("", "/with/match", MISSING_MODEL_MESSAGE)]
-    assert (
-        problems_of({"uses": ACCEPTED_ANSWERS, "with": {"answers": ["a"], "match": "spelling"}})
-        == []
-    )
+    assert problems_of(check) == []
+    assert mark(check, "b").feedback == f"Couldn't mark this answer: {MISSING_MODEL_MESSAGE}"
 
 
 def test_numbers_match_as_numbers_within_the_tolerance() -> None:

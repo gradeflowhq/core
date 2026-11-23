@@ -33,7 +33,6 @@ from ..matching import (
     expected_text,
     is_within_tolerance,
     match_note,
-    match_problems,
     model_context,
     unreadable_problems,
 )
@@ -152,7 +151,6 @@ class AcceptedAnswers(AnswerMethod[AcceptedAnswersSettings]):
         return Outcome(1.0, f"Accepted as {quoted(settings.answers[index])}.")
 
     def problems(self, settings: AcceptedAnswersSettings, position: Position) -> Iterator[Problem]:
-        yield from match_problems(settings.match)
         question = position.question_model
         if question is not None:
             yield from unreadable_problems(settings.answers, question.read, "answers")

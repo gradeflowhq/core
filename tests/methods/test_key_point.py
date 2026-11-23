@@ -1,3 +1,4 @@
+import sys
 from typing import Any
 
 import pytest
@@ -116,19 +117,14 @@ def test_how_strict_sets_the_meaning_cutoff(
     assert meaning_model_calls == [("b", "a", "", cutoff)]
 
 
-def test_without_the_meaning_model_installed_same_meaning_is_a_problem(
+def test_without_the_meaning_model_installed_same_meaning_leaves_answers_unmarked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(nli, "is_available", lambda: False)
-    assert problems_of({"uses": KEY_POINT, "with": {"point": "a", "match": "meaning"}}) == [
-        ("", "/with/match", MISSING_MODEL_MESSAGE)
-    ]
-    problems = problems_of(key_points("a", "b", match="meaning"))
-    assert [message for _, _, message in problems] == [
-        MISSING_MODEL_MESSAGE,
-        MISSING_MODEL_MESSAGE,
-    ]
-    assert problems_of({"uses": KEY_POINT, "with": {"point": "a"}}) == []
+    monkeypatch.setitem(sys.modules, "onnxruntime", None)
+    nli._model.cache_clear()
+    check = {"uses": KEY_POINT, "with": {"point": "a", "match": "meaning"}}
+    assert problems_of(check) == []
+    assert mark(check, "b").feedback == f"Couldn't mark this answer: {MISSING_MODEL_MESSAGE}"
 
 
 def test_key_points_count_each_point_or_add_up_a_mark_for_each() -> None:

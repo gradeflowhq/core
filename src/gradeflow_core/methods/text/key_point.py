@@ -1,18 +1,15 @@
 import re
 import string
-from collections.abc import Iterator
 
 from pydantic import Field
 
 from ...common.hints import hint
-from ...common.problems import Problem
 from ...common.text import code_span, quoted
 from ...models import nli
 from ...questions.base import Question
 from ...questions.types import Answer
 from ...steps.method import AnswerMethod
 from ...steps.outcome import Outcome
-from ...steps.position import Position
 from ...steps.settings import NonBlankText, Settings
 from ..matching import (
     MATCH_FIELD,
@@ -22,7 +19,6 @@ from ..matching import (
     Strictness,
     closest_spelling_index,
     match_note,
-    match_problems,
     model_context,
 )
 
@@ -67,9 +63,6 @@ class KeyPoint(AnswerMethod[KeyPointSettings]):
             return Outcome(0.0, f"Missing {quoted(settings.point)}.")
         as_written_note = f" (as {quoted(matching_words)})" if matching_words else ""
         return Outcome(1.0, f"Has {quoted(settings.point)}{as_written_note}.")
-
-    def problems(self, settings: KeyPointSettings, position: Position) -> Iterator[Problem]:
-        return match_problems(settings.match)
 
 
 def _matching_words(settings: KeyPointSettings, answer: str, question: Question) -> str | None:

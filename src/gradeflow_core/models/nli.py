@@ -6,10 +6,10 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..common.exceptions import GradeFlowError
 from ..common.text import unescaped_markdown
 from .local import MISSING_MODEL_MESSAGE, cache_directory
 
@@ -60,13 +60,6 @@ def setup() -> None:
     onnxruntime.InferenceSession(str(source), options, providers=["CPUExecutionProvider"])
     source.unlink()
     source.parent.rmdir()
-
-
-def is_available() -> bool:
-    """Whether the packages to set up and run the model are installed."""
-    return all(
-        find_spec(name) for name in ("huggingface_hub", "numpy", "onnxruntime", "tokenizers")
-    )
 
 
 def first_match_index(
@@ -121,8 +114,8 @@ def _model() -> _Model:
     try:
         import onnxruntime
         from tokenizers import Tokenizer
-    except ImportError as error:
-        raise ImportError(MISSING_MODEL_MESSAGE) from error
+    except ImportError:
+        raise GradeFlowError(MISSING_MODEL_MESSAGE) from None
     directory = _model_directory()
     if not _is_prepared(directory):
         setup()
