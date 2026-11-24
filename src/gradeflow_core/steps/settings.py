@@ -54,7 +54,12 @@ def _written_number(number: float) -> float | str:
     return written_fraction(number) or number
 
 
-Number = Annotated[float, BeforeValidator(_read_number), PlainSerializer(_written_number)]
+Number = Annotated[
+    float,
+    Field(allow_inf_nan=False),
+    BeforeValidator(_read_number),
+    PlainSerializer(_written_number),
+]
 """A number setting, which may be written as a fraction: ``1/3`` reads as 0.333… and is written
 back as ``1/3``."""
 

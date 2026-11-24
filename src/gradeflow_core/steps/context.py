@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from ..models.model_service import ModelEndpoint
 from ..questions.base import Question
@@ -57,6 +58,8 @@ class Context:
     earlier_results: Mapping[str, StepResult] = field(default_factory=dict)
     input: StepInput | None = None
     """What the step being run reads, when that is one answer."""
+    method_settings: Mapping[str, Any] = field(default_factory=dict)
+    """The settings of the method that wrote the step, if one did."""
     model_endpoint: ModelEndpoint | None = None
     report_progress: Callable[[Progress], None] = lambda _: None
 

@@ -88,11 +88,16 @@ def mark(check: Mapping[str, Any], answer: str, question: Question | None = None
 
 
 def mark_group(
-    marking: Mapping[str, Any], answers: Mapping[str, str], questions: Mapping[str, Question]
+    marking: Mapping[str, Any],
+    answers: Mapping[str, str],
+    questions: Mapping[str, Question],
+    methods: Methods = BUILTINS,
 ) -> dict[str, QuestionResult]:
     question_set = QuestionSet(dict(questions))
     [submission] = gradeflow_core.mark(
-        question_set, mark_scheme_of(marking), [Submission(student_id="s", answers=dict(answers))]
+        question_set,
+        mark_scheme_of(marking, methods=methods),
+        [Submission(student_id="s", answers=dict(answers))],
     )
     return submission.results
 

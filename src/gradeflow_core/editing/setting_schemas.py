@@ -39,15 +39,19 @@ def declared_setting_schema(default: JsonDict | None, setting_schema: JsonDict |
         properties["default"] = _default_property(
             default, definitions, resolved_setting_schema, inherited_entries, labels
         )
-    for key, property_schema in (
-        ("choices", _choices_schema(resolved_setting_schema, labels)),
-        ("examples", _examples_schema(resolved_setting_schema)),
-    ):
-        if property_schema is None:
-            del properties[key]
-        else:
-            properties[key] = {"title": properties[key]["title"], **property_schema}
+    else:
+        del properties["default"]
+    if (choices_schema := _choices_schema(resolved_setting_schema, labels)) is None:
+        del properties["choices"]
+    else:
+        properties["choices"] = {"title": properties["choices"]["title"], **choices_schema}
     properties["advanced"]["default"] = bool(_hint_values(resolved_setting_schema).get("advanced"))
+    if setting_schema:
+        del properties["type"]
+    else:
+        properties["type"] = _unwrapped(properties["type"])
+        del properties["type"]["default"]
+        schema["required"] = ["type"]
     return schema
 
 
@@ -130,15 +134,3 @@ def _choices_schema(setting_schema: JsonDict, labels: dict[str, str]) -> JsonDic
         return None
     items = {"type": "string", "enum": options, **hint(labels=labels)}
     return {"type": "array", "uniqueItems": True, "items": items}
-
-
-def _examples_schema(setting_schema: JsonDict) -> JsonDict | None:
-    """Declared examples, typed like a text or number setting without options; None for any
-    other setting."""
-    if setting_schema.get("enum") or (json_type := setting_schema.get("type")) not in (
-        "string",
-        "number",
-        "integer",
-    ):
-        return None
-    return {"type": "array", "items": {"type": json_type}}

@@ -266,53 +266,6 @@ def test_setting_default_schema_remains_typed_when_an_unrelated_literal_is_inval
     assert "default" not in draft.declared_setting_schema("min_value")["properties"]["default"]
 
 
-def test_bound_parameters_can_be_incomplete_until_the_new_parameter_is_filled() -> None:
-    questions = QuestionSet.load({"Q1": {"type": "number"}})
-    draft = MethodDraft.new(questions, name="code", version=1, label="Code")
-    draft.add("/with/steps/0", "gradeflow/custom-code@1")
-    draft.update("/with/steps/0", {"parameters": {"limit": {"type": "integer", "value": 5}}})
-    draft.bind_new_setting("/with/steps/0/with/parameters")
-    draft.update(
-        "/with/steps/0",
-        {"parameters": {"limit": {"type": "integer", "value": 5}, "new": {"type": "integer"}}},
-    )
-    draft = MethodDraft.from_yaml(draft.to_yaml(), questions, name="code", version=1)
-    assert draft.uneditable_reasons == []
-    assert draft.declared_settings["parameters"]["default"]["new"] == {"type": "integer"}
-    assert draft.step_problems == []
-    assert draft.problems
-    with pytest.raises(EditingError, match="Required"):
-        draft.finalized()
-    draft.update(
-        "/with/steps/0",
-        {
-            "parameters": {
-                "limit": {"type": "integer", "value": 5},
-                "new": {"type": "integer", "value": 7},
-            }
-        },
-    )
-    reopened = MethodDraft.from_yaml(draft.to_yaml(), questions, name="code", version=1)
-    assert reopened.values("/with/steps/0")["parameters"]["new"]["value"] == 7
-    assert reopened.declared_settings["parameters"]["default"]["new"]["value"] == 7
-    assert reopened.step_problems == []
-    assert reopened.problems == []
-    assert reopened.finalized().ref == "code@1"
-
-
-def test_a_settings_examples_are_typed_like_the_field_it_fills() -> None:
-    draft = number_range_draft()
-    draft.bind_new_setting("/with/steps/0/with/min_value")
-    properties = draft.declared_setting_schema("min_value")["properties"]
-    assert properties["examples"]["items"] == {"type": "number"}
-    assert "choices" not in properties
-    with pytest.raises(InvalidError) as exc_info:
-        draft.update_declared_setting("min_value", {"examples": [1, "ten"]})
-    assert exc_info.value.problems == [Problem("Must be a number.", field="/examples/1")]
-    draft.update_declared_setting("min_value", {"examples": [10, 2.5]})
-    assert draft.declared_settings["min_value"]["examples"] == [10, 2.5]
-
-
 def test_removing_a_setting_a_check_reads_is_a_problem_at_once() -> None:
     draft = number_range_draft()
     draft.update("/with/steps/0", {"feedback": "{{ settings.note }}"})
@@ -335,3 +288,79 @@ def test_a_setting_cant_take_a_name_steps_or_settings_have(name: str, message: s
     with pytest.raises(EditingError, match=re.escape(message)):
         draft.update_declared_setting(name, {"title": "Taken"})
     assert name not in draft.declared_settings
+
+
+def code_draft() -> MethodDraft:
+    """A method whose code reads its setting ``minimum``."""
+    draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
+    draft.add("/with/steps/0", "gradeflow/custom-code@1")
+    draft.update("/with/steps/0", {"code": 'correct = answer >= settings["minimum"]'})
+    draft.update_declared_setting("minimum", {"title": "Minimum", "type": "number", "default": 3})
+    return draft
+
+
+def test_code_reads_a_typed_setting_when_the_method_is_tried() -> None:
+    draft = code_draft()
+    assert draft.problems == []
+    assert draft.declared_setting_schema("minimum")["required"] == ["type"]
+    method = draft.finalized()
+    rows = mark_rows(
+        method.ref,
+        questions=draft.questions,
+        question="Q1",
+        settings={},
+        rows=[ExampleRow(answers={"Q1": "2"}), ExampleRow(answers={"Q1": "5"})],
+        methods=Methods([*BUILTINS, method]),
+    )
+    assert [row.results["Q1"].correct for row in rows] == [False, True]
+
+
+def test_a_setting_without_a_type_or_use_is_a_problem() -> None:
+    draft = code_draft()
+    draft.update_declared_setting("minimum", {"title": "Minimum", "default": 3})
+    assert [problem.message for problem in draft.problems] == ["Minimum isn't used."]
+
+
+def test_a_setting_bound_to_a_field_has_no_type_to_choose() -> None:
+    draft = number_range_draft()
+    draft.bind_new_setting("/with/steps/0/with/min_value")
+    assert "type" not in draft.declared_setting_schema("min_value")["properties"]
+
+
+def test_an_added_setting_takes_its_default_as_its_type_says() -> None:
+    draft = number_range_draft()
+    draft.add_declared_setting("minimum")
+    assert "default" not in draft.declared_setting_schema("minimum")["properties"]
+    draft.update_declared_setting("minimum", {"title": "Minimum", "type": "integer"})
+    assert draft.declared_setting_schema("minimum")["properties"]["default"]["type"] == "integer"
+    assert draft.problems == [Problem("Give “Minimum” a test value or a default.")]
+    with pytest.raises(EditingError, match="already a setting called minimum"):
+        draft.add_declared_setting("minimum")
+
+
+def test_code_in_a_method_is_told_its_settings_and_their_types() -> None:
+    draft = code_draft()
+    description = draft.schema("/with/steps/0")["properties"]["code"]["description"]
+    assert '`settings["minimum"]` (float)' in description
+
+
+@pytest.mark.parametrize(
+    ("values", "problem"),
+    [
+        ({"type": "number_list", "default": 3}, Problem("Must be a list.", field="/default")),
+        (
+            {"type": "number_list", "default": [1, "a"]},
+            Problem("Must be a number.", field="/default"),
+        ),
+        ({"type": "integer", "default": 2.5}, Problem("Must be a whole number.", field="/default")),
+        ({"type": "number", "default": "inf"}, Problem("Must be a number.", field="/default")),
+    ],
+)
+def test_a_setting_takes_only_values_of_its_type(
+    values: dict[str, object], problem: Problem
+) -> None:
+    draft = code_draft()
+    with pytest.raises(InvalidError) as error:
+        draft.update_declared_setting("minimum", values)
+    assert error.value.problems == [problem]
+    assert draft.declared_settings["minimum"]["type"] == "number"

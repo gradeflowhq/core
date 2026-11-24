@@ -21,6 +21,7 @@ TERMS_METHOD_FILE = (
   terms:
     title: Terms
   limit_to_three_words:
+    type: boolean
     default: false
 steps:
   - for_each: "{{ settings.terms }}"
@@ -146,14 +147,14 @@ def test_a_setting_applies_when_the_field_it_fills_applies() -> None:
 def test_a_setting_titles_the_fields_of_its_items() -> None:
     weighted_items_file = METHOD_FILE_HEADER + (
         "settings:\n  terms:\n    items:\n"
-        "      marks: {title: Marks, description: Its marks., examples: [2, 1]}\n"
+        "      marks: {title: Marks, description: Its marks.}\n"
         'steps:\n  - for_each: "{{ settings.terms }}"\n    weight: "{{ item.marks }}"\n'
         '    uses: gradeflow/key-point@1\n    with: {point: "{{ item.text }}"}\n'
     )
     method = with_sample_files(weights=weighted_items_file).by_ref["sample/weights@1"]
     [item_model] = get_args(method.settings.model_fields["terms"].annotation)
     marks, text_field = item_model.model_fields["marks"], item_model.model_fields["text"]
-    assert (marks.title, marks.description, marks.examples) == ("Marks", "Its marks.", [2, 1])
+    assert (marks.title, marks.description) == ("Marks", "Its marks.")
     assert text_field.title == "Point", "as the setting it fills"
 
 
@@ -169,7 +170,7 @@ def test_a_setting_without_a_default_must_be_filled_in() -> None:
 
 def test_a_setting_may_be_used_inside_a_field_template() -> None:
     method_file = METHOD_FILE_HEADER + (
-        "settings:\n  term: {title: Term}\n  topic: {title: Topic}\n"
+        "settings:\n  term: {title: Term, type: text}\n  topic: {title: Topic, type: text}\n"
         "steps:\n  - uses: gradeflow/accepted-answers@1\n"
         '    with: {answers: ["the {{ settings.term }}"]}\n'
         "  - uses: gradeflow/key-point@1\n"
@@ -433,7 +434,7 @@ steps:
 
 def test_a_setting_used_only_in_a_step_name_is_used() -> None:
     method_file = METHOD_FILE_HEADER + (
-        "settings:\n  topic: {default: cells}\n"
+        "settings:\n  topic: {type: text, default: cells}\n"
         "steps:\n  - uses: gradeflow/key-point@1\n"
         '    name: "{{ settings.topic }} check"\n    with: {point: a}\n'
     )
@@ -471,13 +472,40 @@ def test_a_nested_workflow_output_step_must_name_one_of_its_own_steps() -> None:
         with_sample_files(nested=method_file)
 
 
-def test_a_template_under_a_settings_key_named_like_a_step_key_is_checked() -> None:
+def test_a_setting_no_field_types_gives_its_type() -> None:
     method_file = METHOD_FILE_HEADER + (
-        "steps:\n  - uses: gradeflow/custom-code@1\n"
-        '    with:\n      code: "correct = True"\n'
-        '      parameters:\n        input: {type: text, value: "x {{ settings.typo }} y"}\n'
+        "settings:\n  topic: {default: cells}\n"
+        "steps:\n  - uses: gradeflow/key-point@1\n"
+        '    name: "{{ settings.topic }} check"\n    with: {point: a}\n'
+    )
+    with pytest.raises(MethodFileError, match=re.escape("Give Setting topic a type.")):
+        with_sample_files(topic=method_file)
+
+
+def test_a_setting_that_fills_a_field_takes_its_type() -> None:
+    method_file = METHOD_FILE_HEADER + (
+        "settings:\n  point: {type: number}\n"
+        "steps:\n  - uses: gradeflow/key-point@1\n"
+        '    with: {point: "{{ settings.point }}"}\n'
     )
     with pytest.raises(
-        MethodFileError, match="^" + re.escape("sample/term@1: Line 10: settings has no typo.")
+        MethodFileError, match=re.escape("Setting point takes its type from the field it fills.")
     ):
-        with_sample_files(term=method_file)
+        with_sample_files(point=method_file)
+
+
+def code_method_file(settings: str, code: str) -> str:
+    return METHOD_FILE_HEADER + (
+        f"settings:\n{settings}"
+        "steps:\n  - uses: gradeflow/custom-code@1\n"
+        f"    with:\n      code: {code}\n"
+    )
+
+
+def test_a_typed_setting_needs_no_field_or_template() -> None:
+    method_file = code_method_file(
+        "  minimum: {type: integer, default: 3}\n",
+        """'correct = len(answer) >= settings["minimum"]'""",
+    )
+    method = with_sample_files(minimum=method_file).by_ref["sample/minimum@1"]
+    assert method.settings.model_fields["minimum"].annotation is int

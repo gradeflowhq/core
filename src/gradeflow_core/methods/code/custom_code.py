@@ -2,24 +2,33 @@ from collections.abc import Iterator, Mapping
 from typing import Any, Literal
 
 from pydantic import Field
+from pydantic_core import to_jsonable_python
 
 from ...common.hints import ADVANCED_HINT, hint
 from ...common.problems import Problem
+from ...common.schemas import JsonDict
 from ...common.text import as_sentence, as_text, code_block, quoted
-from ...questions.base import Question
-from ...questions.types import ALL_QUESTION_TYPES, Answer, QuestionId
+from ...questions.types import ALL_QUESTION_TYPES, QuestionId
+from ...steps.context import Context
 from ...steps.example import examples_beside
-from ...steps.method import AnswerMethod
+from ...steps.method import MarkingMethod, readable_input
 from ...steps.outcome import Outcome
 from ...steps.position import Position
 from ...steps.settings import Settings, specialized
 from . import runner
-from .parameters import PARAMETERS_FIELD, Parameter, ParameterName, parameter_values
 
 RESULT_VARIABLES_HELP = (
     "`correct` (True or False) or `proportion` (from 0 to 1), and `feedback` if you like"
 )
 RESULT_VARIABLES = ("correct", "proportion", "feedback")
+PYTHON_TYPES = {
+    "integer": "int",
+    "number": "float",
+    "string": "str",
+    "boolean": "bool",
+    "null": "None",
+}
+"""The type code gets a value of each JSON type as, in Python."""
 STARTER_CODE = 'correct = False\nfeedback = ""\n'
 
 
@@ -51,10 +60,33 @@ TIME_LIMIT_FIELD = time_limit_field()
 MEMORY_LIMIT_FIELD = memory_limit_field()
 
 
-def code_description(answer_description: str) -> str:
+def code_description(answer_description: str, settings_description: str = "") -> str:
     return (
-        f"The answer is in {answer_description}, and each parameter in a variable of its name. "
-        f"Set {RESULT_VARIABLES_HELP}."
+        f"The answer is in {answer_description}{settings_description}. Set {RESULT_VARIABLES_HELP}."
+    )
+
+
+def settings_description(method_settings_schema: JsonDict) -> str:
+    """Where code finds the settings of the method it is in, each with its type; blank outside a
+    method."""
+    definitions = method_settings_schema.get("$defs", {})
+    listed = ", ".join(
+        f'`settings["{name}"]` ({_python_type(schema, definitions)})'
+        for name, schema in method_settings_schema.get("properties", {}).items()
+    )
+    return f", and the method's settings in `settings`: {listed}" if listed else ""
+
+
+def _python_type(schema: JsonDict, definitions: JsonDict) -> str:
+    """The type code gets a value of ``schema`` as, in Python."""
+    if "$ref" in schema:
+        return _python_type(definitions[schema["$ref"].rsplit("/", 1)[-1]], definitions)
+    json_types = schema.get("type", "object")
+    return " | ".join(
+        f"list[{_python_type(schema.get('items', {}), definitions)}]"
+        if json_type == "array"
+        else PYTHON_TYPES.get(json_type, "dict")
+        for json_type in (json_types if isinstance(json_types, list) else [json_types])
     )
 
 
@@ -66,7 +98,6 @@ class CustomCodeSettings(Settings):
         description=code_description("`answer`"),
         json_schema_extra=hint(kind="code", language="python"),
     )
-    parameters: dict[ParameterName, Parameter] = PARAMETERS_FIELD
     time_limit: int = TIME_LIMIT_FIELD
     memory_limit: int = MEMORY_LIMIT_FIELD
 
@@ -113,7 +144,7 @@ def code_problems(
         yield Problem(as_sentence(f"{line_note}{error.msg}"), field=field)
 
 
-class CustomCode(AnswerMethod[CustomCodeSettings]):
+class CustomCode(MarkingMethod[CustomCodeSettings]):
     name = "gradeflow/custom-code"
     version = 1
     label = "Custom Code"
@@ -134,9 +165,7 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
         "if not correct:\n"
         '    feedback = "Expected H2O."\n'
         "```\n\n"
-        "Each of the **Parameters** is a variable with that name in your code, of the type you "
-        "give it. Put values you may change there, such as a threshold, to change them without "
-        "editing the code.\n\n"
+        '`settings` holds a saved method\'s settings, such as `settings["threshold"]`.\n\n'
         "A code answer of several files comes as one text, each file after a line such as `-- "
         "board.py --`.\n\n"
         "To mark several questions together in code, use Custom Code for a Group."
@@ -153,9 +182,10 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
             if question
             else "`answer`"
         )
-        return specialized(
-            self.settings, code={"description": code_description(answer_description)}
+        description = code_description(
+            answer_description, settings_description(position.method_settings_schema)
         )
+        return specialized(self.settings, code={"description": description})
 
     def describe(self, settings: CustomCodeSettings) -> str:
         return f"Python code decides the marks:\n\n{code_block(settings.code)}"
@@ -163,17 +193,18 @@ class CustomCode(AnswerMethod[CustomCodeSettings]):
     def problems(self, settings: CustomCodeSettings, position: Position) -> Iterator[Problem]:
         return code_problems(settings.code)
 
-    def mark_answer(
-        self, settings: CustomCodeSettings, answer: Answer, question: Question
-    ) -> Outcome:
+    def mark_student(
+        self, settings: CustomCodeSettings, context: Context, question_id: QuestionId | None
+    ) -> dict[QuestionId, Outcome]:
+        step_input, answer = readable_input(context)
         try:
             returned_variables = runner.run(
                 settings.code,
-                {"answer": answer, **parameter_values(settings.parameters)},
+                {"answer": answer, "settings": to_jsonable_python(context.method_settings)},
                 RESULT_VARIABLES,
                 time_limit_s=settings.time_limit,
                 memory_limit_mb=settings.memory_limit,
             )
         except runner.CodeError as error:
-            return code_error_outcome(error)
-        return outcome_from_variables(returned_variables)
+            return {step_input.question_id: code_error_outcome(error)}
+        return {step_input.question_id: outcome_from_variables(returned_variables)}

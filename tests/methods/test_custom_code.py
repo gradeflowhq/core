@@ -1,14 +1,15 @@
-from collections.abc import Mapping
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, create_model
 
 from gradeflow_core import BUILTINS, Question, QuestionSet
+from gradeflow_core.common.schemas import json_schema
 from gradeflow_core.editing import Position
 from gradeflow_core.methods.code import runner
 from gradeflow_core.methods.code.custom_code import CustomCodeSettings
 from gradeflow_core.methods.code.custom_code_for_a_group import CustomCodeForAGroupSettings
+from gradeflow_core.methods.matching import MatchMode
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
@@ -22,13 +23,14 @@ from .helpers import (
     mark_scheme_of,
     problems_in,
     problems_of,
+    proportions,
 )
 
 METHODS = {method.name: method for method in BUILTINS}
 
 
-def custom_code(source: str, **parameters: Mapping[str, Any]) -> dict[str, Any]:
-    return {"uses": "gradeflow/custom-code@1", "with": {"code": source, "parameters": parameters}}
+def custom_code(source: str) -> dict[str, Any]:
+    return {"uses": "gradeflow/custom-code@1", "with": {"code": source}}
 
 
 def custom_code_for_a_group(source: str, *questions: str) -> dict[str, Any]:
@@ -63,19 +65,48 @@ def test_code_reads_the_answer_as_the_question_reads_it() -> None:
     ).correct
 
 
-def test_parameters_are_variables() -> None:
-    words = {
-        "type": "list",
-        "value": [{"type": "text", "value": "light"}, {"type": "text", "value": "water"}],
-    }
-    assert mark(
-        custom_code(
-            "correct = answer in words and limit == 2",
-            words=words,
-            limit={"type": "integer", "value": 2},
-        ),
-        "water",
-    ).correct
+LONG_ENOUGH_FILE = """label: Long enough
+version: 1
+summary: Enough words.
+question_types: [text]
+settings:
+  minimum: {title: Minimum, type: integer, default: 3}
+  words: {title: Words, type: text_list}
+steps:
+  - uses: gradeflow/custom-code@1
+    with:
+      code: |
+        count = len(answer.split())
+        correct = count >= settings["minimum"] and any(w in answer for w in settings["words"])
+"""
+
+
+def test_code_in_a_method_file_reads_its_settings() -> None:
+    methods = BUILTINS.with_files([("sample/long-enough", LONG_ENOUGH_FILE)])
+    check = {"uses": "sample/long-enough@1", "with": {"words": ["light"]}}
+    answers = ["light makes food", "light"]
+    assert proportions(mark_all(check, answers, methods=methods)) == [1, 0]
+    shorter = {"uses": "sample/long-enough@1", "with": {"words": ["light"], "minimum": 1}}
+    assert proportions(mark_all(shorter, answers, methods=methods)) == [1, 1]
+
+
+def test_code_for_a_group_in_a_method_file_reads_its_settings() -> None:
+    method_file = (
+        "label: Same\nversion: 1\nsummary: Same.\nmarks_question_group: true\n"
+        "settings:\n  expected: {title: Expected, type: text}\n"
+        "steps:\n  - uses: gradeflow/custom-code-for-a-group@1\n    with:\n"
+        "      questions: [Q1]\n"
+        "      code: |\n"
+        '        results = {"Q1": {"correct": answers["Q1"] == settings["expected"]}}\n'
+    )
+    methods = BUILTINS.with_files([("sample/same", method_file)])
+    check = {"uses": "sample/same@1", "with": {"expected": "paris"}}
+    assert mark_group(check, {"Q1": "Paris"}, QUESTIONS, methods=methods)["Q1"].correct
+
+
+def test_code_outside_a_method_file_gets_no_settings() -> None:
+    result = mark(custom_code('correct = settings["minimum"] == 3'), "x")
+    assert result.feedback == "Your code failed: KeyError: 'minimum'."
 
 
 @pytest.mark.parametrize(
@@ -151,6 +182,30 @@ def test_the_code_description_names_the_type_each_answer_comes_as() -> None:
             "gradeflow/custom-code-for-a-group", Position(questions, is_in_group=True)
         )
     )
+
+
+def test_the_code_description_names_the_methods_settings_with_their_types() -> None:
+    questions = QuestionSet({"Q1": TextQuestion()})
+    method_settings_schema = json_schema(
+        create_model("Settings", minimum=int, words=list[str], match=MatchMode)
+    )
+    listed = (
+        '`settings["minimum"]` (int), `settings["words"]` (list[str]), `settings["match"]` (str)'
+    )
+    for method, position in [
+        (
+            "gradeflow/custom-code",
+            Position(questions, "Q1", method_settings_schema=method_settings_schema),
+        ),
+        (
+            "gradeflow/custom-code-for-a-group",
+            Position(questions, is_in_group=True, method_settings_schema=method_settings_schema),
+        ),
+    ]:
+        assert f"the method's settings in `settings`: {listed}." in code_description(
+            method, position
+        )
+    assert "settings" not in code_description("gradeflow/custom-code", Position(questions, "Q1"))
 
 
 def with_limits(check: dict[str, Any], **limits: int) -> dict[str, Any]:
@@ -249,10 +304,3 @@ def test_group_code_lists_each_question_of_the_assessment_once() -> None:
         ("", "/with/questions/2", "Q9 isn't one of the questions."),
     ]
     assert problems_of(custom_code("correct = True")) == []
-
-
-def test_a_check_with_parameters_written_without_its_defaults_reads_back() -> None:
-    check = custom_code("correct = n == 2", n={"type": "integer", "value": 2})
-    [marking] = mark_scheme_of({"question": "Q1", **check}).markings
-    assert marking.dump()["with"]["parameters"] == {"n": {"type": "integer", "value": 2}}
-    assert mark(marking.dump(), "x").correct

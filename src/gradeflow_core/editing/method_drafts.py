@@ -21,7 +21,7 @@ from ..common.text import quoted
 from ..marking.examples import method_step_data
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods, method_of
-from ..methods.composed.declared_settings import setting_name_problem
+from ..methods.composed.declared_settings import SETTING_TYPES, setting_name_problem
 from ..methods.composed.file import (
     TEMPLATE_KEYS,
     WORKFLOW_KEYS,
@@ -226,9 +226,16 @@ class MethodDraft(Draft):
         self.replace(workflow_data)
         self._fit_to_questions()
 
-    @property
-    def _root_position(self) -> Position:
-        return replace(super()._root_position, is_in_workflow=True)
+    def _root_position(self, data: JsonDict) -> Position:
+        try:
+            method_settings_schema = json_schema(self._method_of(data).settings)
+        except InvalidError:
+            method_settings_schema = {}
+        return replace(
+            super()._root_position(data),
+            is_in_workflow=True,
+            method_settings_schema=method_settings_schema,
+        )
 
     def methods(self, path: str, question: QuestionId | None = None) -> Methods:
         return (
@@ -485,16 +492,26 @@ class MethodDraft(Draft):
             if (property_schema := settings.get("properties", {}).get(name)) is not None:
                 default_value_schema = {**property_schema, "$defs": settings.get("$defs", {})}
         except EditingError:
+            declaration = DeclaredSetting.model_validate(self._declared_settings[name])
             if field is not None:
-                declaration = DeclaredSetting.model_validate(self._declared_settings[name])
                 default_value_schema = default_schema(declaration, self._field_info(field))
+            elif declaration.type is not None:
+                field_info = FieldInfo.from_annotation(SETTING_TYPES[declaration.type])
+                default_value_schema = default_schema(declaration, field_info)
         return declared_setting_schema(
             default_value_schema, self._schema_of(field) if field else None
         )
 
+    def add_declared_setting(self, name: str) -> None:
+        """Raises ``EditingError`` if there's a setting called ``name``."""
+        if name in self._declared_settings:
+            raise EditingError(f"There's already a setting called {name}.")
+        self.update_declared_setting(name, {})
+
     def update_declared_setting(self, name: str, values: Mapping[str, Any]) -> None:
         """Replace a declared setting; without a default, it must be filled in. Raises
-        ``InvalidError`` with a problem at each value the settings it fills don't take."""
+        ``InvalidError`` with a problem at each value its type, or the settings it fills, don't
+        take."""
         if not re.fullmatch(IDENTIFIER, name):
             raise EditingError(IDENTIFIER_RULE)
         if message := setting_name_problem(name):
@@ -503,18 +520,23 @@ class MethodDraft(Draft):
             declaration = DeclaredSetting.model_validate(values).model_dump(
                 mode="json", exclude_unset=True
             )
-        choices, examples = declaration.get("choices") or [], declaration.get("examples") or []
+        choices = declaration.get("choices") or []
         values_to_check = [
             *((pointer("choices", index), choice) for index, choice in enumerate(choices)),
-            *((pointer("examples", index), example) for index, example in enumerate(examples)),
             *([("/default", declaration["default"])] if "default" in declaration else []),
         ]
-        problems = [
-            Problem(message, field=value_path)
+        annotations = [
+            self._annotation_of(field)
             for field in self.configurable_fields()
             if field.bound_setting == name
+        ]
+        if setting_type := declaration.get("type"):
+            annotations.append(SETTING_TYPES[setting_type])
+        problems = [
+            Problem(message, field=value_path)
+            for annotation in annotations
             for value_path, value in values_to_check
-            if (message := self._rejection_reason(field, value))
+            if (message := self._rejection_reason(annotation, value))
         ]
         if "default" in declaration and choices and declaration["default"] not in choices:
             problems.append(Problem("Choose one of the setting's choices.", field="/default"))
@@ -577,7 +599,9 @@ class MethodDraft(Draft):
         name."""
         field = self._configurable_field(path)
         default = self.values(field.step_path).get(field.key, self._schema_of(field).get("default"))
-        if not _is_empty(default) and (message := self._rejection_reason(field, default)):
+        if not _is_empty(default) and (
+            message := self._rejection_reason(self._annotation_of(field), default)
+        ):
             raise EditingError(message)
         self.unbind(path)
         name = first_unused_name(
@@ -608,7 +632,9 @@ class MethodDraft(Draft):
                 and annotations_by_setting_name[name] != annotation
             ):
                 continue
-            if "default" in declaration and self._rejection_reason(field, declaration["default"]):
+            if "default" in declaration and self._rejection_reason(
+                self._annotation_of(field), declaration["default"]
+            ):
                 continue
             compatible_setting_names.append(name)
         return compatible_setting_names
@@ -657,10 +683,13 @@ class MethodDraft(Draft):
         settings = method.settings_model_at(self.position(field.step_path)).model_fields
         return settings.get(field.key) or STEP_OWN_PROPERTIES[field.key]
 
-    def _rejection_reason(self, field: ConfigurableField, value: Any) -> str:
-        """Why ``field`` doesn't take ``value``; ``""`` if it does."""
+    def _annotation_of(self, field: ConfigurableField) -> Any:
+        return self._field_info(field).rebuild_annotation()
+
+    def _rejection_reason(self, annotation: Any, value: Any) -> str:
+        """Why a setting of ``annotation`` doesn't take ``value``; ``""`` if it does."""
         try:
-            TypeAdapter[Any](self._field_info(field).rebuild_annotation()).validate_python(
+            TypeAdapter[Any](annotation).validate_python(
                 value, context={METHODS_CONTEXT_KEY: self._methods.by_ref}
             )
         except ValidationError as error:
@@ -722,15 +751,15 @@ class MethodDraft(Draft):
 
     def to_yaml(self) -> str:
         """The method file, as it would be published."""
-        return dump_yaml(self._method_file())
+        return dump_yaml(self._method_file(self._data))
 
-    def _method_file(self) -> dict[str, Any]:
+    def _method_file(self, workflow_data: JsonDict) -> dict[str, Any]:
+        """The method file with ``workflow_data`` as its steps."""
         data = {"version": self.version, **deepcopy(self._file_fields)}
         if not data["settings"]:
             data.pop("settings")
-        workflow_data = self.data
-        workflow_data.pop("question", None)
-        return data | as_file_steps(workflow_data)
+        steps = {key: deepcopy(value) for key, value in workflow_data.items() if key != "question"}
+        return data | as_file_steps(steps)
 
     @property
     def problems(self) -> list[Problem]:
@@ -763,7 +792,14 @@ class MethodDraft(Draft):
         return [method for method in self._methods if method.ref != ref]
 
     def _loaded_method(self) -> Method:
-        return method_of(self.name, self._method_file(), Methods(self._other_methods()).by_ref)
+        return self._method_of(self._data)
+
+    def _method_of(self, workflow_data: JsonDict) -> Method:
+        """The method with ``workflow_data`` as its steps. Raises ``InvalidError`` if it can't
+        be one."""
+        return method_of(
+            self.name, self._method_file(workflow_data), Methods(self._other_methods()).by_ref
+        )
 
     def _methods_with(self, method: Method) -> Methods:
         return Methods([*self._other_methods(), method])

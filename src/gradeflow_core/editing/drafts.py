@@ -187,7 +187,7 @@ class Draft:
             self._written_data(data),
             self._marking_data(data),
             self._methods,
-            self._root_position,
+            self._root_position(data),
             self._template_names,
         )
 
@@ -208,8 +208,7 @@ class Draft:
         position = self._place(path).position
         return position.for_question(question) if question else position
 
-    @property
-    def _root_position(self) -> Position:
+    def _root_position(self, data: JsonDict) -> Position:
         return marking_position(self.questions, self.question)
 
     def _written_data(self, data: JsonDict) -> JsonDict:

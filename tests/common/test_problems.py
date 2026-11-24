@@ -120,42 +120,6 @@ def problems_of(check: dict[str, Any]) -> list[tuple[str, str, str]]:
             [("", "/with/steps/0", "A step needs uses: and a method's name.")],
         ),
         (
-            {
-                "uses": "gradeflow/custom-code@1",
-                "with": {"parameters": {"p": {"type": "integer", "value": "x"}}},
-            },
-            [("", "/with/parameters/p/value", "Must be a whole number.")],
-        ),
-        (
-            {
-                "uses": "gradeflow/custom-code@1",
-                "with": {
-                    "code": "proportion = 1",
-                    "parameters": {
-                        "t": {"type": "table", "value": {"uses": {"type": "integer", "value": "x"}}}
-                    },
-                },
-            },
-            [("", "/with/parameters/t/value/uses/value", "Must be a whole number.")],
-        ),
-        (
-            {"uses": "gradeflow/custom-code@1", "with": {"parameters": {"p": {"type": "matrix"}}}},
-            [("", "/with/parameters/p", "There's no type matrix.")],
-        ),
-        (
-            {
-                "uses": "gradeflow/custom-code@1",
-                "with": {"parameters": {"answer": {"type": "text", "value": "x"}}},
-            },
-            [
-                (
-                    "",
-                    "/with/parameters/answer",
-                    "Your code already uses answer; choose another name.",
-                )
-            ],
-        ),
-        (
             {"uses": "gradeflow/key-point@1", "with": {"point": "a"}, "id": "1st"},
             [("", "/id", "Use letters, digits and underscores, not starting with a digit.")],
         ),

@@ -30,7 +30,7 @@ class Hint(BaseModel):
     lists_answers: bool = False
     """The field lists accepted or model answers."""
     item_label: str | None = None
-    """What one entry of a list or map field is called, such as "parameter"."""
+    """What one entry of a list field is called, such as "question"."""
     template_parts: dict[str, str] | None = None
     """What a template may include, by label."""
 

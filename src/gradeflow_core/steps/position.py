@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
+from ..common.schemas import JsonDict
 from ..questions.base import Question
 from ..questions.question_set import QuestionSet, value_of
 from ..questions.reading import write_answer
@@ -36,6 +37,8 @@ class Position:
     """In a marking of a question group, where checks choose their questions."""
     is_in_workflow: bool = False
     """In a workflow's steps, where transforms can be and inputs can be chosen."""
+    method_settings_schema: JsonDict = field(default_factory=dict)
+    """The JSON schema of the settings of the method that wrote the step, if one did."""
 
     @property
     def question_model(self) -> Question | None:

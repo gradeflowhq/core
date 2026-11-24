@@ -429,16 +429,13 @@ def test_problems_are_on_the_check_and_field_at_fault() -> None:
 
 def test_problems_are_where_validating_the_check_puts_them() -> None:
     draft = MarkingDraft.new("gradeflow/custom-code@1", QUESTIONS, "Q1")
-    draft.update(
-        "",
-        {"code": "proportion = 1", "parameters": {"n": {"type": "integer", "value": "x"}}},
-    )
+    draft.update("", {"code": "proportion = 1", "time_limit": "x"})
     with pytest.raises(InvalidError) as exc_info:
         valid_step(draft.data, BUILTINS.by_ref)
     assert (
         draft.problems
         == exc_info.value.problems
-        == [Problem("Must be a whole number.", field="/with/parameters/n/value")]
+        == [Problem("Must be a whole number.", field="/with/time_limit")]
     )
 
 
@@ -566,17 +563,6 @@ def test_a_checks_values_are_read_as_its_question_reads_them() -> None:
     draft = MarkingDraft(marking, choice_questions, "Q1")
     assert draft.values("")["correct"] == ["b"]
     assert draft.data["with"]["correct"] == ["B"], "as written until it is changed"
-
-
-def test_a_value_named_uses_isnt_a_check() -> None:
-    draft = workflow_draft()
-    draft.add("/with/steps/2", "gradeflow/custom-code@1")
-    draft.update("/with/steps/2", {"parameters": {"uses": {"type": "text", "value": "x"}}})
-    assert draft.paths() == ["", "/with/steps/0", "/with/steps/1", "/with/steps/2"]
-    assert not draft.is_step("/with/steps/2/with/parameters")
-    with pytest.raises(EditingError):
-        draft.remove("/with/steps/2/with/parameters")
-    assert draft.values("/with/steps/2")["parameters"] == {"uses": {"type": "text", "value": "x"}}
 
 
 def draft_from_yaml(text: str, question_id: str | None = "Q1") -> MarkingDraft:

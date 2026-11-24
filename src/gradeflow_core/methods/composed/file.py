@@ -26,13 +26,29 @@ class DeclaredItemField(BaseModel):
 
     title: str | None = None
     description: str | None = None
-    examples: list[JsonValue] | None = None
+
+
+SettingType = Literal["number", "integer", "text", "boolean", "text_list", "number_list"]
 
 
 class DeclaredSetting(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = None
+    type: SettingType | None = Field(
+        default=None,
+        title="Type",
+        json_schema_extra=hint(
+            labels={
+                "number": "Number",
+                "integer": "Whole number",
+                "text": "Text",
+                "boolean": "Yes/No",
+                "text_list": "List of text",
+                "number_list": "List of numbers",
+            }
+        ),
+    )
     description: str | None = None
     default: JsonValue = None
     """Without an explicit default, the caller must fill it in. A list needs an item
@@ -44,7 +60,6 @@ class DeclaredSetting(BaseModel):
     labels: dict[str, str] | None = None
     applies_when: dict[str, list[JsonValue]] | None = None
     """It applies only when other settings have these values."""
-    examples: list[JsonValue] | None = None
     items: dict[str, DeclaredItemField] | None = None
     """For a list a repeated step goes through: the fields ``item.…`` names, titled for it
     rather than as the settings they fill."""

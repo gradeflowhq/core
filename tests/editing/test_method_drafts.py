@@ -169,8 +169,8 @@ def test_template_only_settings_are_used_even_without_bound_fields() -> None:
 summary: Optional check.
 question_types: [number]
 settings:
-  enabled: {default: true}
-  message: {default: Good.}
+  enabled: {type: boolean, default: true}
+  message: {type: text, default: Good.}
   unused: {default: 10}
 steps:
   - uses: gradeflow/full-marks@1
@@ -649,23 +649,21 @@ def test_a_test_value_that_breaks_a_rule_of_the_step_it_fills_is_a_problem_at_it
 
 
 def test_a_complex_field_value_becomes_its_settings_default() -> None:
-    draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
-    draft.add("/with/steps/0", "gradeflow/custom-code@1")
-    default = {"minimum": {"type": "integer", "value": 5}}
-    draft.update("/with/steps/0", {"parameters": default})
-    draft.bind_new_setting("/with/steps/0/with/parameters")
+    draft = MethodDraft.new(TEXT_QUESTIONS, name="criteria", version=1, label="Criteria")
+    draft.add("/with/steps/0", "gradeflow/answer-criteria@1")
+    default = [{"text": "Names the gas.", "marks": 2}]
+    draft.update("/with/steps/0", {"criteria": default})
+    draft.bind_new_setting("/with/steps/0/with/criteria")
     assert draft.test_values == {}
-    schema = draft.finalized().settings_schema(Position(NUMBER_QUESTIONS))
-    assert schema["properties"]["parameters"]["default"] == default
-    assert load_yaml(draft.to_yaml())["settings"]["parameters"]["default"] == default
+    schema = draft.finalized().settings_schema(Position(TEXT_QUESTIONS))
+    assert schema["properties"]["criteria"]["default"] == default
+    assert load_yaml(draft.to_yaml())["settings"]["criteria"]["default"] == default
 
 
 def test_bound_defaults_and_setting_metadata_survive_unrelated_edits() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
-    draft.update_declared_setting(
-        "min_value", {"title": "Limit", "default": 4, "advanced": True, "examples": [4, 8]}
-    )
+    draft.update_declared_setting("min_value", {"title": "Limit", "default": 4, "advanced": True})
     draft.update("/with/steps/0", {"max_value": 30, "id": "range", "name": "Range"})
     assert {field.key: field.bound_setting for field in draft.configurable_fields()}[
         "min_value"
@@ -675,7 +673,7 @@ def test_bound_defaults_and_setting_metadata_survive_unrelated_edits() -> None:
     assert "number" in draft.declared_setting_schema("min_value")["properties"]["default"]["type"]
     draft.update("/with/steps/0", {"min_value": 5})
     assert draft.values("/with/steps/0")["min_value"] == 5
-    assert draft.declared_settings["min_value"]["examples"] == [4, 8]
+    assert draft.declared_settings["min_value"]["title"] == "Limit"
 
 
 def test_a_setting_cannot_fill_whether_a_method_gives_marks() -> None:
@@ -826,13 +824,13 @@ steps:
 
 
 def test_nested_template_values_require_whole_document_editing() -> None:
-    draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
-    draft.add("/with/steps/0", "gradeflow/custom-code@1")
-    parameters = {"limit": {"type": "integer", "value": "{{ settings.limit }}"}}
-    draft.update("/with/steps/0", {"parameters": parameters})
-    draft.update_declared_setting("limit", {"default": 5})
-    assert draft.uneditable_reasons == ["Parameters is written as a template."]
-    assert reopen(draft).values("/with/steps/0")["parameters"] == parameters
+    draft = MethodDraft.new(TEXT_QUESTIONS, name="criteria", version=1, label="Criteria")
+    draft.add("/with/steps/0", "gradeflow/answer-criteria@1")
+    criteria = [{"text": "Names the gas.", "marks": "{{ settings.marks }}"}]
+    draft.update("/with/steps/0", {"criteria": criteria})
+    draft.update_declared_setting("marks", {"default": 5})
+    assert draft.uneditable_reasons == ["Criteria is written as a template."]
+    assert reopen(draft).values("/with/steps/0")["criteria"] == criteria
 
 
 def test_editing_a_checks_id_keeps_bound_fields_and_hides_generated_ids() -> None:
@@ -858,7 +856,7 @@ def test_setting_options_validate_known_default_before_mutation() -> None:
             "min_value", {"title": "Minimum", "default": {"bad": "value"}}
         )
     assert draft.to_yaml() == before
-    draft.update_declared_setting("min_value", {"title": "New minimum", "examples": [4, 8]})
+    draft.update_declared_setting("min_value", {"title": "New minimum"})
     assert "default" not in draft.declared_settings["min_value"]
 
 
@@ -908,25 +906,6 @@ def test_wrapping_a_bound_check_preserves_its_binding_source() -> None:
     draft.update("/with/steps/0/with/steps/0", {"id": "range"})
     assert draft.problems == []
     assert load_yaml(draft.to_yaml())["steps"][0]["with"]["steps"][0]["id"] == "range"
-
-
-def test_json_values_with_uses_are_not_interpreted_as_nested_checks() -> None:
-    draft = MethodDraft.new(NUMBER_QUESTIONS, name="code", version=1, label="Code")
-    draft.add("/with/steps/0", "gradeflow/custom-code@1")
-    draft.update(
-        "/with/steps/0",
-        {
-            "parameters": {
-                "item": {
-                    "type": "json",
-                    "value": {"uses": "gradeflow/key-point@1", "with": {"point": "cat"}},
-                }
-            }
-        },
-    )
-    assert {field.step_path for field in draft.configurable_fields()} == {"", "/with/steps/0"}
-    draft.set_questions(TWO_NUMBER_QUESTIONS)
-    assert "question" not in draft.values("/with/steps/0")["parameters"]["item"]["value"]
 
 
 def test_setting_one_example_keeps_the_others_and_its_title() -> None:

@@ -14,7 +14,7 @@ from ...common.paths import pointer
 from ...common.problems import InvalidError, Problem, validation_problem
 from ...common.text import quoted_join
 from ...steps.method import Method
-from ...steps.settings import annotated, item_field, literal_type, step_cardinality
+from ...steps.settings import Number, annotated, item_field, literal_type, step_cardinality
 from ...steps.step import METHODS_CONTEXT_KEY, NOT_A_STEP_MESSAGE, STEP_OWN_PROPERTIES
 from ...steps.templates import (
     TemplateError,
@@ -24,14 +24,23 @@ from ...steps.templates import (
     validate,
 )
 from .expand import EXPANDED_NAMES, ComposedSettings
-from .file import TEMPLATE_KEYS, DeclaredSetting, MethodFile, method_file_error
+from .file import TEMPLATE_KEYS, DeclaredSetting, MethodFile, SettingType, method_file_error
+
+SETTING_TYPES: dict[SettingType, Any] = {
+    "number": Number,
+    "integer": int,
+    "text": str,
+    "boolean": bool,
+    "text_list": list[str],
+    "number_list": list[Number],
+}
 
 _DOTTED_NAME = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
 """A reference by name, such as ``settings.points``."""
 
 
 class _SettingTypes:
-    """The type and field of each declared setting, from the setting it fills."""
+    """The type and field of each declared setting."""
 
     def __init__(self, file: MethodFile, methods_by_ref: Mapping[str, Method]) -> None:
         self.file = file
@@ -60,15 +69,26 @@ class _SettingTypes:
     def _visit_declared_setting(self, setting_name: str, declared_setting: DeclaredSetting) -> None:
         if message := setting_name_problem(setting_name):
             raise method_file_error(message, pointer("settings", setting_name))
-        # A setting that failed may be the one that uses it.
-        if setting_name in self.setting_types or self.problems:
+        title = declared_setting.title or f"Setting {setting_name}"
+        if setting_name in self.setting_types:
+            if declared_setting.type is not None:
+                raise method_file_error(
+                    f"{title} takes its type from the field it fills.",
+                    pointer("settings", setting_name, "type"),
+                )
             return
-        if setting_name not in self.settings_in_templates:
-            raise method_file_error(
-                f"{declared_setting.title or f'Setting {setting_name}'} isn't used.",
-                pointer("settings", setting_name),
+        # A setting that failed may be the one that uses it.
+        if self.problems:
+            return
+        # Steps may read a typed setting as they run.
+        if declared_setting.type is None:
+            message = (
+                f"Give {title} a type."
+                if setting_name in self.settings_in_templates
+                else f"{title} isn't used."
             )
-        self.setting_types[setting_name] = (_type_of(declared_setting.default), FieldInfo())
+            raise method_file_error(message, pointer("settings", setting_name))
+        self.setting_types[setting_name] = (SETTING_TYPES[declared_setting.type], FieldInfo())
 
     @contextmanager
     def _collect_errors(self) -> Iterator[None]:
@@ -305,14 +325,6 @@ def _merged(field_info: FieldInfo, *changes: FieldInfo) -> FieldInfo:
     return FieldInfo.from_annotation(annotated(field_info.annotation, field_info, *changes))
 
 
-def _type_of(default: Any) -> Any:
-    """The type of a declared setting that fills no other, from its default."""
-    for type_ in (bool, str, list):
-        if isinstance(default, type_):
-            return type_
-    return float if isinstance(default, int | float) else JsonValue
-
-
 def _validate_written_value(
     value: Any,
     field_info: FieldInfo,
@@ -346,7 +358,6 @@ def declared_setting_field(
     changes: dict[str, Any] = {
         "title": declared_setting.title or field_info.title,
         "description": declared_setting.description or field_info.description,
-        "examples": declared_setting.examples or field_info.examples,
         "json_schema_extra": hint.schema_extra() if hint != Hint() else None,
         "default_factory": None,
     }

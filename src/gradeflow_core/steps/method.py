@@ -142,7 +142,7 @@ class Method[S: Settings = Any](ABC):
         raise NotImplementedError
 
 
-def _readable_input(context: Context) -> tuple[StepInput, Answer]:
+def readable_input(context: Context) -> tuple[StepInput, Answer]:
     """The input of a step that reads one answer, and the answer, which marking has read before
     the method runs."""
     step_input = context.input
@@ -173,7 +173,7 @@ class AnswerMethod[S: Settings](MarkingMethod[S]):
     def mark_student(
         self, settings: S, context: Context, question_id: QuestionId | None
     ) -> dict[QuestionId, Outcome]:
-        step_input, answer = _readable_input(context)
+        step_input, answer = readable_input(context)
         return {step_input.question_id: self.mark_answer(settings, answer, step_input.question)}
 
     @abstractmethod
@@ -194,7 +194,7 @@ class TransformMethod[S: Settings](Method[S]):
     ) -> list[TransformResult]:
         return [
             step_input.mapped_to_answer(self.transform(settings, answer, step_input.question))
-            for step_input, answer in map(_readable_input, contexts)
+            for step_input, answer in map(readable_input, contexts)
         ]
 
     def output_question_at(

@@ -1,6 +1,7 @@
 from collections.abc import Iterator, Mapping
 
 from pydantic import Field
+from pydantic_core import to_jsonable_python
 
 from ...common.hints import hint
 from ...common.paths import pointer
@@ -22,8 +23,8 @@ from .custom_code import (
     code_failure_outcome,
     code_problems,
     outcome_from_variables,
+    settings_description,
 )
-from .parameters import PARAMETERS_FIELD, Parameter, ParameterName, parameter_values
 
 STARTER_CODE = (
     "results = {}\n"
@@ -32,10 +33,10 @@ STARTER_CODE = (
 )
 
 
-def group_code_description(answers_description: str) -> str:
+def group_code_description(answers_description: str, settings_description: str = "") -> str:
     return (
-        f"The answers are in {answers_description}, a dict by question ID. Set "
-        f"`results[question]` to a dict of {RESULT_VARIABLES_HELP}."
+        f"The answers are in {answers_description}, a dict by question ID{settings_description}. "
+        f"Set `results[question]` to a dict of {RESULT_VARIABLES_HELP}."
     )
 
 
@@ -52,7 +53,6 @@ class CustomCodeForAGroupSettings(Settings):
         description=group_code_description("`answers`"),
         json_schema_extra=hint(kind="code", language="python"),
     )
-    parameters: dict[ParameterName, Parameter] = PARAMETERS_FIELD
     time_limit: int = TIME_LIMIT_FIELD
     memory_limit: int = MEMORY_LIMIT_FIELD
 
@@ -78,7 +78,7 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
         '    "Q2": {"correct": second in gases and second != first},\n'
         "}\n"
         "```\n\n"
-        "Each of the **Parameters** is a variable with that name in your code.\n\n"
+        '`settings` holds a saved method\'s settings, such as `settings["threshold"]`.\n\n'
         "To mark one question, use Custom Code."
     )
     level = "advanced"
@@ -97,7 +97,11 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
         return specialized(
             self.settings,
             questions={"annotation": annotation},
-            code={"description": group_code_description(answers_description)},
+            code={
+                "description": group_code_description(
+                    answers_description, settings_description(position.method_settings_schema)
+                )
+            },
         )
 
     def describe(self, settings: CustomCodeForAGroupSettings) -> str:
@@ -119,7 +123,7 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
                 else answer
                 for question_id in settings.questions
             },
-            **parameter_values(settings.parameters),
+            "settings": to_jsonable_python(context.method_settings),
         }
         try:
             returned_variables = runner.run(

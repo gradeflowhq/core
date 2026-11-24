@@ -183,7 +183,8 @@ def _input_context(
             not_run_reason = step_input.answer
         elif step_input.answer is None and not marks_blank_answers:
             not_run_reason = Blank()
-    return replace(context, input=step_input), not_run_reason
+    method_settings = step.resolution.scope.get("settings", {})
+    return replace(context, input=step_input, method_settings=method_settings), not_run_reason
 
 
 def _input(

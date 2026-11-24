@@ -189,4 +189,4 @@ def test_custom_code_marking_has_no_student_identity_and_reuses_settings(
     results = list(mark(questions, scheme, submissions))
     assert [submission.sheet.student_id for submission in results] == ["alice", "bob"]
     assert all(submission.results["Q1"].proportion == 1 for submission in results)
-    assert code_variables == [{"answer": "yes"}]
+    assert code_variables == [{"answer": "yes", "settings": {}}]
