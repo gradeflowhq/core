@@ -9,17 +9,10 @@ from . import AnyQuestion
 from .base import Question
 from .inference import infer_question
 from .submissions import AnswerSheet
-from .types import Answer, QuestionId, Unreadable, Value
+from .types import Answer, QuestionId, Unreadable
 
 type Answers = Mapping[QuestionId, Answer | Unreadable]
 """A student's answers as the questions read them."""
-
-
-def value_of[A: Answer | Unreadable](answer: A, number: int | None) -> A | Value:
-    """``answer``, or its value ``number``, from 1, when it has values; None when it has fewer."""
-    if number is not None and isinstance(answer, list):
-        return answer[number - 1] if number <= len(answer) else None
-    return answer
 
 
 class QuestionSet(RootModel[dict[QuestionId, AnyQuestion]], Mapping[QuestionId, Question]):

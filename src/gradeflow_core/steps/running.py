@@ -9,7 +9,7 @@ from ..questions.base import Question
 from ..questions.reading import write_answer
 from ..questions.types import QuestionId, Unreadable
 from .context import Context, StepInput
-from .input_sources import AnswerSource, AnswerValueSource, OtherAnswerSource, StepOutputSource
+from .input_sources import AnswerPartSource, AnswerSource, OtherAnswerSource, StepOutputSource
 from .outcome import (
     CheckOutput,
     Detail,
@@ -197,13 +197,9 @@ def _input(
         return None
     match step.source:
         case AnswerSource():
-            # A step reads what the step holding it reads, unless it names another question.
-            enclosing_input = context.input
-            if enclosing_input is not None and enclosing_input.question_id == marked_id:
-                return enclosing_input
-            return context.answer_to(marked_id)
-        case AnswerValueSource(value_number=value_number):
-            return context.value(marked_id, value_number)
+            return _answer_input(context, marked_id)
+        case AnswerPartSource(name=name):
+            return _answer_input(context, marked_id).part(name)
         case OtherAnswerSource(question_id=other_question_id):
             return context.input_from(
                 marked_id,
@@ -222,6 +218,15 @@ def _input(
             answer = transformed if isinstance(transformed, Unreadable) else transformed.answer
             answer_span = _answer_span(context, marked_id, transformed)
             return context.input_from(marked_id, answer, result.question, answer_span)
+
+
+def _answer_input(context: Context, question_id: QuestionId) -> StepInput:
+    """What a step reads as the answer to ``question_id``: what the step holding it reads, unless
+    it names another question."""
+    enclosing_input = context.input
+    if enclosing_input is not None and enclosing_input.question_id == question_id:
+        return enclosing_input
+    return context.answer_to(question_id)
 
 
 def _answer_span(

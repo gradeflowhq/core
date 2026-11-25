@@ -73,7 +73,7 @@ def test_a_penalty_says_only_that_it_applies_unless_its_feedback_is_its_own() ->
         return combined("total", (Part(1), CORRECT), (penalty, CORRECT)).feedback
 
     assert feedback(Part(-1, name="Sign error")) == "Penalty: Sign error."
-    assert feedback(Part(-1, default_name="Value 2")) == "Penalty: Value 2."
+    assert feedback(Part(-1, default_name="Part 2")) == "Penalty: Part 2."
     assert feedback(Part(-1, name="Sign error", has_own_feedback=True)) == ("Sign error: Correct.")
 
 

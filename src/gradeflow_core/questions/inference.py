@@ -11,11 +11,21 @@ from .base import Question
 from .choice import ChoiceQuestion
 from .code import CodeQuestion
 from .code_files import split_answer
+from .list import ItemType, ListQuestion
+from .multipart import MultipartQuestion
 from .number import NumberQuestion, reads_as_number
-from .reading import ListReading, Reading, is_blank, read_code, read_list, sorted_options
+from .parts import numbered_parts, unbracketed
+from .reading import (
+    EXAMSOFT_SEPARATOR,
+    ListReading,
+    Reading,
+    is_blank,
+    read_code,
+    read_list,
+    sorted_options,
+)
 from .text import TextQuestion
 from .types import QuestionType, ValueType
-from .values import EXAMSOFT_SEPARATOR, ValuesQuestion
 
 MAX_CHOICE_OPTIONS = 7
 """Most distinct values a question may have to be worked out as a choice."""
@@ -24,19 +34,18 @@ SEPARATORS = (",", ";", "|", "/")
 
 
 def infer_question(answers: list[str]) -> Question:
-    if values_question := _same_count_values_question(answers, (EXAMSOFT_SEPARATOR,)):
-        return values_question
+    if multipart_question := _same_count_multipart_question(answers, (EXAMSOFT_SEPARATOR,)):
+        return multipart_question
     if _are_mostly_numbers(answers):
         return NumberQuestion()
     if _looks_like_choices(answers):
         return _choice_question(answers)
     if _are_mostly_code(answers):
         return CodeQuestion()
-    values_question = _same_count_values_question(answers, SEPARATORS)
+    multipart_question = _same_count_multipart_question(answers, SEPARATORS)
     return (
-        values_question
-        if values_question
-        and all(value_type == "number" for value_type in values_question.value_types)
+        multipart_question
+        if multipart_question and all(part.type == "number" for part in multipart_question.parts)
         else TextQuestion()
     )
 
@@ -45,37 +54,63 @@ def converted_question(
     question: Question, question_type: QuestionType, answers: list[str]
 ) -> Question:
     """``question`` as the chosen type, keeping what every question has, with what the type needs
-    read from its answers: a choice's options, or how many values an answer has between the
-    default separator and what each is. Without answers to read them from, a choice has the
-    options of a new one."""
+    read from its answers: a choice's options; a multi-part question's separator, number of parts
+    and their types; or a list's separator and item type. Without answers to read them from, a
+    choice has the options of a new one."""
     common_fields = {name: getattr(question, name) for name in Question.model_fields}
     if question_type == "choice" and _distinct_values(answers, ListReading()):
         question_of_type: Question = _choice_question(answers)
-    elif question_type == "values":
-        question_of_type = _values_question(answers)
+    elif question_type == "multipart":
+        question_of_type = _multipart_question(answers)
+    elif question_type == "list":
+        question_of_type = _list_question(answers)
     else:
         question_of_type = new_question(question_type)
     return question_of_type.model_copy(update=common_fields)
 
 
-def _same_count_values_question(
+def _same_count_multipart_question(
     answers: list[str], separators: Iterable[str]
-) -> ValuesQuestion | None:
+) -> MultipartQuestion | None:
     """Split on the first separator giving every answer the same number of values, more than one."""
     for separator in separators:
         reading = ListReading(separator=separator)
         value_counts = {
-            len(list(filter(None, values))) for values in _value_lists(answers, reading)
+            _value_count(values, separator)
+            for values in _value_lists_inside_brackets(answers, reading)
         }
         if len(value_counts) == 1 and (value_count := next(iter(value_counts))) > 1:
-            return ValuesQuestion(
-                reading=reading, value_types=_value_types(answers, reading, value_count)
+            return MultipartQuestion(
+                reading=reading, parts=numbered_parts(_value_types(answers, reading, value_count))
             )
     return None
 
 
+def _value_count(values: list[str], separator: str) -> int:
+    """How many values an answer has: every blank with ExamSoft's separator, which writes empty
+    ones too; only those written with any other."""
+    return len(values) if separator == EXAMSOFT_SEPARATOR else len(list(filter(None, values)))
+
+
+def _reading_that_splits_most(answers: list[str]) -> ListReading:
+    """A reading with the first separator, ExamSoft's then the others, that splits most answers;
+    the default if none does."""
+    for separator in (EXAMSOFT_SEPARATOR, *SEPARATORS):
+        reading = ListReading(separator=separator)
+        value_lists = list(_value_lists_inside_brackets(answers, reading))
+        if sum(len(values) > 1 for values in value_lists) > len(value_lists) / 2:
+            return reading
+    return ListReading()
+
+
 def _value_lists(answers: list[str], reading: ListReading) -> Iterator[list[str]]:
     return (values for answer in answers if (values := read_list(answer, reading)) is not None)
+
+
+def _value_lists_inside_brackets(answers: list[str], reading: ListReading) -> Iterator[list[str]]:
+    """The values of each answer that isn't blank, read inside brackets around them as multi-part
+    and list questions read them."""
+    return _value_lists([unbracketed(answer) for answer in answers], reading)
 
 
 def _distinct_values(answers: list[str], reading: ListReading) -> set[str]:
@@ -102,7 +137,9 @@ def _are_mostly_code(answers: list[str]) -> bool:
 def _value_types(answers: list[str], reading: ListReading, value_count: int) -> list[ValueType]:
     """Each value is a number when most answers with ``value_count`` values give a number there."""
     full_value_lists = [
-        values for values in _value_lists(answers, reading) if len(values) == value_count
+        values
+        for values in _value_lists_inside_brackets(answers, reading)
+        if len(values) == value_count
     ]
     return [
         "number" if _are_mostly_numbers([values[i] for values in full_value_lists]) else "text"
@@ -135,10 +172,25 @@ def _choice_question(answers: list[str]) -> ChoiceQuestion:
     )
 
 
-def _values_question(answers: list[str]) -> ValuesQuestion:
-    """Read with the default separator, which a person may change: as many values as answers
-    most often have, and at least two."""
-    reading = ListReading()
-    value_counts = [len(values) for values in _value_lists(answers, reading) if len(values) > 1]
+def _multipart_question(answers: list[str]) -> MultipartQuestion:
+    """Read with the separator that splits the answers: as many parts as answers most often have
+    values, and at least two."""
+    reading = _reading_that_splits_most(answers)
+    value_counts = [
+        len(values) for values in _value_lists_inside_brackets(answers, reading) if len(values) > 1
+    ]
     value_count = statistics.mode(value_counts) if value_counts else 2
-    return ValuesQuestion(reading=reading, value_types=_value_types(answers, reading, value_count))
+    return MultipartQuestion(
+        reading=reading, parts=numbered_parts(_value_types(answers, reading, value_count))
+    )
+
+
+def _list_question(answers: list[str]) -> ListQuestion:
+    """Read with the separator that splits the answers: of numbers when most values are
+    numbers."""
+    reading = _reading_that_splits_most(answers)
+    values = [
+        value for values in _value_lists_inside_brackets(answers, reading) for value in values
+    ]
+    item: ItemType = "number" if _are_mostly_numbers(values) else "text"
+    return ListQuestion(reading=reading, item=item)

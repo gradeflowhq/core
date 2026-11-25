@@ -64,6 +64,11 @@ def plural(noun: str, count: float) -> str:
     return noun if count == 1 else f"{noun}s"
 
 
+def extra_items_sentence(count: int) -> str:
+    """“2 extra items.”"""
+    return f"{count} extra {plural('item', count)}."
+
+
 def capitalized(text: str) -> str:
     """``text`` starting with a capital letter, the rest as it is."""
     return text[:1].upper() + text[1:]

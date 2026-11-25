@@ -63,7 +63,7 @@ def test_a_transform_has_no_weight_or_feedback() -> None:
 
 
 def test_a_copy_of_a_step_keeps_what_loading_worked_out() -> None:
-    step = load_step({"input": "{{ values[0] }}", "uses": ACCEPTED_ANSWERS}, BUILTINS.by_ref)
+    step = load_step({"input": "{{ answer.part_1 }}", "uses": ACCEPTED_ANSWERS}, BUILTINS.by_ref)
     copy = step.model_copy(update={"input": None})
     assert copy.input is None
     assert copy.resolution is step.resolution

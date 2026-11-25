@@ -187,7 +187,8 @@ def test_a_method_file_problem_names_its_field_as_the_file_writes_it() -> None:
     with pytest.raises(MethodFileError) as exc_info:
         BUILTINS.with_files([("sample/term", method_file)])
     assert str(exc_info.value).partition(": ")[2] == (
-        "Line 4: question_types.0: Choose 'text', 'number', 'choice', 'values' or 'code'."
+        "Line 4: question_types.0: Choose 'text', 'number', 'choice', 'multipart', 'list' or "
+        "'code'."
     )
 
 

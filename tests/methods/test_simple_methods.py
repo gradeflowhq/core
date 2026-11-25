@@ -5,9 +5,8 @@ from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.reading import TextReading
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 
-from .helpers import describe, mark, mark_all, mark_scheme_of, problems_of, proportions
+from .helpers import describe, mark, mark_all, mark_scheme_of, multipart, problems_of, proportions
 
 
 def test_pattern_matches_where_the_pattern_is_found() -> None:
@@ -86,7 +85,7 @@ def test_only_full_marks_marks_blank_answers() -> None:
     [
         ("gradeflow/key-points@1", {"points": ["x"]}, NumberQuestion()),
         ("gradeflow/number-range@1", {}, ChoiceQuestion(options=("a",))),
-        ("gradeflow/multiple-choice@1", {"correct": ["a"]}, ValuesQuestion(value_types=["text"])),
+        ("gradeflow/multiple-choice@1", {"correct": ["a"]}, multipart("text", "text")),
     ],
 )
 def test_a_method_says_which_questions_it_cant_mark(

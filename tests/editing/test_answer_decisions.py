@@ -91,7 +91,7 @@ def test_cancellation_does_not_touch_other_questions_or_weight_zero_checks() -> 
     children = [
         {**ACCEPTS_9_81, "question": "Q2"},
         {**ACCEPTS_9_81, "weight": 0},
-        {**ACCEPTS_9_81, "input": "{{ values[0] }}"},
+        {**ACCEPTS_9_81, "input": "{{ answer.part_1 }}"},
     ]
     marking = {"question": "Q1", "uses": "gradeflow/workflow@1", "with": {"steps": children}}
     assert decisions_of(marking) == {}

@@ -1,0 +1,93 @@
+examples:
+  - title: What are the roots of x² + x - 6 = 0?
+    description: |-
+      Split by weight between these, in any order:
+      - Matches `2`.
+      - Matches `-3`.
+    questions:
+      Q1: {type: list, max_marks: 2, item: number}
+    with:
+      marks_by: proportional
+      checks:
+        - uses: gradeflow/accepted-answers@1
+          with: {answers: ['2']}
+        - uses: gradeflow/accepted-answers@1
+          with: {answers: ['-3']}
+    rows:
+      - answers:
+          Q1: 2, -3
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: -3, 2
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: '2'
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Item 1: Correct.
+              Item 2: No answer.
+      - answers:
+          Q1: 2, -3, 5, 7
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Item 1: Correct.
+              Item 2: Correct.
+              2 extra items.
+  - title: Name two problems with this model, and a change that fixes each.
+    description: |-
+      Split by weight between these, in any order:
+      - **Overfitting:** All of these:
+        - **Problem:** Matches `overfitting`.
+        - **Change:** Matches `add L2` or `more data`.
+      - **Imbalance:** All of these:
+        - **Problem:** Matches `imbalance`.
+        - **Change:** Matches `use F1` or `oversample`.
+    questions:
+      Q1:
+        type: list
+        max_marks: 2
+        item: parts
+        parts: [{name: problem}, {name: change}]
+        reading: {separator: "~"}
+    with:
+      marks_by: proportional
+      checks:
+        - name: Overfitting
+          uses: gradeflow/part-by-part@1
+          with:
+            checks:
+              - input: "{{ answer.problem }}"
+                uses: gradeflow/accepted-answers@1
+                with: {answers: [overfitting]}
+              - input: "{{ answer.change }}"
+                uses: gradeflow/accepted-answers@1
+                with: {answers: [add L2, more data]}
+        - name: Imbalance
+          uses: gradeflow/part-by-part@1
+          with:
+            checks:
+              - input: "{{ answer.problem }}"
+                uses: gradeflow/accepted-answers@1
+                with: {answers: [imbalance]}
+              - input: "{{ answer.change }}"
+                uses: gradeflow/accepted-answers@1
+                with: {answers: [use F1, oversample]}
+    rows:
+      - answers:
+          Q1: Overfitting~add L2~Imbalance~use F1
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: Imbalance~use F1~Overfitting~add L2
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: Overfitting~oversample~Imbalance~add L2
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: |-
+              Overfitting: Change: Expected “add L2” or “more data”.
+              Imbalance: Change: Expected “use F1” or “oversample”.

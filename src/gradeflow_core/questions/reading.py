@@ -63,6 +63,10 @@ class TextReading(Reading):
         return value
 
 
+EXAMSOFT_SEPARATOR = "~"
+"""ExamSoft's separator between an answer's blanks."""
+
+
 class ListReading(TextReading):
     separator: str = Field(
         default=",",
@@ -176,8 +180,8 @@ def sorted_options(options: Iterable[str]) -> list[str]:
 
 
 def write_answer(answer: Answer, reading: Reading | None = None) -> str:
-    """An answer as text that ``reading`` reads back as the same answer: choices in order, values
-    separated as it separates them, ``42`` not ``42.0``."""
+    """An answer as text that ``reading`` reads back as the same answer: choices in order, parts
+    and items separated as it separates them, ``42`` not ``42.0``."""
     if answer is None:
         return ""
     separator = ", "
@@ -185,6 +189,8 @@ def write_answer(answer: Answer, reading: Reading | None = None) -> str:
         separator = reading.separator + (" " if reading.trim_spaces else "")
     if isinstance(answer, frozenset):
         return separator.join(sorted_options(answer))
+    if isinstance(answer, dict):
+        return separator.join(map(write_answer, answer.values()))
     if isinstance(answer, list):
-        return separator.join(map(write_answer, answer))
+        return separator.join(write_answer(item, reading) for item in answer)
     return as_text(answer)

@@ -136,21 +136,31 @@ A `QuestionSet` maps question IDs to questions, in the order they are given.
 | `text` | `TextQuestion` | Text |
 | `number` | `NumberQuestion` | A number, with fractions, units (`9.81 m/s^2`) and powers of ten (`6.02 x 10^23`) |
 | `choice` | `ChoiceQuestion` | One or more options, like `B` or `A, C` |
-| `values` | `ValuesQuestion` | Several values |
+| `multipart` | `MultipartQuestion` | Named parts, like a place and a year |
+| `list` | `ListQuestion` | Any number of items, each text, a number or named parts |
 | `code` | `CodeQuestion` | Code, as written |
 
 `updated_from(sheets)` adds questions for new answers, adds the options students chose after those
 listed, and drops questions nobody answered. Options keep the order they're listed in. Code Tests
 and Code Uses can fix minor errors before marking, such as lost indentation, with `fixes`.
 
-Answers are always strings. A values question converts to and from its values:
+Answers are always strings. A multi-part question converts an answer to and from its parts, which
+a step reads as `{{ answer.distance }}`. A list question reads an answer as its items:
 
 ```python
-from gradeflow_core import ValuesQuestion
+from gradeflow_core import ListQuestion, MultipartQuestion
 
-question = ValuesQuestion.load({"value_types": ["number", "text"]})
-question.answer_values("3, east")  # {"value_1": "3", "value_2": "east"}
-question.answer_from({"value_1": "4", "value_2": "west"})  # "4,west"
+question = MultipartQuestion.load(
+    {"parts": [{"name": "distance", "type": "number"}, {"name": "direction"}]}
+)
+question.answer_values("3, east")  # {"distance": "3", "direction": "east"}
+question.answer_from({"distance": "4", "direction": "west"})  # "4,west"
+
+list_question = ListQuestion.load(
+    {"item": "parts", "parts": [{"name": "problem"}, {"name": "change"}]}
+)
+list_question.read("Overfitting, add L2, Imbalance, use F1")
+# [{"problem": "overfitting", "change": "add l2"}, {"problem": "imbalance", "change": "use f1"}]
 ```
 
 A code answer of several files is one string in txtar format. Code Tests runs the first file, which
@@ -350,8 +360,9 @@ assert marked.results["Q1"].feedback == "Correct."
 ```
 
 The answer is an `Answer`, as the question reads it: text, lowercased unless the question keeps
-case, a number, a set of options or a list of values. Blank and unreadable answers never reach
-`mark_answer`, unless the method sets `marks_blank_answers = True` to mark blank ones.
+case, a number, a set of options, a dict of parts by name or a list of items. Blank and unreadable
+answers never reach `mark_answer`, unless the method sets `marks_blank_answers = True` to mark
+blank ones.
 `Outcome(0.0, reason, marked=False)` leaves an answer for a person to mark, and `details` holds
 each `Detail` a breakdown shows for the check. `guide`, `level` and `examples` are optional.
 

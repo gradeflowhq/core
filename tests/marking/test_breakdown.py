@@ -6,7 +6,6 @@ from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 from tests.fake_models import FAST_MODEL_ENDPOINT, InstallFakeModels
 
 from ..methods.helpers import (
@@ -17,7 +16,8 @@ from ..methods.helpers import (
     mark,
     mark_all,
     mark_group,
-    with_value_inputs,
+    multipart,
+    with_part_inputs,
     workflow,
 )
 
@@ -181,18 +181,18 @@ def test_fixed_code_shows_in_the_breakdown() -> None:
     ]
 
 
-def test_multiple_values_name_each_value() -> None:
+def test_part_by_part_names_each_part() -> None:
     marking = {
-        "uses": "gradeflow/multiple-values@1",
+        "uses": "gradeflow/part-by-part@1",
         "with": {
             "marks_by": "proportional",
-            "checks": with_value_inputs(accepted_answer("2"), accepted_answer("-3")),
+            "checks": with_part_inputs(accepted_answer("2"), accepted_answer("-3")),
         },
     }
-    result = mark(marking, "2, 5", ValuesQuestion(value_types=["number", "number"]))
+    result = mark(marking, "2, 5", multipart("number", "number"))
     assert breakdown_rows(result) == [
-        ("**Value 1:** Matches `2`.", "earned", 0.5),
-        ("**Value 2:** Matches `-3`.", "no_marks", 0.0),
+        ("**Part 1:** Matches `2`.", "earned", 0.5),
+        ("**Part 2:** Matches `-3`.", "no_marks", 0.0),
     ]
 
 

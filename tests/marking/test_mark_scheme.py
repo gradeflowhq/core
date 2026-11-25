@@ -14,9 +14,8 @@ from gradeflow_core import (
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 from gradeflow_core.steps.step import valid_step
-from tests.methods.helpers import key_point
+from tests.methods.helpers import key_point, multipart
 
 from ..methods.helpers import located
 
@@ -24,7 +23,7 @@ QUESTIONS = QuestionSet(
     {
         "Q1": TextQuestion(),
         "Q2": NumberQuestion(),
-        "Q3": ValuesQuestion(value_types=["text", "number"]),
+        "Q3": multipart("text", "number"),
         "Q4": ChoiceQuestion(options=("a", "b")),
     }
 )
@@ -61,7 +60,7 @@ def test_checks_mark_only_where_they_can() -> None:
         ("/markings/0", "/question", "Q9 isn't one of the questions."),
         ("/markings/1", "", "Key Points can't be used on a number question."),
         ("/markings/2", "/question", "Choose the question it checks."),
-        ("/markings/3", "", "Multiple Choice can't be used on a multiple values question."),
+        ("/markings/3", "", "Multiple Choice can't be used on a multi-part question."),
     ]
 
 
@@ -83,10 +82,10 @@ def test_problems_in_a_question_group_are_located_in_its_checks() -> None:
         "with": {
             "steps": [
                 key_point("a"),
-                key_point("a", question="Q1", input="{{ values[0] }}"),
-                key_point("a", question="Q3", input="{{ values[2] }}"),
-                key_point("a", question="Q3", input="{{ values[0] }}", id="x"),
-                key_point("a", question="Q3", input="{{ values[0] }}", id="x"),
+                key_point("a", question="Q1", input="{{ answer.part_1 }}"),
+                key_point("a", question="Q3", input="{{ answer.part_3 }}"),
+                key_point("a", question="Q3", input="{{ answer.part_1 }}", id="x"),
+                key_point("a", question="Q3", input="{{ answer.part_1 }}", id="x"),
             ]
         },
     }
@@ -95,22 +94,22 @@ def test_problems_in_a_question_group_are_located_in_its_checks() -> None:
         (
             "/markings/0/with/steps/1",
             "/input",
-            "Only a question with several values has values to read.",
+            "Only a multi-part answer has parts to read.",
         ),
-        ("/markings/0/with/steps/2", "/input", "The answer has 2 values."),
+        ("/markings/0/with/steps/2", "/input", "The answer has no part named part_3."),
         ("/markings/0/with/steps/4", "/id", "Another step here is called x."),
     ]
 
 
-def test_a_value_is_marked_as_its_type() -> None:
+def test_a_part_is_marked_as_its_type() -> None:
     number_value = {
         "question": "Q3",
-        "input": "{{ values[1] }}",
+        "input": "{{ answer.part_2 }}",
         "uses": "gradeflow/key-points@1",
         "with": {"points": ["a"]},
     }
     assert problems({"uses": "gradeflow/workflow@1", "with": {"steps": [number_value]}}) == [
-        ("/markings/0/with/steps/0", "", "Key Points can't be used on a number value.")
+        ("/markings/0/with/steps/0", "", "Key Points can't be used on a number part.")
     ]
 
 

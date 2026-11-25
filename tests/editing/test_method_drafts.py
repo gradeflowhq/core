@@ -997,8 +997,15 @@ def test_the_details_form_chooses_question_types_one_by_one() -> None:
     question_types = number_range_draft().metadata_schema["properties"]["question_types"]
     assert question_types["type"] == "array"
     assert question_types["uniqueItems"] is True
-    assert question_types["items"]["enum"] == ["text", "number", "choice", "values", "code"]
-    assert question_types[HINT_KEY]["labels"]["values"] == "Multiple values"
+    assert question_types["items"]["enum"] == [
+        "text",
+        "number",
+        "choice",
+        "multipart",
+        "list",
+        "code",
+    ]
+    assert question_types[HINT_KEY]["labels"]["multipart"] == "Multi-part"
 
 
 def test_the_details_titles_tell_each_field_apart() -> None:
@@ -1011,15 +1018,16 @@ def test_the_details_titles_tell_each_field_apart() -> None:
 
 def test_every_question_type_is_all() -> None:
     draft = number_range_draft()
-    draft.update_metadata(question_types=["number", "text", "choice", "values", "code"])
+    every_type = ["text", "number", "choice", "multipart", "list", "code"]
+    draft.update_metadata(question_types=[*reversed(every_type)])
     assert load_yaml(draft.to_yaml())["question_types"] == "all"
-    assert draft.metadata["question_types"] == ["text", "number", "choice", "values", "code"]
+    assert draft.metadata["question_types"] == every_type
 
 
 def test_metadata_saved_as_it_is_leaves_the_file_unchanged() -> None:
     draft = number_range_draft()
     draft.update_metadata(
-        question_types=["text", "number", "choice", "values", "code"], level="advanced"
+        question_types=["text", "number", "choice", "multipart", "list", "code"], level="advanced"
     )
     before = draft.to_yaml()
     draft.update_metadata(**draft.metadata)

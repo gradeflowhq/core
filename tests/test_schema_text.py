@@ -9,8 +9,10 @@ from pydantic.json_schema import GenerateJsonSchema
 from gradeflow_core import BUILTINS, AnswersCsv, QuestionSet, ResultsCsv
 from gradeflow_core.editing import HINT_KEY, QUESTION_CLASSES, Position, compatible_methods
 from gradeflow_core.questions.choice import ChoiceQuestion
+from gradeflow_core.questions.list import ListQuestion
+from gradeflow_core.questions.multipart import MultipartQuestion
+from gradeflow_core.questions.parts import AnswerPart
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 from gradeflow_core.steps.step import Step
 from tests.schemas import schema_nodes
 
@@ -59,10 +61,15 @@ def _schemas() -> Iterator[dict[str, Any]]:
         {
             "Q1": TextQuestion(),
             "Q2": ChoiceQuestion(options=("a",)),
-            "Q3": ValuesQuestion(value_types=["text", "number"]),
+            "Q3": MultipartQuestion(
+                parts=[AnswerPart(name="place"), AnswerPart(name="year", type="number")]
+            ),
+            "Q4": ListQuestion(
+                item="parts", parts=[AnswerPart(name="problem"), AnswerPart(name="change")]
+            ),
         }
     )
-    for question_id in (None, "Q1", "Q2", "Q3"):
+    for question_id in (None, "Q1", "Q2", "Q3", "Q4"):
         for is_in_list in (False, True):
             position = Position(
                 question_set, question_id, is_in_list=is_in_list, is_in_group=question_id is None

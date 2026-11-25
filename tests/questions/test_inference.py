@@ -3,9 +3,10 @@ import pytest
 from gradeflow_core import Question, QuestionSet, Submission
 from gradeflow_core.editing import converted_question
 from gradeflow_core.questions.choice import ChoiceQuestion
+from gradeflow_core.questions.list import ListQuestion
+from gradeflow_core.questions.multipart import MultipartQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 
 
 def submission(student_id: str, answers: dict[str, str]) -> Submission:
@@ -42,14 +43,14 @@ def test_infer_choice_ignores_capitals() -> None:
     assert question.read("B,E,A") == frozenset({"b", "e", "a"})
 
 
-def test_infer_multiple_values_when_the_number_of_values_is_consistent() -> None:
+def test_infer_a_multipart_answer_when_the_number_of_values_is_consistent() -> None:
     question = _inferred_question(["x~ y", "a~ b", "  c ~  d  ", ""])
-    assert isinstance(question, ValuesQuestion)
-    values = question.read("m~ n")
-    assert values == ["m", "n"]
+    assert isinstance(question, MultipartQuestion)
+    assert [part.name for part in question.parts] == ["part_1", "part_2"]
+    assert question.read("m~ n") == {"part_1": "m", "part_2": "n"}
 
 
-def test_infer_no_multiple_values_when_the_number_of_values_varies() -> None:
+def test_infer_no_multipart_answer_when_the_number_of_values_varies() -> None:
     question = _inferred_question(["x~ y~ z", "a~ b", "c1", "c2", "c3", "c4"])
     assert isinstance(question, TextQuestion)
 
@@ -75,7 +76,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
             "s1",
             {
                 "choice_question": "red,blue",
-                "values_question": "1~2",
+                "multipart_question": "1~2",
                 "number_question": "10",
                 "text_question": "foo",
             },
@@ -84,7 +85,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
             "s2",
             {
                 "choice_question": "blue,green",
-                "values_question": "3~4",
+                "multipart_question": "3~4",
                 "number_question": "20",
                 "text_question": "bar",
             },
@@ -93,7 +94,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
             "s3",
             {
                 "choice_question": "green",
-                "values_question": "5~6",
+                "multipart_question": "5~6",
                 "number_question": "30",
                 "text_question": "baz1",
             },
@@ -102,7 +103,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
             "s4",
             {
                 "choice_question": "green",
-                "values_question": "5~6",
+                "multipart_question": "5~6",
                 "number_question": "1",
                 "text_question": "baz2",
             },
@@ -111,7 +112,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
             "s5",
             {
                 "choice_question": "green",
-                "values_question": "5~6",
+                "multipart_question": "5~6",
                 "number_question": "2",
                 "text_question": "baz3",
             },
@@ -120,7 +121,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
             "s6",
             {
                 "choice_question": "green",
-                "values_question": "5~6",
+                "multipart_question": "5~6",
                 "number_question": "3",
                 "text_question": "baz4",
             },
@@ -129,7 +130,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
             "s7",
             {
                 "choice_question": "green",
-                "values_question": "5~6",
+                "multipart_question": "5~6",
                 "number_question": "4",
                 "text_question": "baz5",
             },
@@ -140,7 +141,7 @@ def test_infer_handles_multiple_questions_in_same_run() -> None:
     assert isinstance(questions["choice_question"], ChoiceQuestion)
     assert questions["choice_question"].options == ("blue", "green", "red")
 
-    assert isinstance(questions["values_question"], ValuesQuestion)
+    assert isinstance(questions["multipart_question"], MultipartQuestion)
     assert isinstance(questions["number_question"], NumberQuestion)
     assert isinstance(questions["text_question"], TextQuestion)
 
@@ -184,10 +185,10 @@ def test_numbers_are_inferred_as_a_number_question_reads_them(answers: list[str]
     assert all(question.read(answer) is not None for answer in answers[:2])
 
 
-def test_values_are_numbers_as_a_number_question_reads_them() -> None:
+def test_parts_are_numbers_as_a_number_question_reads_them() -> None:
     question = _inferred_question(["3 kg~red", "4 kg~blue"])
-    assert isinstance(question, ValuesQuestion)
-    assert question.value_types == ["number", "text"]
+    assert isinstance(question, MultipartQuestion)
+    assert [part.type for part in question.parts] == ["number", "text"]
 
 
 def test_words_that_are_not_numbers_are_not_inferred_as_numbers() -> None:
@@ -223,10 +224,10 @@ def test_few_distinct_answers_are_choices_only_when_they_look_like_options(
 
 def test_a_chosen_type_takes_its_settings_from_the_answers() -> None:
     answers = ["3, -2", "3,-2", "2, -3", "", "3, -2.0"]
-    question = converted_question(TextQuestion(), "values", answers)
-    assert isinstance(question, ValuesQuestion)
-    assert question.value_types == ["number", "number"]
-    assert question.read("3, -2") == [3, -2]
+    question = converted_question(TextQuestion(), "multipart", answers)
+    assert isinstance(question, MultipartQuestion)
+    assert [part.type for part in question.parts] == ["number", "number"]
+    assert question.read("3, -2") == {"part_1": 3, "part_2": -2}
     choice = converted_question(TextQuestion(), "choice", ["A", "b", "A,C"])
     assert isinstance(choice, ChoiceQuestion)
     assert choice.options == ("a", "b", "c")
@@ -240,30 +241,69 @@ def test_a_chosen_type_keeps_what_every_question_has() -> None:
     assert (question.type, question.max_marks, question.description) == ("number", 3, "Pick one")
 
 
-def test_answers_with_the_same_number_of_comma_separated_values_are_values() -> None:
+def test_answers_with_the_same_number_of_comma_separated_numbers_are_multipart() -> None:
     question = _inferred_question(["2, -3", "-3, 2", "(2, -3)", "3, -2", ""])
-    assert isinstance(question, ValuesQuestion)
-    assert question.value_types == ["number", "number"]
-    assert question.read("3, -2") == [3, -2]
+    assert isinstance(question, MultipartQuestion)
+    assert [part.type for part in question.parts] == ["number", "number"]
+    assert question.read("3, -2") == {"part_1": 3, "part_2": -2}
 
 
 def test_options_listed_with_commas_stay_a_choice() -> None:
     assert isinstance(_inferred_question(["A, C", "B, D", "A, B"]), ChoiceQuestion)
 
 
-def test_commas_in_prose_do_not_turn_text_into_multiple_values() -> None:
+def test_commas_in_prose_do_not_turn_text_into_a_multipart_answer() -> None:
     answers = ["Ice floats, because it is less dense.", "Ice sinks, because it is denser."]
     assert isinstance(_inferred_question(answers), TextQuestion)
 
 
-def test_multiple_values_chosen_are_read_with_the_default_separator() -> None:
-    question = converted_question(TextQuestion(), "values", ["1, x, 2", "3, y, 4", "5"])
-    assert isinstance(question, ValuesQuestion)
+def test_a_multipart_answer_chosen_is_read_with_the_separator_that_splits_its_answers() -> None:
+    question = converted_question(TextQuestion(), "multipart", ["1, x, 2", "3, y, 4", "5"])
+    assert isinstance(question, MultipartQuestion)
     assert question.reading.separator == ","
-    assert question.value_types == ["number", "text", "number"]
-    tilde_values = converted_question(TextQuestion(), "values", ["a~b", "c~d"])
-    assert isinstance(tilde_values, ValuesQuestion)
-    assert (tilde_values.reading.separator, tilde_values.value_types) == (",", ["text", "text"])
+    assert [part.type for part in question.parts] == ["number", "text", "number"]
+    blanks = converted_question(TextQuestion(), "multipart", ["Waterloo~1815", "Leipzig~1813"])
+    assert isinstance(blanks, MultipartQuestion)
+    assert (blanks.reading.separator, [part.type for part in blanks.parts]) == (
+        "~",
+        ["text", "number"],
+    )
+    unsplit = converted_question(TextQuestion(), "multipart", ["light", "water"])
+    assert isinstance(unsplit, MultipartQuestion)
+    assert unsplit.reading.separator == ","
+
+
+def test_a_later_separator_is_chosen_only_where_earlier_ones_split_few() -> None:
+    fractions = converted_question(TextQuestion(), "list", ["1/2, 3/4", "1/3, 2/3", "1/2"])
+    assert isinstance(fractions, ListQuestion)
+    assert fractions.reading.separator == ","
+    slashes = converted_question(TextQuestion(), "list", ["red/green", "blue/red/green", "red"])
+    assert isinstance(slashes, ListQuestion)
+    assert slashes.reading.separator == "/"
+
+
+def test_points_written_in_brackets_are_a_multipart_question_of_numbers() -> None:
+    question = _inferred_question(["(3, -2)", "(3,-2)", "(-2, 3)", "3, -2", ""])
+    assert isinstance(question, MultipartQuestion)
+    assert [part.type for part in question.parts] == ["number", "number"]
+
+
+def test_letters_in_brackets_arent_inferred_as_choice_options() -> None:
+    assert not isinstance(_inferred_question(["(A)", "(B)", "(A)", "(C)"]), ChoiceQuestion)
+
+
+def test_examsoft_blanks_count_when_they_are_left_empty() -> None:
+    question = _inferred_question(["Waterloo~1815", "Austerlitz~1805", "Waterloo~", "~1815"])
+    assert isinstance(question, MultipartQuestion)
+    assert [part.type for part in question.parts] == ["text", "number"]
+    assert question.read("Waterloo~") == {"part_1": "waterloo", "part_2": None}
+
+
+def test_a_list_chosen_is_of_numbers_when_most_values_are() -> None:
+    assert converted_question(TextQuestion(), "list", ["3, -2", "1, 4"]) == ListQuestion(
+        item="number"
+    )
+    assert converted_question(TextQuestion(), "list", ["a, 2", "b"]) == ListQuestion()
 
 
 @pytest.mark.parametrize("answers", [["Paris", "London"], ["3, east"], ["A", "B", "C"]])

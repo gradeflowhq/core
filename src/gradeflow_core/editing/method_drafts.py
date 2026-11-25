@@ -11,7 +11,7 @@ from pydantic import TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 
 from ..common.documents import dump_yaml, load_yaml
-from ..common.error_formatting import IDENTIFIER_RULE
+from ..common.error_formatting import IDENTIFIER, IDENTIFIER_RULE
 from ..common.exceptions import EditingError
 from ..common.hints import HINT_KEY, hint_of
 from ..common.paths import parts_of, pointer, value_at
@@ -46,7 +46,7 @@ from ..steps.names import method_ref
 from ..steps.places import marking_position
 from ..steps.position import Position
 from ..steps.problems import located_problems
-from ..steps.settings import IDENTIFIER, step_cardinality
+from ..steps.settings import step_cardinality
 from ..steps.step import METHODS_CONTEXT_KEY, STEP_OWN_PROPERTIES, Step, load_step
 from ..steps.templates import (
     Shape,

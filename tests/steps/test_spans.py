@@ -5,6 +5,7 @@ import pytest
 
 from gradeflow_core import (
     BUILTINS,
+    ListQuestion,
     MarkScheme,
     Methods,
     QuestionResult,
@@ -12,19 +13,22 @@ from gradeflow_core import (
     Span,
     Submission,
     TextQuestion,
-    ValuesQuestion,
     mark,
 )
 from gradeflow_core.editing import ExampleRow, mark_rows
+from gradeflow_core.questions.parts import AnswerPart
 
-from ..methods.helpers import workflow
+from ..methods.helpers import multipart, workflow
 
 EXTRACT = "gradeflow/extract@1"
 QUESTIONS = QuestionSet(
     {
         "Q1": TextQuestion(max_marks=2),
-        "Q2": ValuesQuestion(value_types=["number", "text"]),
+        "Q2": multipart("number", "text"),
         "Q3": TextQuestion(),
+        "Q4": ListQuestion(
+            item="parts", parts=[AnswerPart(name="ingredient"), AnswerPart(name="amount")]
+        ),
     }
 )
 LAST_NUMBER = {"id": "number", "uses": EXTRACT, "with": {"occurrence": "last"}}
@@ -120,10 +124,17 @@ output_step: "{{ steps.number.output }}"
     assert spans_of(marking, methods=methods, Q1=CONCLUSION) == (Span(21, 23),)
 
 
-def test_a_span_in_a_value_counts_from_that_values_start() -> None:
-    number = {**LAST_NUMBER, "input": "{{ values[1] }}"}
+def test_a_span_in_a_part_counts_from_that_parts_start() -> None:
+    number = {**LAST_NUMBER, "input": "{{ answer.part_2 }}"}
     marking = workflow("all_correct", number, {**IS_42, "weight": 1}, question="Q2")
-    assert spans_of(marking, "Q2", Q2="3, About 42 kg") == (Span(6, 8, value_number=2),)
+    assert spans_of(marking, "Q2", Q2="3, About 42 kg") == (Span(6, 8, path="/part_2"),)
+
+
+def test_a_span_in_a_part_of_an_item_is_at_that_items_part() -> None:
+    check = workflow("all_correct", {**LAST_NUMBER, "input": "{{ answer.amount }}"}, IS_42)
+    marking = {"question": "Q4", "uses": "gradeflow/item-by-item@1", "with": {"checks": [check]}}
+    answer = "water, 2 l, salt, about 42 g"
+    assert spans_of(marking, "Q4", Q4=answer) == (Span(6, 8, path="/items/1/amount"),)
 
 
 def test_reading_another_questions_answer_gives_no_spans() -> None:
@@ -164,9 +175,9 @@ def test_marking_rows_with_a_transform_gives_its_spans() -> None:
 
 
 def test_a_results_spans_are_sorted_with_overlapping_and_empty_ones_merged_away() -> None:
-    spans = (Span(3, 6), Span(5, 5), Span(0, 4), Span(1, 2, value_number=2))
+    spans = (Span(3, 6), Span(5, 5), Span(0, 4), Span(1, 2, path="/part_2"))
     result = QuestionResult(proportion=1, max_marks=1, spans=spans)
-    assert result.spans == (Span(0, 6), Span(1, 2, value_number=2))
+    assert result.spans == (Span(0, 6), Span(1, 2, path="/part_2"))
 
 
 @pytest.mark.parametrize(("start", "end"), [(-1, 2), (3, 2)])

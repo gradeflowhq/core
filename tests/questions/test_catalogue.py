@@ -14,13 +14,14 @@ from gradeflow_core.editing import HINT_KEY, QUESTION_CLASSES, QuestionType, new
 
 
 def test_catalogue_lists_every_question_type_with_text_first() -> None:
-    assert list(QUESTION_CLASSES) == ["text", "number", "choice", "values", "code"]
+    assert list(QUESTION_CLASSES) == ["text", "number", "choice", "multipart", "list", "code"]
     assert set(QUESTION_CLASSES) == set(get_args(QuestionType))
     assert [question_type.label for question_type in QUESTION_CLASSES.values()] == [
         "Text",
         "Number",
         "Choice",
-        "Multiple values",
+        "Multi-part",
+        "List",
         "Code",
     ]
     assert all(question_type.summary.endswith(".") for question_type in QUESTION_CLASSES.values())
@@ -51,17 +52,20 @@ def test_catalogue_fields_read_like_a_form() -> None:
     schemas = {
         name: question_type.json_schema() for name, question_type in QUESTION_CLASSES.items()
     }
-    text, choice, values_schema = schemas["text"], schemas["choice"], schemas["values"]
+    text, choice, list_schema = schemas["text"], schemas["choice"], schemas["list"]
 
     assert text["properties"]["max_marks"]["title"] == "Maximum marks"
     assert text["properties"]["description"][HINT_KEY] == {"kind": "markdown"}
     assert choice["properties"]["options"]["title"] == "Options"
-    assert values_schema["properties"]["value_types"][HINT_KEY]["labels"] == {
+    assert list_schema["properties"]["item"][HINT_KEY]["labels"] == {
         "text": "Text",
         "number": "Number",
+        "parts": "Parts",
     }
+    assert list_schema["$defs"]["AnswerPart"]["properties"]["name"]["title"] == "Name"
     for schema in schemas.values():
-        for config in schema["$defs"].values():
+        readings = (config for name, config in schema["$defs"].items() if name.endswith("Reading"))
+        for config in readings:
             for name, property_schema in config["properties"].items():
                 assert property_schema[HINT_KEY]["advanced"] is True, name
                 assert property_schema["title"], name

@@ -19,10 +19,6 @@ from ..common.problems import Problem, problem_error
 from ..common.text import written_fraction
 from ..questions.reading import parse_number
 
-IDENTIFIER = r"^[A-Za-z_][A-Za-z0-9_]*$"
-"""A name code and conditions can use: letters, digits and underscores, not starting with a
-digit."""
-
 
 class Settings(BaseModel):
     """A method's settings: what a check's ``with`` holds. Field descriptions are a line of

@@ -20,9 +20,10 @@ from ..common.exceptions import GradeFlowError
 from ..questions.base import Question
 from ..questions.choice import ChoiceQuestion
 from ..questions.number import reads_as_number
+from ..questions.parts import numbered_parts
 from ..questions.question_set import QuestionSet
+from ..questions.reading import EXAMSOFT_SEPARATOR
 from ..questions.types import QuestionId, ValueType
-from ..questions.values import EXAMSOFT_SEPARATOR
 from .mathml import mathml_to_latex
 from .rtf import ParagraphPart, paragraphs
 
@@ -43,7 +44,7 @@ _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 def read_question_document(data: bytes, questions: QuestionSet) -> QuestionSet:
     """
     The ``questions`` an ExamSoft question document has, set up as it shows them: choices make a
-    choice question, one blank a number or text question, several a multiple-values question.
+    choice question, one blank a number or text question, several a multi-part question.
     Its text is their description and its weight their maximum marks. A question with neither
     choices nor blanks keeps its type, and a choice question that allows several options still
     does. Raises ``InvalidError`` for a question it can't set up, such as one with a choice twice.
@@ -127,10 +128,10 @@ def _question_data(lines: list[str], current_question: Question) -> dict[str, An
     ]
     if len(value_types) > 1:
         return {
-            "type": "values",
+            "type": "multipart",
             **common_fields,
             "reading": {"separator": EXAMSOFT_SEPARATOR},
-            "value_types": value_types,
+            "parts": numbered_parts(value_types),
         }
     return {"type": "number" if value_types == ["number"] else "text", **common_fields}
 

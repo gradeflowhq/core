@@ -8,10 +8,11 @@ from ..steps.workflow import Workflow
 from .answers.accepted_answers import AcceptedAnswers
 from .answers.equivalent_expression import EquivalentExpression
 from .answers.formula_of_answers import FormulaOfAnswers
+from .answers.item_by_item import ItemByItem
 from .answers.multiple_choice import MultipleChoice
-from .answers.multiple_values import MultipleValues
 from .answers.number_range import NumberRange
 from .answers.order import Order
+from .answers.part_by_part import PartByPart
 from .code.code_tests import CodeTests
 from .code.code_uses import CodeUses
 from .code.custom_code import CustomCode
@@ -29,7 +30,8 @@ PYTHON_METHODS: tuple[Method, ...] = (
     EquivalentExpression(),
     NumberRange(),
     MultipleChoice(),
-    MultipleValues(),
+    PartByPart(),
+    ItemByItem(),
     Order(),
     Length(),
     FullMarks(),
@@ -51,7 +53,8 @@ CATALOGUE_ORDER = (
     "gradeflow/equivalent-expression",
     "gradeflow/number-range",
     "gradeflow/multiple-choice",
-    "gradeflow/multiple-values",
+    "gradeflow/part-by-part",
+    "gradeflow/item-by-item",
     "gradeflow/order",
     "gradeflow/length",
     "gradeflow/full-marks",

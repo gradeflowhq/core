@@ -31,11 +31,13 @@ class Detail:
 @dataclass(frozen=True)
 class Span:
     """Characters from ``start`` (inclusive) to ``end`` (exclusive) of an answer as its question
-    reads it, or of its value ``value_number``, from 1."""
+    reads it, or of its part or item at ``path``."""
 
     start: int
     end: int
-    value_number: int | None = None
+    path: str = ""
+    """JSON Pointer into ``Question.answer_values`` of the part or item it is in, like ``/year`` or
+    ``/items/1/change``; ``""`` for the whole answer."""
 
     def __post_init__(self) -> None:
         if not 0 <= self.start <= self.end:
@@ -51,17 +53,17 @@ class Span:
             raise ValueError(
                 f"A subspan ends at {span.end}, past the {length} characters it is in."
             )
-        return Span(self.start + span.start, self.start + span.end, self.value_number)
+        return Span(self.start + span.start, self.start + span.end, self.path)
 
 
 def merged(spans: Iterable[Span]) -> tuple[Span, ...]:
     """``spans`` sorted, without empty ones, and with those that overlap or touch merged."""
     result: list[Span] = []
     nonempty = (span for span in spans if span.start < span.end)
-    for span in sorted(nonempty, key=lambda span: (span.value_number or 0, span.start)):
+    for span in sorted(nonempty, key=lambda span: (span.path, span.start)):
         last = result[-1] if result else None
-        if last and last.value_number == span.value_number and span.start <= last.end:
-            result[-1] = Span(last.start, max(last.end, span.end), span.value_number)
+        if last and last.path == span.path and span.start <= last.end:
+            result[-1] = Span(last.start, max(last.end, span.end), span.path)
         else:
             result.append(span)
     return tuple(result)

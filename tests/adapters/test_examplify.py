@@ -12,10 +12,11 @@ from gradeflow_core import (
 )
 from gradeflow_core.adapters.rtf import MAX_GROUP_DEPTH
 from gradeflow_core.questions.choice import ChoiceQuestion
+from gradeflow_core.questions.multipart import MultipartQuestion
 from gradeflow_core.questions.number import NumberQuestion
-from gradeflow_core.questions.reading import ListReading
+from gradeflow_core.questions.parts import AnswerPart
+from gradeflow_core.questions.reading import EXAMSOFT_SEPARATOR, ListReading
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import EXAMSOFT_SEPARATOR, ValuesQuestion
 
 HEADER = (
     r"{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\froman Times New Roman;}{\f3 ZapfDingbats;}}"
@@ -166,12 +167,12 @@ def test_one_correct_choice_keeps_whether_several_are_allowed(
     )
 
 
-def test_blanks_make_a_question_of_their_values_and_hide_the_accepted_answers() -> None:
+def test_blanks_make_a_multipart_answer_and_hide_the_accepted_answers() -> None:
     questions_read = read_question_document(DOCUMENT, QUESTIONS)
 
-    assert questions_read["Q2"] == ValuesQuestion(
+    assert questions_read["Q2"] == MultipartQuestion(
         reading=ListReading(separator=EXAMSOFT_SEPARATOR),
-        value_types=["number", "text"],
+        parts=[AnswerPart(name="part_1", type="number"), AnswerPart(name="part_2")],
         max_marks=3,
         description=r"2\. The cost of $h^{*}(s_{0})$ is (1) and its name is (2).",
     )

@@ -2,6 +2,7 @@
 outcomes are combined."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, PlainValidator, ValidationInfo
@@ -11,6 +12,7 @@ from ..common.hints import hint
 from ..common.problems import InvalidError, problem_error
 from ..questions.types import QuestionId
 from .combining import COMBINATIONS, MARKS_BY_LABELS, Combination, MarksBy, Part
+from .outcome import CORRECT_FEEDBACK, Outcome, QuestionOutcomes
 from .step import (
     METHODS_CONTEXT_KEY,
     Step,
@@ -109,4 +111,30 @@ def questions_read_by(steps: Sequence[Step], question_id: QuestionId | None) -> 
     """The questions whose answers the steps read."""
     return {
         read_question_id for step in steps for read_question_id in step.questions_read(question_id)
+    }
+
+
+def labelled_combined_part(
+    check: Step, outcomes: QuestionOutcomes, default_name: str | None
+) -> tuple[Part, QuestionOutcomes]:
+    """A check and its outcomes to combine. One without a name is called ``default_name``, the
+    part or item it marked, so each line of feedback says which it is."""
+    part = combined_part(check, default_name)
+    if check.name or default_name is None:
+        return part, outcomes
+    return part, {
+        question_id: replace(outcome, labels=(*outcome.labels, default_name))
+        if isinstance(outcome, Outcome)
+        else outcome
+        for question_id, outcome in outcomes.items()
+    }
+
+
+def with_correct_feedback(outcomes: QuestionOutcomes) -> QuestionOutcomes:
+    """An answer whose every part or item is correct is “Correct.”, without a line for each."""
+    return {
+        question_id: replace(outcome, feedback=CORRECT_FEEDBACK)
+        if isinstance(outcome, Outcome) and outcome.correct
+        else outcome
+        for question_id, outcome in outcomes.items()
     }

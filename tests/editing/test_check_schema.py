@@ -16,9 +16,9 @@ from gradeflow_core.editing import (
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
+from gradeflow_core.steps.input_sources import AnswerPartSource, AnswerSource
 from gradeflow_core.steps.step import STEP_OWN_PROPERTIES
-from tests.methods.helpers import with_value_inputs
+from tests.methods.helpers import multipart, with_part_inputs
 from tests.schemas import schema_nodes
 
 METHODS = {method.name: method for method in BUILTINS}
@@ -28,7 +28,7 @@ QUESTIONS = QuestionSet(
     {
         "Q1": TextQuestion(),
         "Q2": ChoiceQuestion(options=("a", "b")),
-        "Q3": ValuesQuestion(value_types=["text", "number"]),
+        "Q3": multipart("text", "number"),
         "Q4": NumberQuestion(),
     }
 )
@@ -36,10 +36,10 @@ PLACES: dict[str, tuple[str | None, dict[str, Any] | None]] = {
     "question group": (None, None),
     "text": ("Q1", None),
     "choice": ("Q2", None),
-    "values": ("Q3", None),
+    "multipart": ("Q3", None),
     "number": ("Q4", None),
     "text in a list": ("Q1", {}),
-    "value": ("Q3", {"input": "{{ values[1] }}"}),
+    "part": ("Q3", {"input": "{{ answer.part_2 }}"}),
     "in question group": (None, {"question": "Q1"}),
 }
 """Each place's question, and the check's keys in a workflow's steps (``None`` at the top level)."""
@@ -103,19 +103,19 @@ def test_a_checks_fields_are_its_settings_and_the_keys_a_check_there_may_have() 
     assert "question" in group_check_schema["required"], (
         "a check in a question group needs its question"
     )
-    value_check_schema = schema_at("gradeflow/accepted-answers", "value")
-    assert value_check_schema["properties"]["input"]["enum"] == [
+    part_check_schema = schema_at("gradeflow/accepted-answers", "part")
+    assert part_check_schema["properties"]["input"]["enum"] == [
         "{{ answer }}",
-        "{{ values[0] }}",
-        "{{ values[1] }}",
+        "{{ answer.part_1 }}",
+        "{{ answer.part_2 }}",
     ]
-    multiple_values = {
+    part_by_part = {
         "question": "Q3",
-        "uses": METHODS["gradeflow/multiple-values"].ref,
-        "with": {"checks": with_value_inputs({"uses": METHODS["gradeflow/accepted-answers"].ref})},
+        "uses": METHODS["gradeflow/part-by-part"].ref,
+        "with": {"checks": with_part_inputs({"uses": METHODS["gradeflow/accepted-answers"].ref})},
     }
-    value_schema = MarkingDraft(multiple_values, QUESTIONS, "Q3").schema("/with/checks/0")
-    assert "input" not in value_schema["properties"], "each check's value is fixed"
+    part_schema = MarkingDraft(part_by_part, QUESTIONS, "Q3").schema("/with/checks/0")
+    assert "input" not in part_schema["properties"], "each check's part is fixed"
 
 
 def test_a_checks_fields_are_in_the_order_the_editor_shows_them() -> None:
@@ -197,8 +197,8 @@ def test_new_checks_are_plain_json_of_their_method(place: str) -> None:
         assert check["uses"] == method.ref
 
 
-def test_multiple_values_has_a_check_for_each_value_no_more() -> None:
-    checks = schema_at("gradeflow/multiple-values", "values")["properties"]["checks"]
+def test_part_by_part_has_a_check_for_each_part_no_more() -> None:
+    checks = schema_at("gradeflow/part-by-part", "multipart")["properties"]["checks"]
     assert (checks["minItems"], checks["maxItems"]) == (2, 2)
 
 
@@ -208,8 +208,8 @@ def test_a_new_composed_check_starts_with_its_lists() -> None:
     }
 
 
-def test_a_new_multiple_values_check_checks_each_value() -> None:
-    check = new_check("gradeflow/multiple-values", "values")
+def test_a_new_part_by_part_check_checks_each_part() -> None:
+    check = new_check("gradeflow/part-by-part", "multipart")
     assert check["question"] == "Q3"
     assert [inner["uses"] for inner in check["with"]["checks"]] == [
         "gradeflow/accepted-answers@1",
@@ -240,11 +240,11 @@ def test_a_checks_schema_and_new_settings_need_no_methods() -> None:
     }
 
 
-MULTIPLE_VALUES_MARKING = {
+PART_BY_PART_MARKING = {
     "question": "Q3",
-    "uses": "gradeflow/multiple-values@1",
+    "uses": "gradeflow/part-by-part@1",
     "with": {
-        "checks": with_value_inputs(
+        "checks": with_part_inputs(
             {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["x"]}},
             {
                 "uses": "gradeflow/not-allowed@1",
@@ -258,18 +258,14 @@ MULTIPLE_VALUES_MARKING = {
 @pytest.mark.parametrize(
     ("path", "expected_position"),
     [
-        ("", ("Q3", None, False)),
-        ("/with/checks/0", ("Q3", 1, True)),
-        ("/with/checks/1/with/check", ("Q3", 2, False)),
+        ("", ("Q3", AnswerSource(), False)),
+        ("/with/checks/0", ("Q3", AnswerPartSource("part_1"), True)),
+        ("/with/checks/1/with/check", ("Q3", AnswerPartSource("part_2"), False)),
     ],
 )
 def test_checks_nest_at_any_depth(path: str, expected_position: tuple[object, ...]) -> None:
-    position = MarkingDraft(MULTIPLE_VALUES_MARKING, QUESTIONS, "Q3").position(path)
-    assert (
-        position.question,
-        position.value,
-        position.is_in_list,
-    ) == expected_position
+    position = MarkingDraft(PART_BY_PART_MARKING, QUESTIONS, "Q3").position(path)
+    assert (position.question, position.source, position.is_in_list) == expected_position
 
 
 def test_a_check_in_a_question_group_reads_its_own_question() -> None:
@@ -307,7 +303,7 @@ def test_an_empty_place_for_a_check_is_a_position_too() -> None:
 )
 def test_paths_that_arent_checks_are_refused(path: str) -> None:
     with pytest.raises(EditingError, match=re.escape("isn't a step of this marking")):
-        MarkingDraft(MULTIPLE_VALUES_MARKING, QUESTIONS, "Q3").position(path)
+        MarkingDraft(PART_BY_PART_MARKING, QUESTIONS, "Q3").position(path)
 
 
 @pytest.mark.parametrize(
@@ -385,15 +381,15 @@ def test_a_drafts_schemas_differ_where_the_checks_positions_do() -> None:
     custom_code = METHODS["gradeflow/custom-code"]
     draft = MarkingDraft({"question": "Q3", "uses": custom_code.ref, "with": {}}, QUESTIONS, "Q3")
     whole_answer_code_schema = draft.schema("")["properties"]["code"]
-    multiple_values_ref = METHODS["gradeflow/multiple-values"].ref
+    part_by_part_ref = METHODS["gradeflow/part-by-part"].ref
     draft.replace(
         {
             "question": "Q3",
-            "uses": multiple_values_ref,
-            "with": {"checks": with_value_inputs({"uses": custom_code.ref})},
+            "uses": part_by_part_ref,
+            "with": {"checks": with_part_inputs({"uses": custom_code.ref})},
         }
     )
-    one_value_code_schema = draft.schema("/with/checks/0")["properties"]["code"]
-    assert one_value_code_schema != whole_answer_code_schema
+    one_part_code_schema = draft.schema("/with/checks/0")["properties"]["code"]
+    assert one_part_code_schema != whole_answer_code_schema
     fresh_draft = MarkingDraft(draft.data, QUESTIONS, "Q3")
-    assert one_value_code_schema == fresh_draft.schema("/with/checks/0")["properties"]["code"]
+    assert one_part_code_schema == fresh_draft.schema("/with/checks/0")["properties"]["code"]

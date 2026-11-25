@@ -4,9 +4,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..common.paths import pointer, value_at
 from ..models.model_service import ModelEndpoint
 from ..questions.base import Question
-from ..questions.question_set import Answers, QuestionSet, value_of
+from ..questions.list import ITEMS_KEY, ListQuestion
+from ..questions.multipart import MultipartQuestion
+from ..questions.question_set import Answers, QuestionSet
 from ..questions.reading import write_answer
 from ..questions.types import Answer, QuestionId, Unreadable
 from .outcome import Span, StepResult, Transformed, TransformResult
@@ -34,6 +37,32 @@ class StepInput:
     answer_span: Span | None
     """Where its text is in the answer to ``question_id``; None if it isn't part of that answer,
     such as another question's answer."""
+
+    def part(self, name: str) -> StepInput:
+        """Part ``name`` of this input, a multi-part answer."""
+        assert isinstance(self.question, MultipartQuestion)  # problems refuse other inputs
+        part_question = self.question.part_question(name)
+        assert part_question is not None  # problems refuse a part the answers don't have
+        part = self.answer.get(name) if isinstance(self.answer, dict) else self.answer
+        return self._input_at(part, part_question, name)
+
+    def item(self, index: int) -> StepInput:
+        """Item ``index``, from 0, of this input, a list; blank if it has fewer items."""
+        assert isinstance(self.question, ListQuestion)  # problems refuse other inputs
+        assert isinstance(self.answer, list)  # blank and unreadable lists aren't marked by item
+        item = self.answer[index] if index < len(self.answer) else None
+        return self._input_at(item, self.question.item_question(), ITEMS_KEY, index)
+
+    def _input_at(
+        self, answer: Answer | Unreadable, question: Question, *tokens: str | int
+    ) -> StepInput:
+        """``answer``, read by ``question``, as the input at ``tokens`` within this one."""
+        answer_span = (
+            None
+            if self.answer_span is None
+            else _full_span(answer, self.answer_span.path + pointer(*tokens))
+        )
+        return StepInput(self.question_id, answer, question, _answer_text(answer), answer_span)
 
     def mapped_to_answer(self, result: TransformResult) -> TransformResult:
         """``result``, what a transform gives of this input, with its spans mapped from this input
@@ -94,17 +123,11 @@ class Context:
             answer_span,
         )
 
-    def value(self, question_id: QuestionId, value_number: int) -> StepInput:
-        """Value ``value_number`` of the student's answer to ``question_id``."""
-        question = self.questions[question_id].value_question(value_number)
-        assert question is not None  # problems refuse a value the answers don't have
-        value = value_of(self.answers.get(question_id), value_number)
-        return self.input_from(question_id, value, question, _full_span(value, value_number))
-
     def text_at(self, question_id: QuestionId, span: Span) -> str:
         """The text at ``span`` in the student's answer to ``question_id``."""
-        answer = value_of(self.answers.get(question_id), span.value_number)
-        return _answer_text(answer)[span.start : span.end]
+        answer = self.answers.get(question_id)
+        values = {ITEMS_KEY: answer} if isinstance(answer, list) else answer
+        return _answer_text(value_at(values, span.path))[span.start : span.end]
 
     def written_answer(self, question_id: QuestionId) -> str:
         """The answer to ``question_id`` as feedback shows it: what the step reads, if it reads
@@ -119,6 +142,6 @@ def _answer_text(answer: Answer | Unreadable) -> str:
     return "" if isinstance(answer, Unreadable) else write_answer(answer)
 
 
-def _full_span(answer: Answer | Unreadable, value_number: int | None = None) -> Span:
-    """The span of all of ``answer``, as value ``value_number`` of its answer if given."""
-    return Span(0, len(_answer_text(answer)), value_number)
+def _full_span(answer: Answer | Unreadable, path: str = "") -> Span:
+    """The span of all of ``answer``, at ``path`` of the answer it is in."""
+    return Span(0, len(_answer_text(answer)), path)

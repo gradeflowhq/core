@@ -4,12 +4,13 @@ from typing import Literal
 
 from ..common.schemas import JsonDict
 from ..questions.base import Question
-from ..questions.question_set import QuestionSet, value_of
+from ..questions.multipart import MultipartQuestion
+from ..questions.question_set import QuestionSet
 from ..questions.reading import write_answer
 from ..questions.types import QuestionId, QuestionType
 from .input_sources import (
+    AnswerPartSource,
     AnswerSource,
-    AnswerValueSource,
     InputSource,
     OtherAnswerSource,
     StepOutputSource,
@@ -37,6 +38,8 @@ class Position:
     """In a marking of a question group, where checks choose their questions."""
     is_in_workflow: bool = False
     """In a workflow's steps, where transforms can be and inputs can be chosen."""
+    is_in_item_check: bool = False
+    """In a check of a list's items, which reads one item."""
     method_settings_schema: JsonDict = field(default_factory=dict)
     """The JSON schema of the settings of the method that wrote the step, if one did."""
 
@@ -54,34 +57,46 @@ class Position:
         return question.type if question else None
 
     @property
-    def value(self) -> int | None:
-        """Which value of the answer its input reads."""
-        return self.source.value_number if isinstance(self.source, AnswerValueSource) else None
-
-    @property
-    def input_kind(self) -> Literal["value", "output"] | None:
+    def input_kind(self) -> Literal["part", "item", "output"] | None:
         """What its input is, when it isn't a question's answer."""
         match self.source:
-            case AnswerValueSource():
-                return "value"
+            case AnswerPartSource():
+                return "part"
             case StepOutputSource():
                 return "output"
+            case AnswerSource() if self.is_in_item_check:
+                return "item"
         return None
 
-    def answer_value(self, answer: str) -> str:
-        """The part of ``answer`` a check here reads, as written; ``""`` if blank or unreadable."""
+    def values_read(self, answer: str) -> list[str]:
+        """What a check here reads of ``answer`` to its question, as written: the answer, one of
+        its parts, or each item or that part of each; empty if blank or unreadable."""
         if self.question is None or (question := self.questions.get(self.question)) is None:
-            return ""
+            return []
         try:
-            value = value_of(question.read(answer), self.value)
+            answer_read = question.read(answer)
         except ValueError:
-            return ""
-        return write_answer(value, question.reading)
+            return []
+        values = (
+            answer_read
+            if self.is_in_item_check and isinstance(answer_read, list)
+            else [answer_read]
+        )
+        if isinstance(self.source, AnswerPartSource):
+            name = self.source.name
+            values = [value.get(name) if isinstance(value, dict) else None for value in values]
+        return [text for value in values if (text := write_answer(value, question.reading))]
 
     def for_question(self, question: QuestionId | None) -> Position:
         """The position of what a step naming ``question`` reads."""
         if question is not None and question != self.question:
-            return replace(self, question=question, source=AnswerSource(), input_question=None)
+            return replace(
+                self,
+                question=question,
+                source=AnswerSource(),
+                input_question=None,
+                is_in_item_check=False,
+            )
         return self
 
     def reading(
@@ -91,14 +106,14 @@ class Position:
         match source:
             case AnswerSource():
                 return self, None
-            case AnswerValueSource(value_number=value_number):
-                question = self.questions.get(self.question or "")
-                if question is None or not question.value_count:
-                    return self, "Only a question with several values has values to read."
-                value_question = question.value_question(value_number)
-                if value_question is None:
-                    return self, f"The answer has {question.value_count} values."
-                return replace(self, source=source, input_question=value_question), None
+            case AnswerPartSource(name=name):
+                question = self.question_model
+                if not isinstance(question, MultipartQuestion):
+                    return self, "Only a multi-part answer has parts to read."
+                part_question = question.part_question(name)
+                if part_question is None:
+                    return self, f"The answer has no part named {name}."
+                return replace(self, source=source, input_question=part_question), None
             case OtherAnswerSource(question_id=question_id):
                 other_question = self.questions.get(question_id)
                 if other_question is None:

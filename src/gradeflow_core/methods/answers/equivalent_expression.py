@@ -7,6 +7,7 @@ from typing import Annotated
 
 from pydantic import Field
 
+from ...common.error_formatting import IDENTIFIER
 from ...common.hints import hint
 from ...common.paths import pointer
 from ...common.problems import Problem
@@ -26,7 +27,7 @@ from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import CORRECT_FEEDBACK, Outcome
 from ...steps.position import Position
-from ...steps.settings import IDENTIFIER, NonBlankText, Settings
+from ...steps.settings import NonBlankText, Settings
 from ..matching import read_or_none
 from . import expressions
 from .expressions import Expression

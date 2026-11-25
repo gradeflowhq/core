@@ -4,11 +4,11 @@ import pytest
 
 from gradeflow_core import BUILTINS, MarkScheme, QuestionSet
 from gradeflow_core.editing import EditingError, MarkingDraft, MethodDraft
+from gradeflow_core.questions.list import ListQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 from gradeflow_core.steps.step import valid_step
-from tests.methods.helpers import mark_all, proportions, with_value_inputs
+from tests.methods.helpers import mark_all, proportions
 
 from ..methods.helpers import WRAPPED_NUMBER_RANGE, located
 from .helpers import checks_tested
@@ -43,17 +43,16 @@ def limited_range_draft(settings: dict[str, Any]) -> MarkingDraft:
     return MarkingDraft(marking, NUMBER_QUESTIONS, "Q1", methods=LIMITED_RANGE_METHODS)
 
 
-def test_any_order_values_give_their_checks_no_earlier_checks() -> None:
-    questions = QuestionSet({"Q1": ValuesQuestion(value_types=["text", "text"])})
+def test_checks_of_items_have_no_earlier_checks() -> None:
+    questions = QuestionSet({"Q1": ListQuestion()})
     marking = {
         "question": "Q1",
-        "uses": "gradeflow/multiple-values@1",
+        "uses": "gradeflow/item-by-item@1",
         "with": {
-            "any_order": True,
-            "checks": with_value_inputs(
+            "checks": [
                 {"id": "first", "uses": "gradeflow/full-marks@1"},
                 {"uses": "gradeflow/full-marks@1", "if": "{{ steps.first.output.correct }}"},
-            ),
+            ],
         },
     }
     draft = MarkingDraft(marking, questions, "Q1")

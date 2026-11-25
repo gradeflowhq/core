@@ -14,7 +14,10 @@ from gradeflow_core import (
     Submission,
 )
 from gradeflow_core.questions.code import CodeQuestion
+from gradeflow_core.questions.multipart import MultipartQuestion
+from gradeflow_core.questions.parts import numbered_parts
 from gradeflow_core.questions.text import TextQuestion
+from gradeflow_core.questions.types import ValueType
 from gradeflow_core.steps.places import marking_position
 from gradeflow_core.steps.problems import located_problems
 
@@ -54,9 +57,17 @@ def workflow(marks_by: str, *steps: Mapping[str, Any], **step_keys: Any) -> dict
     }
 
 
-def with_value_inputs(*checks: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """``checks`` as Multiple Values holds them, each reading the value in its place."""
-    return [{**check, "input": f"{{{{ values[{index}] }}}}"} for index, check in enumerate(checks)]
+def multipart(*part_types: ValueType, **fields: Any) -> MultipartQuestion:
+    """A multi-part question with a part of each type, named ``part_1``, ``part_2``."""
+    return MultipartQuestion(parts=numbered_parts(part_types), **fields)
+
+
+def with_part_inputs(*checks: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """``checks`` as Part by Part holds them: the first reads ``part_1``, the next ``part_2``."""
+    return [
+        {**check, "input": f"{{{{ answer.part_{number} }}}}"}
+        for number, check in enumerate(checks, 1)
+    ]
 
 
 def code_tests(*tests: Mapping[str, Any], **settings: Any) -> dict[str, Any]:

@@ -13,11 +13,11 @@ from gradeflow_core import (
     mark,
 )
 from gradeflow_core.methods.code import runner
+from gradeflow_core.questions.list import ListQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 
 from ..methods import helpers
-from ..methods.helpers import WRAPPED_NUMBER_RANGE, with_value_inputs
+from ..methods.helpers import WRAPPED_NUMBER_RANGE, multipart, with_part_inputs
 
 NEVER_CORRECT = {
     "id": "never_correct",
@@ -32,10 +32,10 @@ ALWAYS_FALSE, ALWAYS_TRUE = (
 )
 
 
-TWO_VALUES = ValuesQuestion(value_types=["text", "text"])
+TWO_PARTS = multipart("text", "text")
 METHODS_OF_CHECKS = pytest.mark.parametrize(
     ("method", "answer", "question"),
-    [("gradeflow/workflow@1", "x", None), ("gradeflow/multiple-values@1", "x, y", TWO_VALUES)],
+    [("gradeflow/workflow@1", "x", None), ("gradeflow/part-by-part@1", "x, y", TWO_PARTS)],
 )
 """Methods holding checks, with an answer for each to mark."""
 
@@ -48,7 +48,7 @@ def check_holding(method: str, checks: list[dict[str, Any]], **settings: Any) ->
     checks_setting = (
         {"steps": checks}
         if method == "gradeflow/workflow@1"
-        else {"checks": with_value_inputs(*checks)}
+        else {"checks": with_part_inputs(*checks)}
     )
     return {"uses": method, "with": {**settings, **checks_setting}}
 
@@ -92,23 +92,26 @@ def test_skipped_checks_count_for_nothing_even_when_all_are_skipped(
     assert (result.proportion, result.is_marked) == (0, True)
 
 
-@pytest.mark.parametrize("any_order", [False, True])
-def test_skipped_values_count_for_nothing(any_order: bool) -> None:
+@pytest.mark.parametrize(
+    ("method", "question"),
+    [("gradeflow/part-by-part@1", TWO_PARTS), ("gradeflow/item-by-item@1", ListQuestion())],
+)
+def test_skipped_parts_and_items_count_for_nothing(method: str, question: Question) -> None:
+    checks = [
+        {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
+        {"uses": "gradeflow/full-marks@1", "if": ALWAYS_TRUE},
+    ]
     check: dict[str, Any] = {
-        "uses": "gradeflow/multiple-values@1",
+        "uses": method,
         "with": {
             "marks_by": "proportional",
-            "any_order": any_order,
-            "checks": with_value_inputs(
-                {"uses": "gradeflow/full-marks@1", "if": ALWAYS_FALSE},
-                {"uses": "gradeflow/full-marks@1", "if": ALWAYS_TRUE},
-            ),
+            "checks": with_part_inputs(*checks) if method == "gradeflow/part-by-part@1" else checks,
         },
     }
-    assert helpers.mark(after_never_correct(check), "x, y", TWO_VALUES).proportion == 1
+    assert helpers.mark(after_never_correct(check), "x, y", question).proportion == 1
     check["with"]["marks_by"] = "total"
     check["with"]["checks"][1]["weight"] = 0.5
-    assert helpers.mark(after_never_correct(check), "x, y", TWO_VALUES).proportion == 0.5
+    assert helpers.mark(after_never_correct(check), "x, y", question).proportion == 0.5
 
 
 @METHODS_OF_CHECKS
@@ -125,17 +128,16 @@ def test_named_skips_are_available_to_later_conditions(
     assert helpers.mark(after_never_correct(check), answer, question).proportion == 1
 
 
-def test_any_order_values_cant_read_earlier_checks() -> None:
-    questions = QuestionSet({"Q1": ValuesQuestion(value_types=["text", "text"])})
+def test_checks_of_items_cant_read_earlier_checks() -> None:
+    questions = QuestionSet({"Q1": ListQuestion()})
     marking = {
         "question": "Q1",
-        "uses": "gradeflow/multiple-values@1",
+        "uses": "gradeflow/item-by-item@1",
         "with": {
-            "any_order": True,
-            "checks": with_value_inputs(
+            "checks": [
                 {"id": "first", "uses": "gradeflow/full-marks@1"},
                 {"uses": "gradeflow/full-marks@1", "if": "{{ steps.first.output.correct }}"},
-            ),
+            ],
         },
     }
     scheme = MarkScheme.load([marking])
@@ -290,14 +292,14 @@ steps:
             ),
         ]
     )
-    questions = QuestionSet({"Q1": ValuesQuestion(value_types=["text", "number"])})
+    questions = QuestionSet({"Q1": multipart("text", "number")})
     scheme = MarkScheme.load(
         [
             {
                 "question": "Q1",
-                "uses": "gradeflow/multiple-values@1",
+                "uses": "gradeflow/part-by-part@1",
                 "with": {
-                    "checks": with_value_inputs(
+                    "checks": with_part_inputs(
                         {"uses": "sample/loop@1", "with": {"words": ["x", "y"]}},
                         {"uses": "sample/nested@1"},
                     )

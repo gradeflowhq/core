@@ -10,10 +10,11 @@ from pydantic import Field, TypeAdapter
 from .base import Question
 from .choice import ChoiceQuestion
 from .code import CodeQuestion
+from .list import ListQuestion
+from .multipart import MultipartQuestion
 from .number import NumberQuestion
 from .text import TextQuestion
 from .types import QuestionType
-from .values import ValuesQuestion
 
 if TYPE_CHECKING:
     # Every question is a Question, so a dict of them builds a QuestionSet without a cast.
@@ -21,7 +22,12 @@ if TYPE_CHECKING:
 else:
     # Catalogue order; the first is the default for new questions.
     AnyQuestion = Annotated[
-        TextQuestion | NumberQuestion | ChoiceQuestion | ValuesQuestion | CodeQuestion,
+        TextQuestion
+        | NumberQuestion
+        | ChoiceQuestion
+        | MultipartQuestion
+        | ListQuestion
+        | CodeQuestion,
         Field(discriminator="type"),
     ]
     """A question of any type, validated as the type its ``type`` names."""

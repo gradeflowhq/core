@@ -34,7 +34,7 @@ class Part:
     name: str | None = None
     """The name its author gave it."""
     default_name: str | None = None
-    """What feedback calls it without one, such as "Value 2"."""
+    """What feedback calls it without one, such as "Part 2"."""
     method_label: str = ""
     """What templates call it without either."""
     has_own_feedback: bool = False

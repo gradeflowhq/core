@@ -15,7 +15,6 @@ from gradeflow_core import (
     QuestionSet,
     Submission,
     TextQuestion,
-    ValuesQuestion,
     mark,
 )
 from gradeflow_core.editing import HINT_KEY, ExampleRow, MarkingDraft, MethodDraft, mark_rows
@@ -27,7 +26,7 @@ from gradeflow_core.steps.outcome import QuestionOutcomes
 from gradeflow_core.steps.running import transform
 from gradeflow_core.steps.step import valid_step
 
-from ..methods.helpers import workflow
+from ..methods.helpers import multipart, workflow
 
 EXTRACT = "gradeflow/extract@1"
 KEY_POINTS = "gradeflow/key-points@1"
@@ -37,7 +36,7 @@ PATTERN = "gradeflow/pattern@1"
 QUESTIONS = QuestionSet(
     {
         "Q1": TextQuestion(max_marks=6),
-        "Q2": ValuesQuestion(value_types=["number", "text"], max_marks=2),
+        "Q2": multipart("number", "text", max_marks=2),
         "Q3": NumberQuestion(),
     }
 )
@@ -206,15 +205,15 @@ def test_weight_zero_decides_but_gives_no_marks() -> None:
     assert result_of(marking, Q1="only x").marks == 0
 
 
-def test_a_step_reads_a_value_of_the_answer_or_another_answer() -> None:
+def test_a_step_reads_a_part_of_the_answer_or_another_answer() -> None:
     marking = workflow(
         "total",
         {
-            "input": "{{ values[0] }}",
+            "input": "{{ answer.part_1 }}",
             "uses": NUMBER_RANGE,
             "with": {"min_value": 1, "max_value": 2},
         },
-        {"input": "{{ values[1] }}", "uses": ACCEPTED_ANSWERS, "with": {"answers": ["m"]}},
+        {"input": "{{ answer.part_2 }}", "uses": ACCEPTED_ANSWERS, "with": {"answers": ["m"]}},
         question="Q2",
     )
     assert result_of(marking, "Q2", Q2="1.5, m").marks == 2
@@ -579,7 +578,7 @@ def test_a_step_whose_input_isnt_text_has_a_schema(input_: object) -> None:
     draft = MarkingDraft(workflow("all_correct", check, question="Q2"), QUESTIONS, "Q2")
     assert draft.schema("/with/steps/0")["properties"]["input"]["enum"] == [
         "{{ answer }}",
-        "{{ values[0] }}",
+        "{{ answer.part_1 }}",
     ]
     assert draft.settings_holding_steps("/with/steps/0") == []
 
@@ -609,7 +608,7 @@ def test_a_method_draft_chooses_marks_or_a_step_output() -> None:
 
 UNIT_PART = {
     "id": "part",
-    "input": "{{ values[1] }}",
+    "input": "{{ answer.part_2 }}",
     "uses": EXTRACT,
     "with": {"type": "text", "pattern": "(.+)"},
 }

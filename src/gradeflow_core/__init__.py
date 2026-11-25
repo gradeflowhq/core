@@ -17,12 +17,13 @@ from .questions.base import Question
 from .questions.choice import ChoiceQuestion
 from .questions.code import CodeQuestion
 from .questions.code_files import answer_from_files
+from .questions.list import ListQuestion
+from .questions.multipart import MultipartQuestion
 from .questions.number import NumberQuestion
 from .questions.question_set import QuestionSet
 from .questions.submissions import AnswerSheet, Submission
 from .questions.text import TextQuestion
 from .questions.types import Answer, Unreadable
-from .questions.values import ValuesQuestion
 from .steps.context import Progress
 from .steps.method import AnswerMethod, Method, TransformMethod
 from .steps.outcome import Detail, Outcome, Span, Transformed
@@ -42,6 +43,7 @@ __all__ = [
     "Detail",
     "GradeFlowError",
     "InvalidError",
+    "ListQuestion",
     "MarkScheme",
     "Marked",
     "MarkedExample",
@@ -50,6 +52,7 @@ __all__ = [
     "Methods",
     "ModelEndpoint",
     "ModelTrial",
+    "MultipartQuestion",
     "NumberQuestion",
     "Outcome",
     "Problem",
@@ -67,7 +70,6 @@ __all__ = [
     "TransformMethod",
     "Transformed",
     "Unreadable",
-    "ValuesQuestion",
     "answer_from_files",
     "best_models",
     "compare_answers",

@@ -8,15 +8,13 @@ from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
+from gradeflow_core.steps.input_sources import AnswerPartSource
 from gradeflow_core.steps.step import valid_step
 
-from ..methods.helpers import accepted_answer, located
+from ..methods.helpers import accepted_answer, located, multipart
 from .helpers import checks_tested
 
-QUESTIONS = QuestionSet(
-    {"Q1": TextQuestion(), "Q2": ValuesQuestion(value_types=["number", "number"])}
-)
+QUESTIONS = QuestionSet({"Q1": TextQuestion(), "Q2": multipart("number", "number")})
 
 
 def workflow_draft() -> MarkingDraft:
@@ -158,14 +156,17 @@ def test_a_change_to_a_check_or_slot_thats_not_there_is_refused(
     assert draft.data == before
 
 
-def test_a_check_for_each_value_is_fixed_and_reads_the_value_in_its_place() -> None:
-    draft = MarkingDraft.new("gradeflow/multiple-values@1", QUESTIONS, "Q2")
+def test_a_check_for_each_part_is_fixed_and_reads_its_part() -> None:
+    draft = MarkingDraft.new("gradeflow/part-by-part@1", QUESTIONS, "Q2")
     (setting,) = draft.settings_holding_steps("")
     assert (setting.minimum, setting.maximum, setting.is_full) == (2, 2, True)
     assert setting.step_paths == ("/with/checks/0", "/with/checks/1")
     with pytest.raises(EditingError):
         draft.add(setting.new_step_path, "gradeflow/accepted-answers@1")
-    assert (draft.position("/with/checks/1").value, draft.label("/with/checks/1")) == (2, "Value 2")
+    assert (draft.position("/with/checks/1").source, draft.label("/with/checks/1")) == (
+        AnswerPartSource("part_2"),
+        "Part 2",
+    )
     assert "input" not in draft.schema("/with/checks/1")["properties"]
 
 
@@ -174,7 +175,7 @@ def test_a_check_for_each_value_is_fixed_and_reads_the_value_in_its_place() -> N
     [
         (workflow_draft, "/with/steps/0"),
         (
-            lambda: MarkingDraft.new("gradeflow/multiple-values@1", QUESTIONS, "Q2"),
+            lambda: MarkingDraft.new("gradeflow/part-by-part@1", QUESTIONS, "Q2"),
             "/with/checks/0",
         ),
     ],
@@ -298,7 +299,7 @@ def test_a_condition_is_offered_where_it_has_an_earlier_check_to_read() -> None:
     ]
 
 
-def test_checks_inside_a_check_that_chose_the_question_or_value_dont_choose_again() -> None:
+def test_checks_inside_a_check_that_chose_the_question_or_part_dont_choose_again() -> None:
     accepted_answers_check = {
         "uses": "gradeflow/accepted-answers@1",
         "with": {"answers": ["x"]},
@@ -317,7 +318,7 @@ def test_checks_inside_a_check_that_chose_the_question_or_value_dont_choose_agai
     assert "question" in draft.schema("/with/steps/0")["properties"]
     assert "question" not in draft.schema("/with/steps/1/with/steps/0")["properties"]
     number_range = {"uses": "gradeflow/number-range@1", "with": {"min_value": 1}}
-    values_workflow = {
+    part_workflow = {
         "uses": "gradeflow/workflow@1",
         "with": {"steps": [number_range, number_range]},
     }
@@ -325,7 +326,7 @@ def test_checks_inside_a_check_that_chose_the_question_or_value_dont_choose_agai
         {
             "question": "Q2",
             "uses": "gradeflow/workflow@1",
-            "with": {"steps": [number_range, {**values_workflow, "input": "{{ values[1] }}"}]},
+            "with": {"steps": [number_range, {**part_workflow, "input": "{{ answer.part_2 }}"}]},
         },
         QUESTIONS,
         "Q2",

@@ -7,6 +7,9 @@ from pydantic_core import ErrorDetails
 from .text import as_sentence, as_text
 
 _MAX_REASON_LENGTH = 500
+IDENTIFIER = r"^[A-Za-z_][A-Za-z0-9_]*$"
+"""A name code, conditions and inputs can use: letters, digits and underscores, not starting with a
+digit."""
 IDENTIFIER_RULE = "Use letters, digits and underscores, not starting with a digit."
 REQUIRED_MESSAGE = "Required."
 UNKNOWN_MESSAGE = "Unknown setting."

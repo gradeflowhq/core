@@ -1,33 +1,60 @@
+from dataclasses import replace
+
 import pytest
 
 from gradeflow_core import QuestionSet
 from gradeflow_core.editing import Position
-from gradeflow_core.steps.input_sources import AnswerValueSource
+from gradeflow_core.questions.list import ListQuestion
+from gradeflow_core.steps.input_sources import AnswerPartSource
 
 QUESTIONS = QuestionSet.load(
     {
         "Q1": {"type": "number"},
-        "Q2": {"type": "values", "value_types": ["number", "text"]},
+        "Q2": {
+            "type": "multipart",
+            "parts": [{"name": "amount", "type": "number"}, {"name": "unit"}],
+        },
+        "Q3": {
+            "type": "list",
+            "item": "parts",
+            "parts": [{"name": "problem"}, {"name": "change"}],
+        },
     }
 )
 
 
 @pytest.mark.parametrize(
-    ("question_id", "value_number", "answer", "expected"),
+    ("question_id", "part", "answer", "expected"),
     [
-        ("Q1", None, " 42.0 ", "42"),
-        ("Q1", None, "", ""),
-        ("Q1", None, "lots", ""),
-        ("Q2", 1, "3.50, mol", "3.5"),
-        ("Q2", 2, "3.50, mol", "mol"),
-        ("Q2", 2, "3.50", ""),
-        (None, None, "anything", ""),
+        ("Q1", None, " 42.0 ", ["42"]),
+        ("Q1", None, "", []),
+        ("Q1", None, "lots", []),
+        ("Q2", "amount", "3.50, mol", ["3.5"]),
+        ("Q2", "unit", "3.50, mol", ["mol"]),
+        ("Q2", "unit", "3.50", []),
+        (None, None, "anything", []),
     ],
 )
-def test_the_answer_value_is_the_value_as_the_question_reads_it(
-    question_id: str | None, value_number: int | None, answer: str, expected: str
+def test_the_values_read_are_as_the_question_reads_them(
+    question_id: str | None, part: str | None, answer: str, expected: list[str]
 ) -> None:
     position = Position(QUESTIONS, question_id)
-    if value_number is not None:
-        position, _ = position.reading(AnswerValueSource(value_number), {})
-    assert position.answer_value(answer) == expected
+    if part is not None:
+        position, _ = position.reading(AnswerPartSource(part), {})
+    assert position.values_read(answer) == expected
+
+
+def test_a_check_of_items_reads_each_item_or_its_part() -> None:
+    list_question = QUESTIONS["Q3"]
+    assert isinstance(list_question, ListQuestion)
+    item_question = list_question.item_question()
+    position = replace(
+        Position(QUESTIONS, "Q3"), input_question=item_question, is_in_item_check=True
+    )
+    answer = "overfitting, add L2, imbalance, , , "
+    assert position.values_read(answer) == ["overfitting, add l2", "imbalance, "]
+    change_position, refusal = position.reading(AnswerPartSource("change"), {})
+    assert (refusal, change_position.input_kind) == (None, "part")
+    assert change_position.values_read(answer) == ["add l2"]
+    assert position.reading(AnswerPartSource("fix"), {})[1] == "The answer has no part named fix."
+    assert position.input_kind == "item"

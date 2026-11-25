@@ -1,17 +1,21 @@
 """What a step's ``input`` names, in place of the answer as it is."""
 
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
 from jinja2 import TemplateError as JinjaError
 from jinja2 import nodes
 
+from ..common.error_formatting import IDENTIFIER
 from ..questions.types import QuestionId
 from .templates import evaluate, expression_node, reference_expression
 
 ANSWER_INPUT = "{{ answer }}"
 """What a step without an ``input`` reads."""
-_INPUT_RULE = "Write an input as one of {{ steps.name.output }}, {{ values[0] }}, {{ answers.Q1 }}."
+_INPUT_RULE = (
+    "Write an input as one of {{ steps.name.output }}, {{ answer.year }}, {{ answers.Q1 }}."
+)
 
 
 @dataclass(frozen=True)
@@ -20,11 +24,10 @@ class AnswerSource:
 
 
 @dataclass(frozen=True)
-class AnswerValueSource:
-    """One value of the answer."""
+class AnswerPartSource:
+    """A part of the answer, by name."""
 
-    value_number: int
-    """From 1."""
+    name: str
 
 
 @dataclass(frozen=True)
@@ -41,14 +44,16 @@ class StepOutputSource:
     step_id: str
 
 
-InputSource = AnswerSource | AnswerValueSource | OtherAnswerSource | StepOutputSource
+InputSource = AnswerSource | AnswerPartSource | OtherAnswerSource | StepOutputSource
 
 
-class _Values:
-    def __getitem__(self, index: object) -> AnswerValueSource:
-        if type(index) is not int or index < 0:
-            raise LookupError(index)
-        return AnswerValueSource(index + 1)
+class _Answer:
+    """The answer, whose parts are its items."""
+
+    def __getitem__(self, name: object) -> AnswerPartSource:
+        if not isinstance(name, str) or not re.fullmatch(IDENTIFIER, name):
+            raise LookupError(name)
+        return AnswerPartSource(name)
 
 
 class _Answers:
@@ -70,7 +75,7 @@ class _Steps:
         return _Step(StepOutputSource(step_id))
 
 
-_NAMES = {"answer": AnswerSource(), "values": _Values(), "answers": _Answers(), "steps": _Steps()}
+_NAMES = {"answer": _Answer(), "answers": _Answers(), "steps": _Steps()}
 """What an input may name, each standing for the source it reads."""
 _ACCESS_NODES = (nodes.Name, nodes.Getattr, nodes.Getitem, nodes.Const)
 
@@ -86,6 +91,8 @@ def input_source(input_text: str | None) -> InputSource:
         source = evaluate(expression, _NAMES)
     except JinjaError:
         raise ValueError(_INPUT_RULE) from None
+    if isinstance(source, _Answer):
+        return AnswerSource()
     if not isinstance(source, InputSource):
         raise ValueError(_INPUT_RULE)
     return source
@@ -103,8 +110,8 @@ def input_text(source: InputSource) -> str:
     match source:
         case AnswerSource():
             return ANSWER_INPUT
-        case AnswerValueSource(value_number=value_number):
-            return f"{{{{ values[{value_number - 1}] }}}}"
+        case AnswerPartSource(name=name):
+            return f"{{{{ answer.{name} }}}}"
         case OtherAnswerSource(question_id=question_id) if question_id.isidentifier():
             return f"{{{{ answers.{question_id} }}}}"
         case OtherAnswerSource(question_id=question_id):

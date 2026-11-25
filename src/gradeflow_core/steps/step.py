@@ -20,7 +20,7 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
-from ..common.error_formatting import REQUIRED_MESSAGE, UNKNOWN_MESSAGE
+from ..common.error_formatting import IDENTIFIER, REQUIRED_MESSAGE, UNKNOWN_MESSAGE
 from ..common.hints import ADVANCED_HINT, hint
 from ..common.paths import is_within, pointer
 from ..common.problems import InvalidError, Problem, validation_problem, validation_problems
@@ -30,7 +30,7 @@ from .conditions import ConditionSubject, condition_note
 from .input_sources import InputSource, OtherAnswerSource, input_source
 from .method import Method
 from .outcome import Outcome
-from .settings import IDENTIFIER, Number, Settings, step_cardinality
+from .settings import Number, Settings, step_cardinality
 from .templates import evaluate, reference_expression, top_level_names
 
 METHODS_CONTEXT_KEY = "methods"
@@ -181,7 +181,7 @@ class Step(BaseModel):
 
     def described_in_list(self, notes: Sequence[str], default_name: str | None = None) -> str:
         """What it does, as an item of a list. A check comes after its question and its name, else
-        ``default_name``, such as "Value 2", or the label of a method that is described by its
+        ``default_name``, such as "Part 2", or the label of a method that is described by its
         steps, with ``notes`` after them: ``**Q2, Sign error** (50% of the marks): …``."""
         description = self.describe()
         if not self.resolution.gives_marks:

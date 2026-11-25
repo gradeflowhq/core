@@ -6,8 +6,11 @@ from dataclasses import dataclass
 from ..common.paths import is_list_item, is_within, parent
 from ..common.problems import Problem
 from ..questions.base import Question
+from ..questions.multipart import MultipartQuestion
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
+from .input_sources import AnswerPartSource, AnswerSource
+from .method import Method
 from .position import OutputQuestions, Position
 from .step import Step
 
@@ -160,9 +163,27 @@ def _step_position(
     ):
         return input_position, Problem("Choose the question it checks.", field="/question")
     if not method.can_run_at(input_position):
+        if (
+            step_position.is_in_list
+            and isinstance(step.source, AnswerSource)
+            and _can_run_on_part(method, input_position)
+        ):
+            message = f"{method.label} can't be used on the whole answer."
+            return input_position, Problem(
+                f"{message} Choose one of its parts as the input.", field="/input"
+            )
         message = f"{method.label} can't be used on {_position_kind(input_position)}."
         return input_position, Problem(message)
     return input_position, None
+
+
+def _can_run_on_part(method: Method, position: Position) -> bool:
+    """Whether ``method`` can run on a part of the answer read at ``position``."""
+    question = position.question_model
+    return isinstance(question, MultipartQuestion) and any(
+        method.can_run_at(position.reading(AnswerPartSource(part.name), {})[0])
+        for part in question.parts
+    )
 
 
 def _position_kind(position: Position) -> str:
@@ -170,5 +191,5 @@ def _position_kind(position: Position) -> str:
     if question is None:
         return "a question group"
     if position.input_kind is not None:
-        return f"a {question.type} {position.input_kind}"
+        return f"a {question.label.lower()} {position.input_kind}"
     return f"a {question.label.lower()} question"

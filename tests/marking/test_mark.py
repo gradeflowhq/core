@@ -19,12 +19,11 @@ from gradeflow_core.methods.code import runner as code_runner
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 from gradeflow_core.questions.types import QuestionId
-from gradeflow_core.questions.values import ValuesQuestion
 from gradeflow_core.steps.context import Context
 from gradeflow_core.steps.method import MarkingMethod
 from gradeflow_core.steps.outcome import Outcome, QuestionOutcomes
 from gradeflow_core.steps.settings import Settings
-from tests.methods.helpers import accepted_answer, mark_all, with_value_inputs
+from tests.methods.helpers import accepted_answer, mark_all, multipart, with_part_inputs
 
 QUESTIONS = QuestionSet(
     {"Q1": TextQuestion(), "Q2": NumberQuestion(max_marks=2), "Q3": TextQuestion()}
@@ -78,15 +77,15 @@ def test_an_answer_the_question_cant_read_is_left_for_a_person() -> None:
     assert result.feedback == "Couldn't read “approx 4” as a number."
 
 
-def test_an_answer_with_more_values_than_the_question_has_is_left_for_a_person() -> None:
-    questions = QuestionSet({"Q1": ValuesQuestion(value_types=["number", "number"])})
-    values = {
+def test_an_answer_with_more_parts_than_the_question_has_is_left_for_a_person() -> None:
+    questions = QuestionSet({"Q1": multipart("number", "number")})
+    part_by_part = {
         "question": "Q1",
-        "uses": "gradeflow/multiple-values@1",
-        "with": {"checks": with_value_inputs(accepted_answer("1"), accepted_answer("2"))},
+        "uses": "gradeflow/part-by-part@1",
+        "with": {"checks": with_part_inputs(accepted_answer("1"), accepted_answer("2"))},
     }
-    [result] = mark_all(values, ["1, 2, 3"], questions["Q1"])
-    assert (result.is_marked, result.feedback) == (False, "Expected 2 values, but got 3.")
+    [result] = mark_all(part_by_part, ["1, 2, 3"], questions["Q1"])
+    assert (result.is_marked, result.feedback) == (False, "Expected 2 parts, but got 3.")
 
 
 def test_what_a_condition_on_an_answer_it_cant_read_decides_is_left_for_a_person() -> None:

@@ -19,6 +19,8 @@ from ..common.schemas import JsonDict, json_schema
 from ..common.text import plain_markdown
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods
+from ..questions.multipart import MultipartQuestion
+from ..questions.parts import part_label
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
 from ..steps.combining import Combination
@@ -33,7 +35,7 @@ from ..steps.conditions import (
 )
 from ..steps.input_sources import (
     ANSWER_INPUT,
-    AnswerValueSource,
+    AnswerPartSource,
     OtherAnswerSource,
     StepOutputSource,
     input_text,
@@ -57,7 +59,7 @@ from ..steps.templates import Shape, names_read
 
 POSITION_KEYS = ("id", "question", "input", "name", "weight", "if")
 """The properties of a step that stay when its method changes."""
-type _ReadableInput = AnswerValueSource | OtherAnswerSource | StepOutputSource
+type _ReadableInput = AnswerPartSource | OtherAnswerSource | StepOutputSource
 """An input a step can read besides the answer."""
 EMPTY_VALUES = (None, "")
 """What a field left empty holds."""
@@ -385,14 +387,14 @@ class Draft:
         if not position.is_in_workflow:
             return {}
         output_questions = self._place(path).output_questions
-        source_question = (
-            self.questions.get(position.question or "") if position.value is None else None
+        source_question = position.question_model
+        part_sources = (
+            [AnswerPartSource(part.name) for part in source_question.parts]
+            if isinstance(source_question, MultipartQuestion)
+            else []
         )
         sources: list[_ReadableInput] = [
-            *map(
-                AnswerValueSource,
-                range(1, (source_question.value_count if source_question else 0) + 1),
-            ),
+            *part_sources,
             *(map(OtherAnswerSource, self.questions) if position.is_in_group else ()),
             *(
                 StepOutputSource(step_id)
@@ -630,13 +632,13 @@ class Draft:
         return settings
 
     def label(self, path: str) -> str:
-        """The step's name, the value of the answer it reads, or else its method's label."""
+        """The step's name, the part of the answer it reads, or else its method's label."""
         step_data = self._step_data(path)
         if name := self._resolved_value(step_data.get("name")):
             return str(name)
         step = self._step(path)
-        if isinstance(step.source, AnswerValueSource):
-            return f"Value {step.source.value_number}"
+        if isinstance(step.source, AnswerPartSource):
+            return part_label(step.source.name)
         return step.method_label
 
     def needs_model_endpoint(self, path: str) -> bool:
@@ -647,7 +649,7 @@ class Draft:
         """Notes beside the step's label: its question, input, weight and condition."""
         step = self._step(path)
         notes = [step.question] if step.question else []
-        if input_label := self._input_label(path):
+        if (input_label := self._input_label(path)) and input_label != self.label(path).lower():
             notes.append(f"Reads {input_label}")
         subjects = [
             *(
@@ -680,8 +682,8 @@ class Draft:
     def _input_label(self, path: str) -> str | None:
         """What the step at ``path`` reads, in words, if it isn't the answer as it is."""
         match self._step(path).source:
-            case AnswerValueSource(value_number=value_number):
-                return f"value {value_number}"
+            case AnswerPartSource(name=name):
+                return part_label(name).lower()
             case OtherAnswerSource(question_id=question_id):
                 return question_id
             case StepOutputSource(step_id=step_id):
@@ -926,8 +928,8 @@ def _numbered(labels: Sequence[str]) -> list[str]:
 def _input_choice_label(source: _ReadableInput, output_labels: Mapping[str, str]) -> str:
     """How an input a step can choose reads, naming steps by ``output_labels``."""
     match source:
-        case AnswerValueSource(value_number=value_number):
-            return f"Value {value_number}"
+        case AnswerPartSource(name=name):
+            return part_label(name)
         case OtherAnswerSource(question_id=question_id):
             return question_id
         case StepOutputSource(step_id=step_id):

@@ -4,14 +4,15 @@ from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
-from gradeflow_core.steps.input_sources import AnswerValueSource
+from gradeflow_core.steps.input_sources import AnswerPartSource
+
+from .helpers import multipart
 
 QUESTIONS = QuestionSet(
     {
         "Q1": TextQuestion(),
         "Q2": ChoiceQuestion(options=("a", "b")),
-        "Q3": ValuesQuestion(value_types=["text", "number"]),
+        "Q3": multipart("text", "number"),
         "Q4": NumberQuestion(),
         "Q5": CodeQuestion(),
     }
@@ -58,13 +59,12 @@ def test_compatible_methods_fit_the_question_or_group() -> None:
     ]
 
 
-def test_a_value_of_an_answer_offers_what_marks_its_type() -> None:
-    assert compatible_names(Position(QUESTIONS, "Q3"))[0] == "multiple-values"
-    question = QUESTIONS["Q3"].value_question(2)
-    assert question is not None
-    position = Position(
-        QUESTIONS, "Q3", source=AnswerValueSource(2), input_question=question, is_in_list=True
+def test_a_part_of_an_answer_offers_what_marks_its_type() -> None:
+    assert compatible_names(Position(QUESTIONS, "Q3"))[0] == "part-by-part"
+    position, refusal = Position(QUESTIONS, "Q3", is_in_list=True).reading(
+        AnswerPartSource("part_2"), {}
     )
+    assert refusal is None
     assert compatible_names(position)[:3] == [
         "accepted-answers",
         "number-range",

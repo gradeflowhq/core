@@ -1,0 +1,67 @@
+examples:
+  - title: Name the highest mountain on Earth and its height in metres.
+    description: |-
+      Split by weight between these:
+      - **Mountain:** Matches `Everest`.
+      - **Height:** Is between `8800` and `8900`.
+    questions:
+      Q1:
+        type: multipart
+        max_marks: 2
+        parts: [{name: mountain}, {name: height, type: number}]
+    with:
+      marks_by: proportional
+      checks:
+        - input: "{{ answer.mountain }}"
+          uses: gradeflow/accepted-answers@1
+          with: {answers: [Everest]}
+        - input: "{{ answer.height }}"
+          uses: gradeflow/number-range@1
+          with: {min_value: 8800, max_value: 8900}
+    rows:
+      - answers:
+          Q1: Everest, 8849
+        expected: {Q1: {marks: 2.0, feedback: Correct.}}
+      - answers:
+          Q1: Everest, 8000
+        expected:
+          Q1:
+            marks: 1.0
+            feedback: |-
+              Mountain: Correct.
+              Height: Too low. Expected between 8800 and 8900.
+      - answers:
+          Q1: K2, 8611
+        expected:
+          Q1:
+            marks: 0.0
+            feedback: |-
+              Mountain: Expected “Everest”.
+              Height: Too low. Expected between 8800 and 8900.
+  - title: Name the element with the symbol Na and give its atomic number.
+    description: |-
+      All of these:
+      - **Element:** Matches `sodium`.
+      - **Atomic number:** Matches `11`.
+    questions:
+      Q1:
+        type: multipart
+        parts: [{name: element}, {name: atomic_number, type: number}]
+    with:
+      checks:
+        - input: "{{ answer.element }}"
+          uses: gradeflow/accepted-answers@1
+          with: {answers: [sodium]}
+        - input: "{{ answer.atomic_number }}"
+          uses: gradeflow/accepted-answers@1
+          with: {answers: ['11']}
+    rows:
+      - answers:
+          Q1: Sodium, 11
+        expected: {Q1: {marks: 1.0, feedback: Correct.}}
+      - answers:
+          Q1: Sodium, 12
+        expected: {Q1: {marks: 0.0, feedback: 'Atomic number: Expected 11.'}}
+      - answers:
+          Q1: Potassium, 11
+        expected: {Q1: {marks: 0.0, feedback: 'Element: Expected “sodium”.'}}

@@ -10,9 +10,8 @@ from gradeflow_core.editing import Decision, EditingError, MarkingDraft, can_mar
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 
-from ..methods.helpers import accepted_answer, describe, workflow
+from ..methods.helpers import accepted_answer, describe, multipart, workflow
 from .helpers import (
     ACCEPTS_9_81,
     ANSWERS,
@@ -94,7 +93,7 @@ def test_questions_whose_markings_accept_answers_can_be_marked_by_example() -> N
         TextQuestion(),
         NumberQuestion(),
         ChoiceQuestion(options=("a",)),
-        ValuesQuestion(value_types=["text", "text"]),
+        multipart("text", "text"),
     ]
     assert [can_mark_by_example(question) for question in questions] == [
         True,

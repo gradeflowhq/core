@@ -66,16 +66,6 @@ class Question(BaseModel, ABC):
         """The JSON schema of a question of this type's settings."""
         return schemas.json_schema(cls)
 
-    @property
-    def value_count(self) -> int:
-        """How many values an answer has: none, unless it has several."""
-        return 0
-
-    def value_question(self, number: int) -> Question | None:
-        """A question reading answers as this one reads value ``number`` of each, from 1; None if
-        they have no such value."""
-        return None
-
     @abstractmethod
     def python_type(self) -> str:
         """The type custom code gets an answer as, in Python."""

@@ -14,10 +14,10 @@ from gradeflow_core import (
 )
 from gradeflow_core.editing import Position, compatible_methods
 from gradeflow_core.methods.text.answer_criteria import CONCURRENT_REQUESTS
+from gradeflow_core.questions.list import ListQuestion
 from gradeflow_core.questions.reading import TextReading
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
-from gradeflow_core.steps.input_sources import AnswerValueSource
+from gradeflow_core.steps.input_sources import AnswerPartSource
 from tests.fake_models import (
     ENDPOINT,
     FAST_AND_CAREFUL_ENDPOINT,
@@ -27,7 +27,7 @@ from tests.fake_models import (
     example_verdicts,
 )
 
-from .helpers import describe, located, mark_all, problems_of, with_value_inputs
+from .helpers import describe, located, mark_all, multipart, problems_of, with_part_inputs
 
 QUESTION = TextQuestion(
     max_marks=3, description="Pens cost $2 and books $5. What do 3 pens and 2 books cost?"
@@ -379,20 +379,49 @@ def test_an_answer_cant_write_its_own_answer_tags(fake_models: InstallFakeModels
     )
 
 
-def test_a_value_of_an_answer_can_be_marked_by_criteria() -> None:
-    question = ValuesQuestion(value_types=["text", "text"])
+def test_a_part_of_an_answer_can_be_marked_by_criteria() -> None:
+    question = multipart("text", "text")
     questions = QuestionSet({"Q1": question})
-    multiple_values = {
-        "uses": "gradeflow/multiple-values@1",
-        "with": {"checks": with_value_inputs(*[answer_criteria()] * 2)},
+    part_by_part = {
+        "uses": "gradeflow/part-by-part@1",
+        "with": {"checks": with_part_inputs(*[answer_criteria()] * 2)},
     }
-    assert problems_of(multiple_values, question) == []
-    value_question = question.value_question(1)
-    assert value_question is not None
-    position = Position(questions, "Q1", source=AnswerValueSource(1), input_question=value_question)
+    assert problems_of(part_by_part, question) == []
+    part_question = question.part_question("part_1")
+    assert part_question is not None
+    position = Position(
+        questions, "Q1", source=AnswerPartSource("part_1"), input_question=part_question
+    )
     assert "gradeflow/answer-criteria" in [method.name for method in compatible_methods(position)]
 
 
+@pytest.mark.parametrize("is_a_list", [False, True])
+def test_criteria_for_each_part_or_item_ask_once_about_every_students_answers(
+    fake_models: InstallFakeModels, is_a_list: bool
+) -> None:
+    fake = fake_models(
+        lambda model, answer, criterion: "yes" if criterion.split()[-1] in answer else "no"
+    )
+    checks = [answer_criteria(criteria=[{"text": f"Names {problem}"}]) for problem in PROBLEMS]
+    marking = (
+        {"uses": "gradeflow/item-by-item@1", "with": {"marks_by": "proportional", "checks": checks}}
+        if is_a_list
+        else {
+            "uses": "gradeflow/part-by-part@1",
+            "with": {"marks_by": "proportional", "checks": with_part_inputs(*checks)},
+        }
+    )
+    results = mark_all(
+        marking,
+        ["overfitting, imbalance", "imbalance, overfitting", "overfitting, overfitting"],
+        ListQuestion() if is_a_list else multipart("text", "text"),
+        model_endpoint=FAST_AND_CAREFUL_ENDPOINT,
+    )
+    assert [result.proportion for result in results] == ([1, 1, 0.5] if is_a_list else [1, 0, 0.5])
+    assert len(fake.requests) == 2
+
+
+PROBLEMS = ["overfitting", "imbalance"]
 LEVELS = [
     {"text": "Complete and correct", "marks": 3},
     {"text": "Right idea without detail", "marks": 2},

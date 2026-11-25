@@ -1,8 +1,8 @@
 import pytest
 
 from gradeflow_core.steps.input_sources import (
+    AnswerPartSource,
     AnswerSource,
-    AnswerValueSource,
     InputSource,
     OtherAnswerSource,
     StepOutputSource,
@@ -16,7 +16,8 @@ from gradeflow_core.steps.input_sources import (
     [
         (None, AnswerSource()),
         ("{{ answer }}", AnswerSource()),
-        ("{{values[1]}}", AnswerValueSource(2)),
+        ("{{answer.year}}", AnswerPartSource("year")),
+        ("{{ answer['year'] }}", AnswerPartSource("year")),
         ("{{ answers.Q2 }}", OtherAnswerSource("Q2")),
         ("{{ answers['1 a'] }}", OtherAnswerSource("1 a")),
         ("{{ steps.final.output }}", StepOutputSource("final")),
@@ -33,9 +34,10 @@ def test_an_input_names_what_it_reads(text: str | None, source: InputSource) -> 
         "answer",
         "{{ answer }} too",
         "{{ answer | upper }}",
-        "{{ answer or values[0] }}",
-        "{{ values[-1] }}",
-        "{{ values['first'] }}",
+        "{{ answer or answer.year }}",
+        "{{ answer[0] }}",
+        "{{ answer.__class__ }}",
+        "{{ values[0] }}",
         "{{ answers[1] }}",
         "{{ steps.final }}",
         "{{ steps.final.output.correct }}",
@@ -52,7 +54,7 @@ def test_an_input_that_names_no_one_thing_to_read_is_refused(text: str) -> None:
     "source",
     [
         AnswerSource(),
-        AnswerValueSource(3),
+        AnswerPartSource("year"),
         OtherAnswerSource("Q2"),
         OtherAnswerSource("1 a"),
         StepOutputSource("final"),

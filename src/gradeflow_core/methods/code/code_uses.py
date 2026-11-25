@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from ...common.error_formatting import IDENTIFIER
 from ...common.hints import hint
 from ...common.problems import Problem
 from ...common.text import as_sentence, code_span
@@ -14,7 +15,7 @@ from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import Detail, Outcome
 from ...steps.position import Position
-from ...steps.settings import IDENTIFIER, Settings
+from ...steps.settings import Settings
 from .code_fixes import FIXES_FIELD, CodeFixSettings, best_fixed_outcome
 from .runner import syntax_error_text
 

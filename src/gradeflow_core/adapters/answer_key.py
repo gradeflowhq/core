@@ -2,9 +2,9 @@
 
 from collections.abc import Mapping
 
+from ..questions.reading import EXAMSOFT_SEPARATOR
 from ..questions.submissions import AnswerSheet
 from ..questions.types import QuestionId
-from ..questions.values import EXAMSOFT_SEPARATOR
 
 
 def read_answer_key(row: Mapping[QuestionId, str | None]) -> AnswerSheet:

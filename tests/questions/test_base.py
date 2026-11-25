@@ -3,10 +3,12 @@ from pydantic import ValidationError
 
 from gradeflow_core import InvalidError, Question
 from gradeflow_core.questions.choice import ChoiceQuestion
+from gradeflow_core.questions.list import ListQuestion
+from gradeflow_core.questions.multipart import MultipartQuestion
 from gradeflow_core.questions.number import NumberQuestion
+from gradeflow_core.questions.parts import AnswerPart
 from gradeflow_core.questions.reading import ListReading, TextReading
 from gradeflow_core.questions.text import TextQuestion
-from gradeflow_core.questions.values import ValuesQuestion
 
 
 def test_base_question_is_abstract() -> None:
@@ -19,12 +21,6 @@ def test_max_marks_is_a_finite_number_of_zero_or_more(max_marks: object) -> None
     with pytest.raises(InvalidError) as exc_info:
         TextQuestion.load({"max_marks": max_marks})
     assert [problem.field for problem in exc_info.value.problems] == ["/max_marks"]
-
-
-def test_multiple_values_need_at_least_one_value() -> None:
-    with pytest.raises(ValidationError) as exc_info:
-        ValuesQuestion(value_types=[])
-    assert exc_info.value.errors()[0]["loc"] == ("value_types",)
 
 
 def test_separator_is_not_empty() -> None:
@@ -44,10 +40,11 @@ def test_separator_is_not_empty() -> None:
             "b, d",
         ),
         (
-            ValuesQuestion(value_types=["number", "text"]),
+            MultipartQuestion(parts=[AnswerPart(name="x", type="number"), AnswerPart(name="y")]),
             ["3.0, x", "(3, x)"],
             "3, x",
         ),
+        (ListQuestion(item="number"), ["3.0, , 4", "(3, 4)"], "3, 4"),
         (TextQuestion(), ["", "N/A", "  "], ""),
         (TextQuestion(), ["Canberra", " canberra "], "canberra"),
         (NumberQuestion(), ["twelve"], "twelve"),
@@ -71,8 +68,18 @@ def test_answers_read_differently_normalize_differently() -> None:
         (NumberQuestion(), "int | float | None"),
         (ChoiceQuestion(options=("a",)), "set[str]"),
         (
-            ValuesQuestion(value_types=["text", "number"]),
-            "list[str | int | float | None], in order: text, number",
+            MultipartQuestion(
+                parts=[AnswerPart(name="place"), AnswerPart(name="year", type="number")]
+            ),
+            "dict[str, str | int | float | None] | None, with place: text, year: number",
+        ),
+        (ListQuestion(), "list[str] | None"),
+        (
+            ListQuestion(
+                item="parts", parts=[AnswerPart(name="problem"), AnswerPart(name="change")]
+            ),
+            "list[dict[str, str | int | float | None]] | None, each with problem: text, "
+            "change: text",
         ),
     ],
 )
@@ -82,21 +89,25 @@ def test_a_question_says_how_custom_code_gets_its_answers(
     assert question.python_type() == python_type
 
 
-def test_only_a_question_of_several_values_has_a_question_for_each() -> None:
-    values = ValuesQuestion(value_types=["text", "number"])
-    assert (values.value_count, TextQuestion().value_count) == (2, 0)
-    assert [type(values.value_question(value)) for value in (1, 2)] == [
+def test_a_multipart_answer_has_a_question_for_each_part() -> None:
+    question = MultipartQuestion(
+        parts=[AnswerPart(name="place"), AnswerPart(name="year", type="number")]
+    )
+    assert [type(question.part_question(name)) for name in ("place", "year")] == [
         TextQuestion,
         NumberQuestion,
     ]
-    assert (values.value_question(3), TextQuestion().value_question(1)) == (None, None)
+    assert question.part_question("month") is None
 
 
 @pytest.mark.parametrize(
     ("question", "answer", "normalized"),
     [
         (
-            ValuesQuestion(value_types=["number", "text"], reading=ListReading(separator="~")),
+            MultipartQuestion(
+                parts=[AnswerPart(name="x", type="number"), AnswerPart(name="y")],
+                reading=ListReading(separator="~"),
+            ),
             "3.0~East",
             "3~ east",
         ),

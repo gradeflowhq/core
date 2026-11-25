@@ -2,7 +2,7 @@ examples:
   - title: Put the stages of mitosis in order.
     description: Puts `prophase`, `metaphase`, `anaphase`, `telophase` in order, with partial marks for items in order.
     questions:
-      Q1: {type: values, max_marks: 4, value_types: [text, text, text, text]}
+      Q1: {type: list, max_marks: 4}
     with:
       order: [prophase, metaphase, anaphase, telophase]
     rows:
@@ -18,10 +18,13 @@ examples:
       - answers:
           Q1: telophase, anaphase, metaphase, prophase
         expected: {Q1: {marks: 1.0, feedback: '1 of 4 in order. Expected prophase, metaphase, anaphase, telophase.'}}
+      - answers:
+          Q1: prophase, metaphase, interphase, anaphase, telophase
+        expected: {Q1: {marks: 3.2, feedback: '4 of 5 in order. 1 extra item. Expected prophase, metaphase, anaphase, telophase.'}}
   - title: 'Put these events in time order: First World War, French Revolution, Moon landing.'
     description: Puts `French Revolution`, `First World War`, `Moon landing` in order.
     questions:
-      Q1: {type: values, value_types: [text, text, text]}
+      Q1: {type: list}
     with:
       order: [French Revolution, First World War, Moon landing]
       marks_for: exact
