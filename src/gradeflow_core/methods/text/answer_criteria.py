@@ -163,6 +163,7 @@ class AnswerCriteria(Method[AnswerCriteriaSettings]):
         "- **Careful**: takes minutes. Answers it isn't sure of need marking.\n"
         "- **Fast, then careful if unsure**: gives a careful second look to answers where the fast "
         "decision is less sure than **Confidence needed**.\n\n"
+        "Each distinct answer goes to the AI once.\n\n"
         "To mark only the terms or ideas an answer includes, use Key Points. It doesn't use your "
         "AI service."
     )
