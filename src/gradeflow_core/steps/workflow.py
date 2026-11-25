@@ -125,6 +125,8 @@ class Workflow(Method[WorkflowSettings]):
         "whether a check is correct.\n\n"
         "A transform, such as Extract, gives no marks. It finds part of the answer, and a later "
         "step checks that part when you choose it as the step's **Input**.\n\n"
+        "**Only when** runs a step only for answers that meet its condition, such as an earlier "
+        "check not being correct. A check that doesn't run doesn't count toward the mark.\n\n"
         "To give no marks to answers that do something forbidden, add a Not Allowed check. To mark "
         "several questions together, make a question group."
     )
