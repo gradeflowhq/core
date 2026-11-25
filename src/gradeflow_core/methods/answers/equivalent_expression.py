@@ -2,6 +2,8 @@ import itertools
 import math
 import random
 from collections.abc import Iterator, Mapping, Sequence
+from functools import partial
+from typing import Annotated
 
 from pydantic import Field
 
@@ -13,6 +15,7 @@ from ...common.text import (
     code_join,
     markdown_code_list,
     plain_join,
+    quoted,
     quoted_join,
     reads_better_listed,
 )
@@ -23,7 +26,7 @@ from ...steps.example import examples_beside
 from ...steps.method import AnswerMethod
 from ...steps.outcome import CORRECT_FEEDBACK, Outcome
 from ...steps.position import Position
-from ...steps.settings import NonBlankText, Settings
+from ...steps.settings import IDENTIFIER, NonBlankText, Settings
 from ..matching import read_or_none
 from . import expressions
 from .expressions import Expression
@@ -40,6 +43,12 @@ class EquivalentExpressionSettings(Settings):
         examples=["2x + 2"],
         json_schema_extra=hint(lists_answers=True),
     )
+    variables: list[Annotated[str, Field(pattern=IDENTIFIER)]] = Field(
+        default_factory=list,
+        title="Variables",
+        description="Names to read as one variable, such as u1.",
+        json_schema_extra=hint(item_label="variable"),
+    )
 
 
 class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
@@ -53,9 +62,12 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
         "The answer and each accepted expression are worked out at several values of their "
         "variables. If they agree every time, the answer is correct. Every equal form passes, so "
         "`x + x + 2` is correct for `2x + 2`.\n\n"
-        "Expressions use `+ - * / ^` and brackets. Letters side by side multiply: `2xy` means 2 × "
-        "x × y. You can use `pi`, `e`, `sqrt`, `exp`, `abs`, `ln`, `log` (base 10), `sin`, `cos`, "
-        "`tan`, `asin`, `acos` and `atan`.\n\n"
+        "Expressions use `+ - * / ^` and brackets. Names split into single letters and numbers, "
+        "which multiply: `2xy` is 2 × x × y, and `u2v` is u × 2 × v. A name with an "
+        "underscore, like `u_1`, a Greek letter's name, like `alpha`, and a name in **Variables** "
+        "are one variable. You can use `pi`, `e`, `sqrt`, `exp`, `abs`, `ln`, `log` (base 10), "
+        "`sin`, `cos`, `tan`, `asin`, `acos` and `atan`. An answer that can't be read needs "
+        "marking.\n\n"
         "To also require one form, such as factorised, add a Pattern check beside it in a "
         "Workflow."
     )
@@ -65,29 +77,38 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
 
     def describe(self, settings: EquivalentExpressionSettings) -> str:
         answers = settings.answers
+        variables_note = (
+            f", with variables {plain_join(settings.variables, conjunction='and')}"
+            if settings.variables
+            else ""
+        )
         if reads_better_listed(answers):
-            return f"Equals any of these:\n{markdown_code_list(answers)}"
-        return f"Equals {code_join(answers, conjunction='or')}."
+            return f"Equals any of these{variables_note}:\n{markdown_code_list(answers)}"
+        return f"Equals {code_join(answers, conjunction='or')}{variables_note}."
 
     def mark_answer(
         self, settings: EquivalentExpressionSettings, answer: Answer, question: Question
     ) -> Outcome:
+        variables = _variables(settings, question)
         accepted_expressions = [
-            _accepted_expression(expression_text, question) for expression_text in settings.answers
+            _accepted_expression(expression_text, question, variables)
+            for expression_text in settings.answers
         ]
-        variables = frozenset().union(
+        accepted_variables = frozenset().union(
             *(expression.variables for expression in accepted_expressions)
         )
         expected_sentence = as_sentence(
             f"Expected an expression equal to {quoted_join(settings.answers, conjunction='or')}"
         )
-        answer_expression = read_or_none(expressions.parse, str(answer))
+        answer_expression = read_or_none(
+            partial(expressions.parse, variables=variables), str(answer)
+        )
         if answer_expression is None:
-            return Outcome(0.0, f"Couldn't read it as an expression. {expected_sentence}")
-        if unknown_variables := answer_expression.variables - variables:
+            return Outcome(0.0, "Couldn't read it as an expression.", marked=False)
+        if unknown_variables := answer_expression.variables - accepted_variables:
             variable_names = plain_join(sorted(unknown_variables), conjunction="and")
             return Outcome(0.0, f"Uses {variable_names}. {expected_sentence}")
-        points = _sample_points(variables)
+        points = _sample_points(accepted_variables)
         if any(
             _is_equivalent(answer_expression, expression, points)
             for expression in accepted_expressions
@@ -106,11 +127,18 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
                 "expressions need."
             )
             return
+        for index, variable in enumerate(settings.variables):
+            if variable in expressions.RESERVED_NAMES:
+                yield Problem(
+                    f"{quoted(variable)} is a function or constant.",
+                    field=pointer("variables", index),
+                )
+        variables = _variables(settings, question)
         accepted_expressions_by_index: dict[int, Expression] = {}
         for index, expression_text in enumerate(settings.answers):
             try:
                 accepted_expressions_by_index[index] = _accepted_expression(
-                    expression_text, question
+                    expression_text, question, variables
                 )
             except ValueError as error:
                 yield Problem(str(error), field=pointer("answers", index))
@@ -127,10 +155,19 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
                 )
 
 
-def _accepted_expression(expression_text: str, question: Question) -> Expression:
+def _variables(settings: EquivalentExpressionSettings, question: Question) -> frozenset[str]:
+    """The listed variables, read as answers to ``question`` are."""
+    return frozenset(str(question.read(variable) or variable) for variable in settings.variables)
+
+
+def _accepted_expression(
+    expression_text: str, question: Question, variables: frozenset[str]
+) -> Expression:
     """An accepted expression, read as answers to ``question`` are, so capitals match when they're
     ignored."""
-    return expressions.parse(str(question.read(expression_text) or expression_text))
+    return expressions.parse(
+        str(question.read(expression_text) or expression_text), variables=variables
+    )
 
 
 def _sample_points(variables: frozenset[str]) -> list[dict[str, float]]:

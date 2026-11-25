@@ -72,11 +72,12 @@ def test_feedback_says_what_was_expected() -> None:
 
 
 @pytest.mark.parametrize("answer", ["2x +", "2x = 2", "__import__('os')", "x.real"])
-def test_an_answer_that_isnt_an_expression_gets_no_marks(answer: str) -> None:
+def test_an_answer_that_isnt_an_expression_is_left_for_a_person(answer: str) -> None:
     result = mark(equivalent_expression("2x + 2"), answer)
-    assert (result.proportion, result.feedback) == (
+    assert (result.proportion, result.feedback, result.is_marked) == (
         0,
-        "Couldn't read it as an expression. Expected an expression equal to “2x + 2”.",
+        "Couldn't read it as an expression.",
+        False,
     )
 
 
@@ -89,6 +90,34 @@ def test_a_variable_the_accepted_expressions_dont_use_gets_no_marks() -> None:
     assert mark(equivalent_expression("2x + 2"), "2x + 2 + 0z").feedback == (
         "Uses z. Expected an expression equal to “2x + 2”."
     )
+
+
+def test_listed_variables_are_read_whole() -> None:
+    kernel = {
+        "uses": EQUIVALENT_EXPRESSION,
+        "with": {"answers": ["u1 v1 + u2 v2"], "variables": ["u1", "u2", "v1", "V2"]},
+    }
+    assert proportions(
+        mark_all(kernel, ["u1*v1 + u2*v2", "v2 u2 + v1 u1", "u1 v2 + u2 v1", "u1v1 + u2v2"])
+    ) == [1, 1, 0, 0]
+    assert mark(kernel, "u1v1 + u2v2").feedback == (
+        "Uses u and v. Expected an expression equal to “u1 v1 + u2 v2”."
+    )
+    assert describe(kernel) == "Equals `u1 v1 + u2 v2`, with variables u1, u2, v1 and V2."
+
+
+def test_listed_variables_must_be_names_that_arent_taken() -> None:
+    check = {
+        "uses": EQUIVALENT_EXPRESSION,
+        "with": {"answers": ["2x"], "variables": ["x_1", "e", "sin"]},
+    }
+    assert problems_of(check) == [
+        ("", "/with/variables/1", "“e” is a function or constant."),
+        ("", "/with/variables/2", "“sin” is a function or constant."),
+    ]
+    not_names = {"uses": EQUIVALENT_EXPRESSION, "with": {"answers": ["2x"], "variables": ["2a"]}}
+    with pytest.raises(InvalidError, match="Use letters, digits and underscores"):
+        problems_of(not_names)
 
 
 def test_answers_it_cant_work_out_are_not_equal() -> None:

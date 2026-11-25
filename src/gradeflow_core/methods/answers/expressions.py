@@ -3,6 +3,7 @@
 import math
 import operator
 import re
+import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
@@ -37,7 +38,7 @@ _TOKEN = re.compile(
     r"|(?P<name>[A-Za-z_\u03b1-\u03c9\u0391-\u03a9][A-Za-z0-9_\u03b1-\u03c9\u0391-\u03a9]*)"
     r"|\[(?P<bracketed>[^\[\]]+)\]|(?P<operator>\*\*|[-+*/^()])|(?P<invalid_character>\S))"
 )
-_LETTERS = re.compile(r"[A-Za-z\u03b1-\u03c9\u0391-\u03a9]+")
+_DIGITS_OR_CHARACTER = re.compile(r"\d+|\D")
 _OPERATOR_FUNCTIONS = {
     "+": operator.add,
     "-": operator.sub,
@@ -69,14 +70,16 @@ class Expression:
         return value
 
 
-def parse(expression_text: str, *, names_as_written: bool = False) -> Expression:
-    """``expression_text`` as an expression. Each letter that isn't part of a function or constant
-    is a variable, so xy is x times y. With ``names_as_written``, each other name is a variable as
-    written, such as Q1, and so is anything in square brackets, such as [1a]."""
+def parse(
+    expression_text: str, *, names_as_written: bool = False, variables: frozenset[str] = frozenset()
+) -> Expression:
+    """``expression_text`` as an expression, its names split as SymPy's ``split_symbols`` splits
+    them, apart from ``variables``. With ``names_as_written``, each name is a variable as written,
+    such as Q1, and so is anything in square brackets, such as [1a]."""
     if len(expression_text) > MAX_LENGTH:
         raise ValueError(f"An expression can't be longer than {MAX_LENGTH} characters.")
     try:
-        parser = _Parser(_tokens(expression_text, names_as_written))
+        parser = _Parser(_tokens(expression_text, names_as_written, variables))
         evaluator = parser.sum()
         if parser.peek() is not None:
             raise _ParseError
@@ -89,7 +92,7 @@ class _ParseError(Exception):
     pass
 
 
-def _tokens(expression_text: str, names_as_written: bool) -> list[str]:
+def _tokens(expression_text: str, names_as_written: bool, variables: frozenset[str]) -> list[str]:
     """The tokens of ``expression_text``; a variable named in brackets keeps them, so it can't be
     mistaken for a number, function or constant."""
     normalized_text = _SUPERSCRIPT_RUN.sub(
@@ -104,28 +107,27 @@ def _tokens(expression_text: str, names_as_written: bool) -> list[str]:
             tokens.append(f"[{match['bracketed'].strip()}]")
         elif (name := match["name"]) is None:
             tokens.append("^" if match[0].strip() == "**" else match[0].strip())
-        elif names_as_written or name in RESERVED_NAMES:
+        elif (
+            names_as_written
+            or name in RESERVED_NAMES
+            or name in variables
+            or not _is_splittable(name)
+        ):
             tokens.append(name)
-        elif names := _split_name(name):
-            tokens.extend(names)
         else:
-            raise ValueError(f"Unknown name {quoted(name)}.")
+            tokens.extend(_DIGITS_OR_CHARACTER.findall(name))
     return tokens
 
 
-def _split_name(name: str) -> list[str]:
-    """``name`` as functions, constants and single letters, longest first: pix is pi times x.
-    Empty for a name with digits or underscores."""
-    if not _LETTERS.fullmatch(name):
-        return []
-    names: list[str] = []
-    while name:
-        leading_name = next(
-            (name[:end] for end in range(len(name), 1, -1) if name[:end] in RESERVED_NAMES), name[0]
-        )
-        names.append(leading_name)
-        name = name[len(leading_name) :]
-    return names
+def _is_splittable(name: str) -> bool:
+    """SymPy's ``_token_splittable``."""
+    if "_" in name:
+        return False
+    try:
+        unicodedata.lookup(f"GREEK SMALL LETTER {name}")
+    except KeyError:
+        return True
+    return False
 
 
 class _Parser:
@@ -165,7 +167,7 @@ class _Parser:
             if token in ("*", "/"):
                 self.take()
                 evaluator = _binary_operation(_OPERATOR_FUNCTIONS[token], evaluator, self._unary())
-            elif token == "(" or _is_name(token):
+            elif token == "(" or _is_name(token) or _is_number(token):
                 evaluator = _binary_operation(operator.mul, evaluator, self._power())
             else:
                 break
@@ -191,7 +193,7 @@ class _Parser:
             evaluator = self.sum()
             self.expect(")")
             return evaluator
-        if token[0].isdigit() or token[0] == ".":
+        if _is_number(token):
             number = float(token)
             return lambda variable_values: number
         if not _is_name(token):
@@ -211,6 +213,10 @@ class _Parser:
             return lambda variable_values: constant
         self.variables.add(token)
         return lambda variable_values: variable_values[token]
+
+
+def _is_number(token: str) -> bool:
+    return token[0].isdigit() or token[0] == "."
 
 
 def _is_name(token: str) -> bool:

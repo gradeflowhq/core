@@ -93,7 +93,7 @@ EXAMPLE_ROW_MARKS = {
     "gradeflow/accepted-answers": [[1, 1, 0, 0], [1, 1, 0, 0], [1, 0, 0, 0]],
     "gradeflow/key-points": [[3, 2, 1], [1, 1, 0], [2, 1, 0]],
     "gradeflow/answer-criteria": [[3, 0, 2], [2, 1, 0], [2, 1, 0], [3, 2, 0]],
-    "gradeflow/equivalent-expression": [[1, 1, 0, 0], [1, 0, 0]],
+    "gradeflow/equivalent-expression": [[1, 1, 0], [1, 0, 0]],
     "gradeflow/number-range": [[1, 1, 0, 0], [1, 0]],
     "gradeflow/multiple-choice": [[1, 0, 0], [2, 1, 1, 0]],
     "gradeflow/multiple-values": [[2, 1, 0], [2, 2, 1]],

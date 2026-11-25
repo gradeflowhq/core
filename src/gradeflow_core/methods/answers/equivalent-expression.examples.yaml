@@ -15,9 +15,6 @@ examples:
       - answers:
           Q1: 2x + 1
         expected: {Q1: {marks: 0.0, feedback: Expected an expression equal to “2x + 2”.}}
-      - answers:
-          Q1: 2x +
-        expected: {Q1: {marks: 0.0, feedback: Couldn't read it as an expression. Expected an expression equal to “2x + 2”.}}
   - title: Factorise a² - b².
     description: Equals `(a + b)(a - b)`.
     questions:

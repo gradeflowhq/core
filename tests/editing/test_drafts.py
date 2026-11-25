@@ -98,7 +98,7 @@ def test_a_step_whose_settings_arent_valid_keeps_the_steps_it_holds_and_their_pr
             "marks_by": "nonsense",
             "steps": [
                 {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["Paris"]}},
-                {"uses": "gradeflow/equivalent-expression@1", "with": {"answers": ["x2"]}},
+                {"uses": "gradeflow/equivalent-expression@1", "with": {"answers": ["2x +"]}},
             ],
         },
     }
@@ -111,7 +111,7 @@ def test_a_step_whose_settings_arent_valid_keeps_the_steps_it_holds_and_their_pr
             "/with/marks_by",
             "Choose 'all_correct', 'any_correct', 'none_correct', 'total' or 'proportional'.",
         ),
-        ("/with/steps/1/with/answers/0", "Unknown name “x2”."),
+        ("/with/steps/1/with/answers/0", "Couldn't read “2x +” as an expression."),
     ]
 
 

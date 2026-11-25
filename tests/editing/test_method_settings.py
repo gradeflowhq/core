@@ -197,8 +197,10 @@ def test_a_setting_with_no_default_is_checked_with_its_test_value() -> None:
         "Give “Accepted answers” a test value or a default."
     ]
     draft.add("/with/steps/1", "gradeflow/equivalent-expression@1")
-    draft.update("/with/steps/1", {"answers": ["x2"]})
-    expected = [Problem("Unknown name “x2”.", "/with/steps/1", "/with/answers/0")]
+    draft.update("/with/steps/1", {"answers": ["2x +"]})
+    expected = [
+        Problem("Couldn't read “2x +” as an expression.", "/with/steps/1", "/with/answers/0")
+    ]
     assert draft.step_problems == expected, "while the first step waits for its setting"
     draft.test_values = {"answers": ["sun"]}
     assert draft.step_problems == expected

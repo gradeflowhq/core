@@ -55,7 +55,6 @@ def test_reads_arithmetic_as_people_write_it(text: str, expected: float) -> None
         ("x(x)", 9),
         ("xy", 6),
         ("2xy²", 24),
-        ("pix", math.pi * 3),
         ("xe", 3 * math.e),
     ],
 )
@@ -80,13 +79,34 @@ def test_names_as_written_keep_longer_names_and_brackets_name_anything() -> None
     assert expression.value({"side": 2, "Q1": 3, "1a": 4, "e": 1}) == pytest.approx(36 + math.e)
 
 
-@pytest.mark.parametrize("text", ["x2 + 1", "rate_2"])
-def test_names_with_digits_are_unknown_unless_as_written(text: str) -> None:
-    match = re.search(r"x2|rate_2", text)
-    assert match is not None
-    with pytest.raises(ValueError, match=re.escape(f"Unknown name “{match[0]}”.")):
-        parse(text)
-    assert parse(text, names_as_written=True).variables == {match[0]}
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("u2v", 2 * 3 * 4), ("x2", 2 * 3), ("u1v1 + 2", 3 * 4 + 2), ("x2^3", 3 * 8)],
+)
+def test_digits_in_a_name_are_numbers(text: str, expected: float) -> None:
+    assert evaluate(text, u=3, v=4, x=3) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"), [("x 2", 6), ("2 3", 6), ("x 2.5^2", 18.75), ("(x + 1) 2", 8)]
+)
+def test_a_number_after_a_name_bracket_or_number_multiplies(text: str, expected: float) -> None:
+    assert evaluate(text, x=3) == pytest.approx(expected)
+
+
+def test_a_name_splits_into_single_letters_as_sympy_splits_it() -> None:
+    assert parse("pix").variables == {"p", "i", "x"}
+    assert parse("2pi x").variables == {"x"}
+    assert parse("sinx").variables == {"s", "i", "n", "x"}
+    assert parse("2alpha + Beta + lambda").variables == {"alpha", "Beta", "l", "a", "m", "b", "d"}
+
+
+def test_a_name_with_an_underscore_or_listed_is_one_variable() -> None:
+    assert parse("u_1 v_1 + rate_2").variables == {"u_1", "v_1", "rate_2"}
+    listed = frozenset({"u1", "v1", "side"})
+    assert parse("u1 v1 + 2side x", variables=listed).variables == {"u1", "v1", "side", "x"}
+    assert parse("u1v1", variables=listed).variables == {"u", "v"}
+    assert parse("Q1 + Q1a", names_as_written=True).variables == {"Q1", "Q1a"}
 
 
 def test_brackets_are_for_names_as_written_only() -> None:
@@ -104,13 +124,10 @@ def test_says_which_text_it_couldnt_read() -> None:
     [
         "",
         "()",
-        "2 3",
         "(x + 1",
         "x + 1)",
         "sin x",
-        "sinx",
         "sin()",
-        "x2",
         "x.real",
         "x[0]",
         "a, b",
@@ -124,7 +141,7 @@ def test_says_which_text_it_couldnt_read() -> None:
     ],
 )
 def test_refuses_anything_else(text: str) -> None:
-    with pytest.raises(ValueError, match=r"Couldn't read|Unknown name"):
+    with pytest.raises(ValueError, match="Couldn't read"):
         parse(text)
 
 
