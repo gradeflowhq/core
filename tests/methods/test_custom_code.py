@@ -51,6 +51,22 @@ def test_marks_come_from_correct_or_proportion_with_the_feedback_set() -> None:
     assert mark(custom_code("x = 1"), "x").proportion == 0
 
 
+def test_code_can_leave_an_answer_for_a_person_with_the_reason() -> None:
+    source = "if answer.startswith('l2'):\n    correct = True\nelse:\n    needs_marking = 'New fix'"
+    result = mark(custom_code(source), "dropout")
+    assert (result.proportion, result.feedback, result.is_marked) == (0, "New fix", False)
+    assert mark(custom_code(source), "l2 penalty").correct
+    results = mark_group(
+        custom_code_for_a_group(
+            "results = {'Q1': {'needs_marking': 'Check it'}, 'Q2': {'correct': True}}", "Q1", "Q2"
+        ),
+        {"Q1": "a", "Q2": "1"},
+        QUESTIONS,
+    )
+    assert (results["Q1"].feedback, results["Q1"].is_marked) == ("Check it", False)
+    assert results["Q2"].is_marked
+
+
 def test_feedback_set_to_none_is_no_feedback() -> None:
     result = mark(custom_code("correct = True\nfeedback = None"), "x")
     assert result.feedback == mark(custom_code("correct = True"), "x").feedback

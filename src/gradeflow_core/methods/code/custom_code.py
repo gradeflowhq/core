@@ -18,9 +18,10 @@ from ...steps.settings import Settings, specialized
 from . import runner
 
 RESULT_VARIABLES_HELP = (
-    "`correct` (True or False) or `proportion` (from 0 to 1), and `feedback` if you like"
+    "`correct` (True or False) or `proportion` (from 0 to 1), and `feedback` if you like, or "
+    "`needs_marking` (why a person should mark it)"
 )
-RESULT_VARIABLES = ("correct", "proportion", "feedback")
+RESULT_VARIABLES = ("correct", "proportion", "feedback", "needs_marking")
 PYTHON_TYPES = {
     "integer": "int",
     "number": "float",
@@ -104,7 +105,9 @@ class CustomCodeSettings(Settings):
 
 def outcome_from_variables(variables: Mapping[str, Any], question_id: QuestionId = "") -> Outcome:
     """The marks code set: ``proportion`` from 0 to 1, or else ``correct``, with its
-    ``feedback``."""
+    ``feedback``. ``needs_marking`` leaves it for a person."""
+    if reason := variables.get("needs_marking"):
+        return Outcome(0.0, str(reason), marked=False)
     feedback = "" if (value := variables.get("feedback")) is None else str(value)
     proportion = variables.get("proportion")
     if proportion is None:
@@ -158,8 +161,9 @@ class CustomCode(MarkingMethod[CustomCodeSettings]):
         "marks without reaching your code.\n\n"
         "Set `correct` to `True` or `False`, or `proportion` to a number from 0 to 1 for part "
         "marks. Set `feedback` to tell the student why. They see it as plain text, and see nothing "
-        "if you don't set it. If your code raises an error or runs past its **Time limit**, the "
-        "answer needs marking, with the error as the reason.\n\n"
+        "if you don't set it. Set `needs_marking` to a reason to leave the answer for a person. If "
+        "your code raises an error or runs past its **Time limit**, the answer needs marking, with "
+        "the error as the reason.\n\n"
         "```python\n"
         'correct = answer in {"h2o", "water"}\n'
         "if not correct:\n"

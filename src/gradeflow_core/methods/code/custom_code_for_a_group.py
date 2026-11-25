@@ -67,9 +67,9 @@ class CustomCodeForAGroup(MarkingMethod[CustomCodeForAGroupSettings]):
         "written in Python.\n\n"
         "Choose the **Questions** it marks. Your code gets their answers in `answers`, a dict by "
         "question ID, each read as its question reads it. Set `results` to a dict with an entry "
-        "for each question, holding `correct` or `proportion`, and `feedback` if you like. A blank "
-        "answer is `None`. If your code raises an error, every answer in the group needs "
-        "marking.\n\n"
+        "for each question, holding `correct` or `proportion`, and `feedback` if you like, or "
+        "`needs_marking`. A blank answer is `None`. If your code raises an error, every answer in "
+        "the group needs marking.\n\n"
         "```python\n"
         'gases = {"helium", "neon", "argon", "krypton", "xenon", "radon"}\n'
         'first, second = answers["Q1"], answers["Q2"]\n'
