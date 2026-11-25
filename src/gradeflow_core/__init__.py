@@ -5,6 +5,7 @@ from .adapters.examplify import read_question_document
 from .common.exceptions import GradeFlowError
 from .common.problems import InvalidError, Problem
 from .marking.answer_groups import AnswerComparison, compare_answers
+from .marking.drafting import Drafted, draft_marking
 from .marking.examples import MarkedExample, mark_examples
 from .marking.mark import mark
 from .marking.mark_scheme import MarkScheme
@@ -41,6 +42,7 @@ __all__ = [
     "ChoiceQuestion",
     "CodeQuestion",
     "Detail",
+    "Drafted",
     "GradeFlowError",
     "InvalidError",
     "ListQuestion",
@@ -73,6 +75,7 @@ __all__ = [
     "answer_from_files",
     "best_models",
     "compare_answers",
+    "draft_marking",
     "list_models",
     "mark",
     "mark_examples",

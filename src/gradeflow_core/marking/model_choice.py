@@ -1,17 +1,29 @@
-"""Trying an endpoint's models on Answer Criteria's own examples, and the best of them so far."""
+"""Trying an endpoint's models in each role, and the best of them so far: fast and careful on
+Answer Criteria's own examples, draft on the basic methods' examples."""
 
 import time
 from collections.abc import Callable, Iterable, Iterator
-from typing import get_args
+from math import isclose
+from typing import Literal, get_args
 
 from pydantic import BaseModel
 
-from ..methods.text.answer_criteria import AnswerCriteria, ModelRole, examples_decided_with
+from ..common.exceptions import GradeFlowError
+from ..methods.catalogue import BUILTINS
+from ..methods.text.answer_criteria import AnswerCriteria, DecisionRole, examples_decided_with
 from ..models import model_service
 from ..questions.question_set import QuestionSet
+from ..steps.example import Example
 from ..steps.names import method_ref
-from .examples import mark_rows
+from ..steps.outcome import ROUNDING_TOLERANCE
+from ..steps.step import valid_step
+from .drafting import draft_marking
+from .examples import mark_rows, method_step_data
+from .mark import mark
+from .mark_scheme import MarkScheme
 
+ModelRole = Literal[DecisionRole, "draft"]
+"""What a model is chosen for: Answer Criteria's fast or careful decisions, or drafting markings."""
 ROLES: tuple[ModelRole, ...] = get_args(ModelRole)
 PASSING_MODELS_PER_ROLE = 2
 """Models that must pass in a role before trying stops."""
@@ -36,9 +48,9 @@ def try_models(
     on_start: Callable[[str, ModelRole], None] | None = None,
 ) -> Iterator[ModelTrial]:
     """Each trial as it ends: the endpoint's models, newest first, as the fast model until two
-    pass, then as the careful model until two pass. A model already ``tried`` in a role counts
-    without being tried again, unless the service failed on it. ``on_start`` hears of each trial as
-    it starts. Raises ``GradeFlowError`` when the endpoint lists no models."""
+    pass, then likewise as the careful and the draft model. A model already ``tried`` in a role
+    counts without being tried again, unless the service failed on it. ``on_start`` hears of each
+    trial as it starts. Raises ``GradeFlowError`` when the endpoint lists no models."""
     earlier_trials = {
         (trial.model, trial.role): trial for trial in tried if trial.rows_tried is not None
     }
@@ -57,9 +69,9 @@ def try_models(
             passing_model_count += trial.failure is None
 
 
-def best_models(trials: Iterable[ModelTrial]) -> tuple[str | None, str | None]:
-    """The fast and the careful model: in each role, the one that marked the most example rows as
-    declared, then the fastest; None where none marked any."""
+def best_models(trials: Iterable[ModelTrial]) -> tuple[str | None, str | None, str | None]:
+    """The fast, the careful and the draft model: in each role, the one that marked the most
+    example rows as declared, then the fastest; None where none marked any."""
     marked = [trial for trial in trials if trial.rows_tried]
 
     def best_model(role: ModelRole) -> str | None:
@@ -69,13 +81,16 @@ def best_models(trials: Iterable[ModelTrial]) -> tuple[str | None, str | None]:
         )
         return best_trial.model if best_trial else None
 
-    return best_model("fast"), best_model("careful")
+    return best_model("fast"), best_model("careful"), best_model("draft")
 
 
 def try_model(endpoint: model_service.ModelEndpoint, role: ModelRole, name: str) -> ModelTrial:
-    """How ``name`` does as the ``role`` model on Answer Criteria's examples."""
+    """How ``name`` does as the ``role`` model: on Answer Criteria's examples, or drafting markings
+    of the basic methods' first examples from their descriptions."""
     start = time.monotonic()
-    trial_endpoint = endpoint.model_copy(update={"fast_model": name, "careful_model": name})
+    trial_endpoint = endpoint.model_copy(
+        update={"fast_model": name, "careful_model": name, "draft_model": name}
+    )
 
     def make_trial(rows_matched: int, rows_tried: int | None, failure: str | None) -> ModelTrial:
         seconds = round(time.monotonic() - start, 1)
@@ -91,8 +106,26 @@ def try_model(endpoint: model_service.ModelEndpoint, role: ModelRole, name: str)
     try:
         if (probe_failure := _role_refusal(trial_endpoint, role, name)) is not None:
             return make_trial(0, 0, probe_failure)
+        rows_matched, rows_tried = (
+            _drafting_row_counts(trial_endpoint)
+            if role == "draft"
+            else _decision_row_counts(trial_endpoint, role)
+        )
     except model_service.ServiceError as error:
         return make_trial(0, None, str(error))
+    missed_row_count = rows_tried - rows_matched
+    return make_trial(
+        rows_matched,
+        rows_tried,
+        f"Missed {missed_row_count} of {rows_tried} example answers." if missed_row_count else None,
+    )
+
+
+def _decision_row_counts(
+    endpoint: model_service.ModelEndpoint, role: DecisionRole
+) -> tuple[int, int]:
+    """How many of Answer Criteria's example rows the ``role`` model marks as declared, and how
+    many were tried."""
     reference = method_ref(AnswerCriteria.name, AnswerCriteria.version)
     rows_matched = rows_tried = 0
     for example in examples_decided_with(role):
@@ -103,16 +136,56 @@ def try_model(endpoint: model_service.ModelEndpoint, role: ModelRole, name: str)
             question=next(iter(questions)),
             settings=example.with_,
             rows=example.rows,
-            model_endpoint=trial_endpoint,
+            model_endpoint=endpoint,
         )
         rows_tried += len(row_results)
         rows_matched += sum(bool(row_result.matches_expected) for row_result in row_results)
-    missed_row_count = rows_tried - rows_matched
-    return make_trial(
-        rows_matched,
-        rows_tried,
-        f"Missed {missed_row_count} of {rows_tried} example answers." if missed_row_count else None,
-    )
+    return rows_matched, rows_tried
+
+
+def _drafting_examples() -> list[tuple[str, Example]]:
+    """Each basic method that gives marks without a language model, with its first example."""
+    return [
+        (method.ref, method.examples[0])
+        for method in BUILTINS.latest()
+        if method.level == "basic"
+        and not method.needs_model_endpoint
+        and method.gives_marks(method.examples[0].with_)
+    ]
+
+
+def _drafting_row_counts(endpoint: model_service.ModelEndpoint) -> tuple[int, int]:
+    """How many example rows the draft model's markings gave their declared marks, and how many
+    were tried: each example's question, with its title as the description, and the description
+    of its marking as the instructions. A service failure ends the trial; an example it couldn't
+    draft misses all its rows."""
+    rows_matched = rows_tried = 0
+    for reference, example in _drafting_examples():
+        questions = QuestionSet(example.questions)
+        [(key, question)] = questions.items()
+        step = valid_step(method_step_data(reference, key, example.with_), BUILTINS.by_ref)
+        rows_tried += len(example.rows)
+        try:
+            drafted = draft_marking(
+                QuestionSet({key: question.model_copy(update={"description": example.title})}),
+                key,
+                step.describe(),
+                example.rows,
+                model_endpoint=endpoint,
+            )
+        except model_service.ServiceError:
+            raise
+        except GradeFlowError:
+            continue
+        marked = mark(questions, MarkScheme([drafted.marking]), example.rows)
+        rows_matched += sum(
+            isclose(
+                row.results[key].marks, row.sheet.expected[key].marks, abs_tol=ROUNDING_TOLERANCE
+            )
+            for row in marked
+            if row.results[key].is_marked
+        )
+    return rows_matched, rows_tried
 
 
 def _role_refusal(endpoint: model_service.ModelEndpoint, role: ModelRole, name: str) -> str | None:

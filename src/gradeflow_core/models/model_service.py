@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     import openai
     from openai.types.chat import ChatCompletion
     from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenLogprob
+    from pydantic_ai.models.openai import OpenAIChatModel
 
 TIMEOUT_SECONDS = 600
 MAX_RETRIES = 5
@@ -44,7 +45,13 @@ class ModelEndpoint(BaseModel):
     api_key: SecretStr
     fast_model: str | None = None
     careful_model: str | None = None
+    draft_model: str | None = None
     answers_per_request: int = Field(default=12, ge=1, le=40)
+
+
+_MISSING_EXTRA = (
+    "Using language-model endpoints requires gradeflow-core[llm]. Install it to use this feature."
+)
 
 
 def _client(
@@ -53,10 +60,7 @@ def _client(
     try:
         import openai
     except ImportError as error:
-        raise ServiceError(
-            "Using language-model endpoints requires gradeflow-core[llm]. "
-            "Install it to use this feature."
-        ) from error
+        raise ServiceError(_MISSING_EXTRA) from error
     # An endpoint can't send requests on to another address, inside a network it would otherwise
     # reach only through the endpoint.
     return openai.OpenAI(
@@ -65,6 +69,25 @@ def _client(
         timeout=timeout,
         max_retries=max_retries,
         http_client=openai.DefaultHttpxClient(follow_redirects=False),
+    )
+
+
+def chat_model(endpoint: ModelEndpoint, model: str) -> OpenAIChatModel:
+    """``model`` at ``endpoint``, for a PydanticAI agent."""
+    try:
+        import openai
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+    except ImportError as error:
+        raise ServiceError(_MISSING_EXTRA) from error
+    provider = OpenAIProvider(
+        base_url=endpoint.url,
+        api_key=endpoint.api_key.get_secret_value(),
+        # No redirects, as for the core's own client.
+        http_client=openai.DefaultAsyncHttpxClient(follow_redirects=False),
+    )
+    return OpenAIChatModel(
+        model, provider=provider, settings={"timeout": TIMEOUT_SECONDS, "max_retries": MAX_RETRIES}
     )
 
 

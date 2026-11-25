@@ -15,7 +15,7 @@ from gradeflow_core import (
     try_model,
     try_models,
 )
-from gradeflow_core.methods.text.answer_criteria import ModelRole
+from gradeflow_core.marking.model_choice import ModelRole
 from gradeflow_core.questions.text import TextQuestion
 from tests.fake_models import (
     ENDPOINT,
@@ -117,7 +117,7 @@ def test_a_mark_scheme_says_whether_it_needs_a_model_endpoint() -> None:
     assert not scheme_without_models.markings[0].needs_model_endpoint()
 
 
-def test_trying_models_tries_each_as_the_fast_model_then_the_careful_one(
+def test_trying_models_tries_each_as_the_fast_model_then_the_careful_and_the_draft_one(
     fake_models: InstallFakeModels,
 ) -> None:
     def verdicts(model: str, answer: str, criterion: str) -> Verdict:
@@ -137,6 +137,8 @@ def test_trying_models_tries_each_as_the_fast_model_then_the_careful_one(
         ("careless", "careful", 1, 12, "Missed 11 of 12 example answers."),
         ("decider", "careful", 12, 12, None),
         ("reasoner", "careful", 12, 12, None),
+        ("careless", "draft", 36, 36, None),
+        ("decider", "draft", 36, 36, None),
     ]
     assert all(trial.seconds >= 0 for trial in trials)
 
@@ -152,6 +154,8 @@ def test_trying_models_stops_once_two_pass_in_each_role(fake_models: InstallFake
         ("third", "fast"),
         ("first", "careful"),
         ("second", "careful"),
+        ("first", "draft"),
+        ("second", "draft"),
     ]
 
 
@@ -170,6 +174,8 @@ def test_trying_models_skips_those_tried_before_and_counts_their_passes(
         ("first", "fast"),
         ("third", "fast"),
         ("second", "careful"),
+        ("first", "draft"),
+        ("second", "draft"),
     ]
 
 
@@ -187,6 +193,7 @@ def test_trying_models_tries_again_those_that_errored(fake_models: InstallFakeMo
     assert [(trial.model, trial.role) for trial in try_models(ENDPOINT, [errored])] == [
         ("decider", "fast"),
         ("decider", "careful"),
+        ("decider", "draft"),
     ]
 
 
@@ -194,10 +201,11 @@ def test_trying_models_skips_those_that_refused_a_role(fake_models: InstallFakeM
     fake = fake_models(example_verdicts)
     fake.models = ["reasoner"]
     fake.without_logprobs = {"reasoner"}
-    [refused, passed] = try_models(ENDPOINT)
-    assert (refused.role, refused.rows_tried, passed.role) == ("fast", 0, "careful")
-    assert list(try_models(ENDPOINT, [refused, passed])) == []
-    assert best_models([refused, passed]) == (None, "reasoner")
+    [refused, *passed] = try_models(ENDPOINT)
+    assert (refused.role, refused.rows_tried) == ("fast", 0)
+    assert [trial.role for trial in passed] == ["careful", "draft"]
+    assert list(try_models(ENDPOINT, [refused, *passed])) == []
+    assert best_models([refused, *passed]) == (None, "reasoner", "reasoner")
 
 
 def test_trying_models_says_when_each_test_starts(fake_models: InstallFakeModels) -> None:
@@ -207,8 +215,8 @@ def test_trying_models_says_when_each_test_starts(fake_models: InstallFakeModels
     trials = try_models(ENDPOINT, on_start=lambda model, role: started.append((model, role)))
     assert next(trials).role == "fast"
     assert started == [("decider", "fast")]
-    assert [trial.role for trial in trials] == ["careful"]
-    assert started == [("decider", "fast"), ("decider", "careful")]
+    assert [trial.role for trial in trials] == ["careful", "draft"]
+    assert started == [("decider", "fast"), ("decider", "careful"), ("decider", "draft")]
 
 
 def test_trying_models_says_why_a_model_fails(fake_models: InstallFakeModels) -> None:
@@ -217,7 +225,7 @@ def test_trying_models_says_why_a_model_fails(fake_models: InstallFakeModels) ->
     fake.listed_models = ["gone", "decider"]
     assert [
         (trial.rows_tried, trial.failure) for trial in try_models(ENDPOINT) if trial.model == "gone"
-    ] == [(None, "The AI service has no such model.")] * 2
+    ] == [(None, "The AI service has no such model.")] * 3
 
 
 def test_trying_models_at_an_address_with_none_says_so(fake_models: InstallFakeModels) -> None:
@@ -244,14 +252,17 @@ def test_the_best_models_have_the_most_right_then_are_fastest() -> None:
         trial("quicker", "fast", 1, rows_matched=8),
         trial("slow", "careful", 30),
     ]
-    assert best_models(trials) == ("quick", "slow")
-    assert best_models(trials[2:3]) == ("quicker", None), "the best so far needn't get them all"
+    assert best_models(trials) == ("quick", "slow", None)
+    assert best_models(trials[2:3]) == ("quicker", None, None), (
+        "the best so far needn't get them all"
+    )
     partial = [trial("six", "fast", 5, rows_matched=6), trial("seven", "fast", 9, rows_matched=7)]
-    assert best_models(partial) == ("seven", None)
-    assert best_models([trial("broken", "fast", 0, rows_matched=-1)]) == (None, None), (
+    assert best_models(partial) == ("seven", None, None)
+    assert best_models([trial("broken", "fast", 0, rows_matched=-1)]) == (None, None, None), (
         "one that never ran"
     )
-    assert best_models([]) == (None, None)
+    assert best_models([trial("drafter", "draft", 40)]) == (None, None, "drafter")
+    assert best_models([]) == (None, None, None)
 
 
 def test_listing_models_gives_the_endpoints_models(fake_models: InstallFakeModels) -> None:
@@ -265,3 +276,16 @@ def test_trying_one_model_says_how_it_did(fake_models: InstallFakeModels) -> Non
     trial = try_model(ENDPOINT, "fast", "decider")
     assert (trial.rows_matched, trial.rows_tried, trial.failure) == (12, 12, None)
     assert try_model(ENDPOINT, "fast", "reasoner").failure == "Doesn't return token probabilities."
+
+
+def test_a_draft_model_is_tried_on_markings_of_the_basic_methods_examples(
+    fake_models: InstallFakeModels,
+) -> None:
+    fake = fake_models(example_verdicts)
+    fake.drafts = lambda model, messages: {
+        "marking": {"uses": "gradeflow/full-marks@1", "with": {}},
+        "summary": "Full marks.",
+    }
+    trial = try_model(ENDPOINT, "draft", "decider")
+    assert (trial.rows_matched, trial.rows_tried) == (17, 36)
+    assert trial.failure == "Missed 19 of 36 example answers."

@@ -12,7 +12,8 @@ import openai
 import pytest
 from pydantic import SecretStr
 
-from gradeflow_core import ModelEndpoint
+from gradeflow_core import BUILTINS, ModelEndpoint
+from gradeflow_core.marking import drafting
 from gradeflow_core.models import model_service
 
 ENDPOINT = ModelEndpoint(url="https://models.test/v1", api_key=SecretStr("key"))
@@ -24,6 +25,8 @@ type Verdict = float | str
 the careful model reads a probability as yes from 0.5."""
 type VerdictFunction = Callable[[str, str, str], Verdict]
 """The verdict of a model, by model name, answer and criterion."""
+type DraftFunction = Callable[[str, list[dict[str, Any]]], dict[str, Any]]
+"""A draft model's reply, `marking` and `summary`, by model name and messages."""
 type InstallFakeModels = Callable[[VerdictFunction], FakeModels]
 
 _NUMBERED_CRITERION = re.compile(r"^(\d+)\. (.+)$", re.MULTILINE)
@@ -51,6 +54,7 @@ class FakeModels:
     """How many answers a model can mark in one reply; for more, its reply can't be read."""
     verdicts_by_question: dict[str, VerdictFunction] = field(default_factory=dict)
     """Verdicts for prompts about a question, by its description."""
+    drafts: DraftFunction = field(default_factory=lambda: example_drafts)
     requests: list[dict[str, Any]] = field(default_factory=list)
 
     def respond(self, request: httpx2.Request) -> httpx2.Response:
@@ -64,10 +68,16 @@ class FakeModels:
             return httpx2.Response(200, json={"object": "list", "data": models})
         body = json.loads(request.content)
         self.requests.append(body)
-        model, prompt = body["model"], body["messages"][-1]["content"]
-        answers = _ANSWER.findall(prompt)
+        model = body["model"]
         if model not in self.models:
             return httpx2.Response(404, json={"error": {"message": f"No model {model}."}})
+        if drafting.SYSTEM_PROMPT in body["messages"][0]["content"]:
+            return reply(json.dumps(self.drafts(model, body["messages"])), [])
+        return self._decision_reply(body, model)
+
+    def _decision_reply(self, body: dict[str, Any], model: str) -> httpx2.Response:
+        prompt = body["messages"][-1]["content"]
+        answers = _ANSWER.findall(prompt)
         if model in self.rejects_reasoning_effort and "reasoning_effort" in body:
             message = "Unsupported parameter: reasoning_effort."
             return httpx2.Response(400, json={"error": {"message": message}})
@@ -287,6 +297,22 @@ def install_client(monkeypatch: pytest.MonkeyPatch, client: Callable[..., openai
     monkeypatch.setattr(model_service, "_cached_client", client)
 
 
+def example_drafts(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """A draft model that writes the marking of the first example whose title the task holds, and
+    Full Marks otherwise."""
+    task = next(message["content"] for message in messages if message["role"] == "user")
+    marking = next(
+        (
+            {"uses": method.ref, "with": example.with_}
+            for method in BUILTINS.latest()
+            for example in method.examples[:1]
+            if json.dumps(example.title) in task
+        ),
+        {"uses": "gradeflow/full-marks@1", "with": {}},
+    )
+    return {"marking": marking, "summary": f"Uses {marking['uses']}."}
+
+
 @pytest.fixture
 def fake_models(monkeypatch: pytest.MonkeyPatch) -> InstallFakeModels:
     """Point every model endpoint at a fake service answering from the given verdicts."""
@@ -294,6 +320,11 @@ def fake_models(monkeypatch: pytest.MonkeyPatch) -> InstallFakeModels:
     def install(verdicts: VerdictFunction) -> FakeModels:
         fake = FakeModels(verdicts)
         install_client(monkeypatch, fake_client(fake.respond))
+        monkeypatch.setattr(
+            openai,
+            "DefaultAsyncHttpxClient",
+            lambda **_: httpx2.AsyncClient(transport=httpx2.MockTransport(fake.respond)),
+        )
         return fake
 
     return install

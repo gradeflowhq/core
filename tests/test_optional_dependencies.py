@@ -14,7 +14,7 @@ def test_marking_and_editing_without_the_llm_extra() -> None:
 
             from gradeflow_core import (
                 GradeFlowError, MarkScheme, ModelEndpoint, QuestionSet, Submission,
-                list_models, mark, try_model, try_models,
+                draft_marking, list_models, mark, try_model, try_models,
             )
             from gradeflow_core.editing import MarkingDraft
 
@@ -31,9 +31,13 @@ def test_marking_and_editing_without_the_llm_extra() -> None:
 
             endpoint = ModelEndpoint(
                 url="https://models.test/v1", api_key="test",
-                fast_model="decider", careful_model="reasoner",
+                fast_model="decider", careful_model="reasoner", draft_model="drafter",
             )
-            for operation in (list_models, lambda endpoint: next(try_models(endpoint))):
+            def draft(endpoint):
+                return draft_marking(questions, "Q1", "Says hello.", submissions,
+                                     model_endpoint=endpoint)
+
+            for operation in (list_models, lambda endpoint: next(try_models(endpoint)), draft):
                 try:
                     operation(endpoint)
                 except GradeFlowError as error:
@@ -41,7 +45,7 @@ def test_marking_and_editing_without_the_llm_extra() -> None:
                 else:
                     raise AssertionError("Missing LLM extra was not reported")
 
-            for role in ("fast", "careful"):
+            for role in ("fast", "careful", "draft"):
                 trial = try_model(endpoint, role, "model")
                 assert "gradeflow-core[llm]" in trial.failure, trial
 

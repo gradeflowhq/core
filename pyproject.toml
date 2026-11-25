@@ -33,7 +33,7 @@ Repository = "https://github.com/gradeflowhq/core"
 Issues = "https://github.com/gradeflowhq/core/issues"
 
 [project.optional-dependencies]
-llm = ["openai~=3.40"]
+llm = ["openai~=3.50", "pydantic-ai-slim[openai]~=2.74"]
 ml = [
     "fastembed~=0.9",
     "huggingface-hub~=1.33",

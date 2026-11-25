@@ -29,7 +29,8 @@ from ...steps.outcome import FULL_MARKS_PROPORTION, Outcome, QuestionOutcomes
 from ...steps.settings import NonBlankText, Number, Settings
 from ..matching import model_context
 
-ModelRole = Literal["fast", "careful"]
+DecisionRole = Literal["fast", "careful"]
+"""The model role that decides: the fast or the careful one."""
 CONCURRENT_REQUESTS = 8
 REPLY_ATTEMPTS = 2
 """How many times a model is asked for a reply that can be read."""
@@ -211,7 +212,7 @@ class AnswerCriteria(Method[AnswerCriteriaSettings]):
         ]
 
 
-def examples_decided_with(role: ModelRole) -> tuple[Example, ...]:
+def examples_decided_with(role: DecisionRole) -> tuple[Example, ...]:
     """Answer Criteria's examples, decided with the ``role`` model alone."""
     return tuple(
         example.model_copy(update={"with_": {**example.with_, "decide_with": role}})

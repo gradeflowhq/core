@@ -19,7 +19,7 @@ uv add "gradeflow-core @ git+https://github.com/gradeflowhq/core@v0.4.3"
 Two extras add model-based marking:
 
 - `ml` runs local models, for Same meaning matches and grouping answers by meaning.
-- `llm` calls an OpenAI-compatible endpoint, for Answer Criteria.
+- `llm` calls an OpenAI-compatible endpoint, for Answer Criteria and drafting markings.
 
 The `ml` models download on first use, into `GRADEFLOW_CACHE_DIR` or `~/.cache/gradeflow`. To fetch
 them ahead of time:
@@ -106,7 +106,7 @@ scheme = MarkScheme.load(
     [{"question": "Q1", "uses": "gradeflow/answer-criteria@1", "with": {"criteria": criteria}}]
 )
 endpoint = ModelEndpoint(url="https://models.example.com/v1", api_key="your-api-key")
-fast_model, careful_model = best_models(try_models(endpoint))
+fast_model, careful_model, _ = best_models(try_models(endpoint))
 endpoint = endpoint.model_copy(update={"fast_model": fast_model, "careful_model": careful_model})
 students = [Submission(student_id="1", answers={"Q1": "Because ice is less dense than water."})]
 for marked in mark(questions, scheme, students, model_endpoint=endpoint):
@@ -116,16 +116,54 @@ for model in list_models(endpoint):
     print(try_model(endpoint, "careful", model))
 ```
 
-`try_models` tries the endpoint's newest models on Answer Criteria's own examples, as the fast model
-and then as the careful one, until two in each role mark them all correctly. It yields each
-`ModelTrial` as it ends, skips those passed as `tried` unless the service failed on them, and calls
-`on_start` as each starts.
+`try_models` tries the endpoint's newest models in each role until two pass: as the fast and then
+the careful model on Answer Criteria's own examples, and as the draft model drafting markings for
+the basic methods' examples. It yields each `ModelTrial` as it ends, skips those passed as `tried`
+unless the service failed on them, and calls `on_start` as each starts.
 `best_models` picks, in each role, the one with the most answers right, then the fastest.
 `list_models` lists the endpoint's models, and `try_model` tries one of them in one role.
 
 Answers go 12 to a request (`answers_per_request`) and sheets 60 at a time (`chunk_size`), with
 each `Progress` reported to `on_progress`. Without an endpoint, these answers are left unmarked.
 `MarkScheme.needs_model_endpoint()` tells you whether a scheme needs one.
+
+### Drafting markings
+
+`draft_marking` has the draft model write a question's marking from the lecturer's marking
+instructions:
+
+```python
+from gradeflow_core import ModelEndpoint, QuestionSet, Submission, best_models, draft_marking
+from gradeflow_core import try_models
+
+endpoint = ModelEndpoint(url="https://models.example.com/v1", api_key="your-api-key")
+*_, draft_model = best_models(try_models(endpoint))
+endpoint = endpoint.model_copy(update={"draft_model": draft_model})
+questions = QuestionSet.load({"Q1": {"type": "text", "description": "Name the capital of France."}})
+students = [
+    Submission(student_id=str(number), answers={"Q1": answer})
+    for number, answer in enumerate(["Paris", "paris", "Lyon"])
+]
+drafted = draft_marking(questions, "Q1", "1 mark for Paris.", students, model_endpoint=endpoint)
+print(drafted.summary, drafted.marking.dump())
+updated = draft_marking(
+    questions,
+    "Q1",
+    "1 mark for Paris or Lyon.",
+    students,
+    model_endpoint=endpoint,
+    marking=drafted.marking,
+)
+```
+
+The model gets the methods for the question's type, the question, the instructions and the
+students' distinct answers. Problems in a marking go back to the model. The marking then marks every
+answer, and the model keeps it or revises it from the marks each answer got, twice at most. Custom
+Code is offered only after the first review.
+
+`draft_marking` returns a `Drafted`: the marking and a one-sentence summary of what it gives marks
+for, or what changed. `on_stage` hears each stage. It raises `GradeFlowError` without a draft model
+or when AI writes no usable marking, and `ServiceError` when the service fails.
 
 ## Questions
 
