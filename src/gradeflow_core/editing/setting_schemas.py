@@ -16,20 +16,23 @@ INHERITED_KEYS = ("description", "examples")
 """What a declared setting's default takes from the setting it fills, not from its own schema."""
 
 
-def declared_setting_schema(default: JsonDict | None, setting_schema: JsonDict | None) -> JsonDict:
+def declared_setting_schema(
+    default: JsonDict | None, setting_schema: JsonDict | None, *, is_typed: bool
+) -> JsonDict:
     """The JSON schema of a declared setting, given the schemas of its default and of the
-    setting it fills, each with its ``$defs``."""
+    setting it fills, each with its ``$defs``. ``is_typed`` keeps its type with the setting it
+    fills."""
     schema = json_schema(DeclaredSetting)
     properties, definitions = schema["properties"], schema.setdefault("$defs", {})
     if default is not None:
         definitions.update(default.get("$defs", {}))
         default = {key: value for key, value in default.items() if key != "$defs"}
     resolved_setting_schema = (
-        _resolved(setting_schema, setting_schema.get("$defs", {}))
-        if setting_schema
-        else _resolved(default or {}, definitions)
+        resolved_schema(setting_schema) if setting_schema else _resolved(default or {}, definitions)
     )
-    labels = _labels(resolved_setting_schema) | _labels(_resolved(default or {}, definitions))
+    labels = choice_labels(resolved_setting_schema) | choice_labels(
+        _resolved(default or {}, definitions)
+    )
     if default is not None:
         inherited_entries = {
             key: resolved_setting_schema[key]
@@ -41,12 +44,16 @@ def declared_setting_schema(default: JsonDict | None, setting_schema: JsonDict |
         )
     else:
         del properties["default"]
-    if (choices_schema := _choices_schema(resolved_setting_schema, labels)) is None:
+    # Without a field, its options are its own choices.
+    options_schema = (
+        resolved_setting_schema if setting_schema else _without_options(resolved_setting_schema)
+    )
+    if (choices_schema := _choices_schema(options_schema, labels)) is None:
         del properties["choices"]
     else:
         properties["choices"] = {"title": properties["choices"]["title"], **choices_schema}
     properties["advanced"]["default"] = bool(_hint_values(resolved_setting_schema).get("advanced"))
-    if setting_schema:
+    if setting_schema and not is_typed:
         del properties["type"]
     else:
         properties["type"] = _unwrapped(properties["type"])
@@ -60,6 +67,11 @@ def default_schema(declared_setting: DeclaredSetting, field: FieldInfo) -> JsonD
     annotation, field = declared_setting_field(declared_setting, field.annotation, field)
     field.validate_default = None  # only for validating the default, not its schema
     return json_schema(Annotated[annotation, field])
+
+
+def resolved_schema(schema: JsonDict) -> JsonDict:
+    """``schema`` with its own ``$ref`` filled in and without null."""
+    return _resolved(schema, schema.get("$defs", {}))
 
 
 def _resolved(schema: JsonDict, definitions: Mapping[str, JsonDict]) -> JsonDict:
@@ -92,12 +104,16 @@ def _unwrapped(schema: JsonDict) -> JsonDict:
     return schema
 
 
+def _without_options(schema: JsonDict) -> JsonDict:
+    return {key: value for key, value in schema.items() if key != "enum"}
+
+
 def _hint_values(schema: JsonDict) -> dict[str, Any]:
     hint_values: dict[str, Any] = schema.get(HINT_KEY, {})
     return hint_values
 
 
-def _labels(schema: JsonDict) -> dict[str, str]:
+def choice_labels(schema: JsonDict) -> dict[str, str]:
     """The labels of a choice's options, or of a list of choices'."""
     labels: dict[str, str] = (
         _hint_values(schema).get("labels")
@@ -129,8 +145,10 @@ def _default_property(
 
 
 def _choices_schema(setting_schema: JsonDict, labels: dict[str, str]) -> JsonDict | None:
-    """A declared setting's choices among a text setting's options; None for any other setting."""
-    if not (options := setting_schema.get("enum")) or setting_schema.get("type") != "string":
+    """The choices of a text or number setting: among its options, if it has any. None for any
+    other setting."""
+    if (kind := setting_schema.get("type")) not in ("string", "number", "integer"):
         return None
-    items = {"type": "string", "enum": options, **hint(labels=labels)}
+    options = setting_schema.get("enum")
+    items = {"type": kind, "enum": options, **hint(labels=labels)} if options else {"type": kind}
     return {"type": "array", "uniqueItems": True, "items": items}

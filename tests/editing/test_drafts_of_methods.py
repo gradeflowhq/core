@@ -11,6 +11,7 @@ from gradeflow_core.steps.step import valid_step
 from tests.methods.helpers import mark_all, proportions, with_value_inputs
 
 from ..methods.helpers import WRAPPED_NUMBER_RANGE, located
+from .helpers import checks_tested
 
 QUESTIONS = QuestionSet({"Q1": TextQuestion()})
 NUMBER_QUESTIONS = QuestionSet({"Q1": NumberQuestion()})
@@ -56,7 +57,7 @@ def test_any_order_values_give_their_checks_no_earlier_checks() -> None:
         },
     }
     draft = MarkingDraft(marking, questions, "Q1")
-    assert draft.earlier_checks("/with/checks/1") == []
+    assert checks_tested(draft, "/with/checks/1") == []
     assert "if" not in draft.schema("/with/checks/0")["properties"]
 
 
@@ -121,7 +122,7 @@ def test_a_drafts_earlier_checks_match_generated_execution_order() -> None:
     }
     draft = MarkingDraft(marking, QUESTIONS, None)
     assert not draft.problems
-    assert draft.earlier_checks("/with/then/1") == ["/with/then/0"]
+    assert checks_tested(draft, "/with/then/1") == ["/with/then/0"]
 
 
 def test_a_branchs_checks_read_those_before_them_while_the_condition_is_unfinished() -> None:
@@ -141,7 +142,7 @@ def test_a_branchs_checks_read_those_before_them_while_the_condition_is_unfinish
         },
     }
     draft = MarkingDraft(marking, questions, None)
-    assert draft.earlier_checks("/with/then/1") == ["/with/then/0"]
+    assert checks_tested(draft, "/with/then/1") == ["/with/then/0"]
     assert [problem.step_path for problem in draft.problems] == ["/with/condition/0"]
 
 

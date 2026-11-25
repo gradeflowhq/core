@@ -5,9 +5,21 @@ import re
 import pytest
 
 from gradeflow_core import BUILTINS, InvalidError, Methods, Problem, QuestionSet
-from gradeflow_core.editing import EditingError, ExampleRow, MethodDraft, load_yaml, mark_rows
+from gradeflow_core.editing import (
+    HINT_KEY,
+    CheckRow,
+    Condition,
+    EditingError,
+    ExampleRow,
+    MethodDraft,
+    SettingRow,
+    load_yaml,
+    mark_rows,
+)
 
 from .helpers import NUMBER_QUESTIONS, number_range_draft
+
+TEXT_QUESTIONS = QuestionSet.load({"Q1": {"type": "text"}})
 
 
 def test_binding_a_new_setting_inherits_current_value_without_creating_a_test_value() -> None:
@@ -31,14 +43,136 @@ def test_binding_a_field_of_a_step_written_without_settings_gives_it_them() -> N
     }
 
 
-def test_a_condition_may_read_the_methods_settings() -> None:
+def text_settings_draft() -> MethodDraft:
+    """A method whose settings are text, a number, Yes/No, choices, and one filling Match."""
+    settings = {
+        "unit": {"title": "Unit", "type": "text", "default": "cm"},
+        "rate": {"title": "Rate", "type": "number", "default": 2},
+        "strict": {"title": "Strict", "type": "boolean", "default": False},
+        "level": {"title": "Level", "type": "text", "default": "a", "choices": ["a", "b"]},
+        "matching": {"title": "Matching", "default": "exact"},
+    }
+    steps = [
+        {
+            "id": "answer",
+            "uses": "gradeflow/accepted-answers@1",
+            "with": {"answers": ["5 {{ settings.unit }}"], "match": "{{ settings.matching }}"},
+        },
+        {"uses": "gradeflow/custom-code@1", "with": {"code": "correct = True"}},
+    ]
+    data = {"label": "Units", "summary": "", "settings": settings, "steps": steps}
+    return MethodDraft(data, TEXT_QUESTIONS, name="units", version=1)
+
+
+def test_a_condition_may_test_yes_no_settings_and_settings_with_choices() -> None:
     draft = number_range_draft()
     assert "if" not in draft.schema("/with/steps/0")["properties"]
     draft.bind_new_setting("/with/steps/0/with/min_value")
-    assert "if" in draft.schema("/with/steps/0")["properties"]
-    draft.update("/with/steps/0", {"if": "{{ settings.min_value > 0 }}"})
-    assert draft.step_problems == []
+    assert "if" not in draft.schema("/with/steps/0")["properties"], "a number isn't tested"
+    draft = text_settings_draft()
+    assert [
+        (subject.label, list(subject.rows.values()))
+        for subject in draft.condition_subjects("/with/steps/1")
+    ] == [
+        ("Accepted Answers", ["is correct", "isn't correct", "is at least half correct"]),
+        ("Strict", ["is on", "is off"]),
+        ("Level", ["is a", "is b"]),
+        ("Matching", ["is Exactly", "is Similar spelling", "is Same meaning"]),
+    ]
+    condition = Condition(
+        (CheckRow("/with/steps/0", "incorrect"), SettingRow("strict", True)), "any"
+    )
+    draft.update("/with/steps/1", {"if": condition})
+    assert load_yaml(draft.to_yaml())["steps"][1]["if"] == (
+        "{{ not steps.answer.output.correct or settings.strict }}"
+    )
+    assert draft.values("/with/steps/1")["if"] == condition
+    assert draft.notes("/with/steps/1") == [
+        "Only when Accepted Answers isn't correct or Strict is on"
+    ]
+    draft.update("/with/steps/1", {"if": Condition((SettingRow("level", "c"),))})
+    assert "if" not in load_yaml(draft.to_yaml())["steps"][1], "not a choice of Level"
+    draft.update("/with/steps/1", {"if": "{{ settings.rate > 1 }}"})
+    assert draft.values("/with/steps/1")["if"] == "{{ settings.rate > 1 }}"
+    assert draft.notes("/with/steps/1") == ["Only when its condition holds"]
     assert draft.problems == []
+
+
+def test_text_fields_and_feedback_may_include_settings_of_text_or_a_number() -> None:
+    draft = text_settings_draft()
+    settings_parts = {"{{ settings.unit }}": "Unit", "{{ settings.rate }}": "Rate"}
+    properties = draft.schema("/with/steps/0")["properties"]
+    assert properties["answers"][HINT_KEY]["template_parts"] == settings_parts
+    assert list(properties["feedback"][HINT_KEY]["template_parts"])[-2:] == list(settings_parts)
+    assert "template_parts" not in properties["name"].get(HINT_KEY, {})
+    assert "template_parts" not in properties["match"].get(HINT_KEY, {})
+    code = draft.schema("/with/steps/1")["properties"]["code"]
+    assert "template_parts" not in code[HINT_KEY]
+
+
+def test_text_with_settings_in_it_is_edited_as_written() -> None:
+    draft = text_settings_draft()
+    assert draft.uneditable_reasons == []
+    assert draft.values("/with/steps/0")["answers"] == ["5 {{ settings.unit }}"]
+    draft.update("/with/steps/0", {"answers": ["5 {{ settings.unit }}", "50 mm"]})
+    assert draft.problems == []
+    method = draft.finalized()
+    [row] = mark_rows(
+        method.ref,
+        questions=draft.questions,
+        question="Q1",
+        settings={"unit": "m"},
+        rows=[ExampleRow(answers={"Q1": "5 m"})],
+        methods=Methods([*BUILTINS, method]),
+    )
+    assert row.results["Q1"].correct
+
+
+def test_a_text_setting_may_be_limited_to_choices() -> None:
+    draft = text_settings_draft()
+    choices = draft.declared_setting_schema("unit")["properties"]["choices"]
+    assert choices["items"] == {"type": "string"}
+    draft.update_declared_setting(
+        "unit", {"title": "Unit", "type": "text", "default": "cm", "choices": ["cm", "m"]}
+    )
+    properties = draft.declared_setting_schema("unit")["properties"]
+    assert properties["default"]["enum"] == ["cm", "m"]
+    assert properties["choices"]["items"] == {"type": "string"}, "more may be added"
+    with pytest.raises(InvalidError) as error:
+        draft.update_declared_setting(
+            "unit", {"type": "text", "default": "km", "choices": ["cm", "m"]}
+        )
+    assert error.value.problems == [
+        Problem("Choose one of the setting's choices.", field="/default")
+    ]
+
+
+def test_a_number_setting_may_be_limited_to_choices() -> None:
+    draft = number_range_draft()
+    draft.update_declared_setting(
+        "step", {"title": "Step", "type": "number", "default": 1, "choices": [0.5, 1]}
+    )
+    properties = draft.declared_setting_schema("step")["properties"]
+    assert properties["choices"]["items"] == {"type": "number"}
+    assert properties["default"]["type"] == "number", "a mix of whole and decimal numbers"
+    [subject] = draft.condition_subjects("/with/steps/0")
+    assert list(subject.rows.values()) == ["is 0.5", "is 1"]
+
+
+@pytest.mark.parametrize(
+    ("declaration", "message"),
+    [
+        ({"type": "number", "choices": ["1/3"]}, "Each choice must be a number."),
+        ({"type": "integer", "choices": [2.5]}, "Each choice must be a whole number."),
+        ({"type": "text", "choices": [1]}, "Each choice must be text."),
+        ({"type": "boolean", "choices": ["yes"]}, "A Yes/No setting has no choices."),
+    ],
+)
+def test_choices_are_of_the_setting_type(declaration: dict[str, object], message: str) -> None:
+    draft = number_range_draft()
+    with pytest.raises(InvalidError) as error:
+        draft.update_declared_setting("step", declaration)
+    assert error.value.problems == [Problem(message, field="/choices")]
 
 
 def test_test_values_never_replace_authored_defaults_or_fixed_values() -> None:
@@ -149,7 +283,7 @@ def test_structured_editing_accepts_bindings_and_ordinary_conditions_and_feedbac
             "From is written as a template.",
         ),
         (
-            "[{uses: gradeflow/accepted-answers@1, with: {answers: ['{{ settings.a }}']}}]",
+            "[{uses: gradeflow/accepted-answers@1, with: {answers: '{{ settings.a }} cm'}}]",
             "Accepted answers is written as a template.",
         ),
         (
@@ -325,6 +459,28 @@ def test_a_setting_bound_to_a_field_has_no_type_to_choose() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
     assert "type" not in draft.declared_setting_schema("min_value")["properties"]
+
+
+def test_a_typed_setting_may_fill_a_field_of_its_type() -> None:
+    draft = number_range_draft()
+    min_value_path = "/with/steps/0/with/min_value"
+    draft.update_declared_setting("low", {"title": "Low", "type": "number", "default": 5})
+    draft.update_declared_setting(
+        "strict", {"title": "Strict", "type": "boolean", "default": False}
+    )
+    assert draft.compatible_settings(min_value_path) == ["low"]
+    draft.bind(min_value_path, "low")
+    assert draft.problems == []
+    assert "type" in draft.declared_setting_schema("low")["properties"], "kept when saved"
+    with pytest.raises(InvalidError) as error:
+        draft.update_declared_setting("low", {"title": "Low", "type": "boolean"})
+    assert error.value.problems == [Problem("A Yes/No setting can't fill From.", field="/type")]
+
+
+def test_a_text_setting_may_be_a_whole_answer() -> None:
+    draft = text_settings_draft()
+    draft.update("/with/steps/0", {"answers": ["{{ settings.unit }}"]})
+    assert draft.problems == []
 
 
 def test_an_added_setting_takes_its_default_as_its_type_says() -> None:

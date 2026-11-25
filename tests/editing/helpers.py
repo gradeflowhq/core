@@ -2,7 +2,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from gradeflow_core import BUILTINS, Methods, Question, QuestionSet
-from gradeflow_core.editing import Decision, MarkingDraft, MethodDraft
+from gradeflow_core.editing import CheckRow, Decision, Draft, MarkingDraft, MethodDraft
 from gradeflow_core.questions.number import NumberQuestion
 from gradeflow_core.questions.text import TextQuestion
 
@@ -55,3 +55,12 @@ def _draft(marking: Mapping[str, Any], question: Question | None, methods: Metho
     """A draft of ``marking`` of Q1, a text question unless ``question`` says."""
     questions = QuestionSet({"Q1": question or TextQuestion()})
     return MarkingDraft(marking, questions, "Q1", methods=methods)
+
+
+def checks_tested(draft: Draft, path: str) -> list[str]:
+    """The paths of the checks the condition of the step at ``path`` may test."""
+    return [
+        row.check
+        for subject in draft.condition_subjects(path)
+        if isinstance(row := next(iter(subject.rows)), CheckRow)
+    ]

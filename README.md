@@ -481,7 +481,7 @@ and can add, update, change the method of, move and remove checks:
 
 ```python
 from gradeflow_core import QuestionSet
-from gradeflow_core.editing import Condition, ConditionRow, MarkingDraft
+from gradeflow_core.editing import CheckRow, Condition, MarkingDraft
 
 questions = QuestionSet.load({"Q1": {"type": "text"}})
 draft = MarkingDraft.new("gradeflow/workflow@1", questions, "Q1")
@@ -489,7 +489,7 @@ draft.update("", {"marks_by": "any_correct"})
 draft.add("/with/steps/0", "gradeflow/accepted-answers@1")
 draft.update("/with/steps/0", {"answers": ["Paris"]})
 draft.add("/with/steps/1", "gradeflow/key-points@1")
-incorrect = Condition((ConditionRow("/with/steps/0", "incorrect"),))
+incorrect = Condition((CheckRow("/with/steps/0", "incorrect"),))
 draft.update("/with/steps/1", {"points": ["capital"], "weight": 0.5, "if": incorrect})
 assert draft.problems == []
 print(draft.notes("/with/steps/1"))
@@ -497,13 +497,16 @@ print(draft.finalized().dump())
 ```
 
 A check's `values` hold its settings and its own properties as one. `field_in_values` gives where a
-problem's `field` is among them: `/with/answers/0` is `/answers/0`.
+problem's `field` is among them: `/with/answers/0` is `/answers/0`. A `Condition` is made of rows:
+a `CheckRow` tests an earlier check, and a `SettingRow` a method's Yes/No setting or setting with
+choices. `condition_subjects` gives what a step's condition may test, with how each row reads.
 
 `MethodDraft` writes a composed method from example questions. Its steps are one Workflow at `""`,
 edited as a marking's are: both drafts are a `Draft`. `bind_new_setting` turns a field of a step
-into a declared setting, and `bind` and `unbind` connect or disconnect them. Its `problems` are its
-`step_problems`, then the method's own. `tested_step` gives the method with its test values as a
-`Step`:
+into a declared setting, and `bind` and `unbind` connect or disconnect them. Text fields and
+feedback list the settings their text may include as `template_parts` in their schema's hints. Its
+`problems` are its `step_problems`, then the method's own. `tested_step` gives the method with its
+test values as a `Step`:
 
 ```python
 from gradeflow_core import QuestionSet

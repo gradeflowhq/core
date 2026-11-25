@@ -3,7 +3,7 @@ from collections.abc import Callable
 import pytest
 
 from gradeflow_core import BUILTINS, InvalidError, Problem, QuestionSet
-from gradeflow_core.editing import HINT_KEY, Condition, ConditionRow, EditingError, MarkingDraft
+from gradeflow_core.editing import HINT_KEY, CheckRow, Condition, EditingError, MarkingDraft
 from gradeflow_core.questions.choice import ChoiceQuestion
 from gradeflow_core.questions.code import CodeQuestion
 from gradeflow_core.questions.number import NumberQuestion
@@ -12,6 +12,7 @@ from gradeflow_core.questions.values import ValuesQuestion
 from gradeflow_core.steps.step import valid_step
 
 from ..methods.helpers import accepted_answer, located
+from .helpers import checks_tested
 
 QUESTIONS = QuestionSet(
     {"Q1": TextQuestion(), "Q2": ValuesQuestion(value_types=["number", "number"])}
@@ -103,7 +104,7 @@ def test_a_step_whose_settings_arent_valid_keeps_the_steps_it_holds_and_their_pr
     }
     draft = MarkingDraft(marking, QUESTIONS, "Q1")
     assert draft.paths() == ["", "/with/steps/0", "/with/steps/1"]
-    assert draft.earlier_checks("/with/steps/1") == ["/with/steps/0"]
+    assert checks_tested(draft, "/with/steps/1") == ["/with/steps/0"]
     assert (draft.describe(""), draft.describe("/with/steps/0")) == ("", "Matches `Paris`.")
     assert [(problem.where, problem.message) for problem in draft.problems] == [
         (
@@ -272,14 +273,14 @@ steps:
 
 def test_a_condition_names_the_checks_it_reads_by_path_and_gives_them_ids() -> None:
     draft = workflow_draft()
-    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "incorrect"),))})
+    draft.update("/with/steps/1", {"if": Condition((CheckRow("/with/steps/0", "incorrect"),))})
     first, second = draft.data["with"]["steps"]
     assert first["id"] == "accepted_answers"
     assert second["if"] == "{{ not steps.accepted_answers.output.correct }}"
     assert draft.values("/with/steps/1")["if"] == Condition(
-        (ConditionRow("/with/steps/0", "incorrect"),)
+        (CheckRow("/with/steps/0", "incorrect"),)
     )
-    assert draft.earlier_checks("/with/steps/1") == ["/with/steps/0"]
+    assert checks_tested(draft, "/with/steps/1") == ["/with/steps/0"]
 
 
 def test_a_condition_is_offered_where_it_has_an_earlier_check_to_read() -> None:
@@ -289,7 +290,7 @@ def test_a_condition_is_offered_where_it_has_an_earlier_check_to_read() -> None:
     assert "if" not in draft.schema("")["properties"]
     assert "if" not in draft.schema("/with/steps/0")["properties"]
     assert "if" in draft.schema("/with/steps/1")["properties"]
-    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
+    draft.update("/with/steps/1", {"if": Condition((CheckRow("/with/steps/0", "correct"),))})
     draft.move("/with/steps/1", -1)
     assert "if" in draft.schema("/with/steps/0")["properties"]
     assert located(draft.problems) == [
@@ -336,7 +337,7 @@ def test_checks_inside_a_check_that_chose_the_question_or_value_dont_choose_agai
 def test_a_condition_reading_a_later_check_is_reported_while_another_check_is_unfinished() -> None:
     draft = workflow_draft()
     draft.update("/with/steps/0", {"answers": ["Paris"]})
-    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
+    draft.update("/with/steps/1", {"if": Condition((CheckRow("/with/steps/0", "correct"),))})
     draft.move("/with/steps/1", -1)
     assert ("/with/steps/0", "/if", "Accepted Answers must come before this step.") in located(
         draft.problems
@@ -347,7 +348,7 @@ def test_a_condition_reading_a_removed_check_says_no_check_before_it_has_that_na
     draft = workflow_draft()
     draft.update("/with/steps/0", {"answers": ["Paris"], "name": "Capital"})
     draft.update("/with/steps/1", {"points": ["capital"]})
-    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
+    draft.update("/with/steps/1", {"if": Condition((CheckRow("/with/steps/0", "correct"),))})
     draft.remove("/with/steps/0")
     assert located(draft.problems) == [
         ("/with/steps/0", "/if", "No step before this one is called capital.")
@@ -392,7 +393,7 @@ def test_checks_in_nested_lists_read_those_before_them_at_every_level() -> None:
         },
     }
     draft = MarkingDraft(marking, QUESTIONS, "Q1")
-    assert draft.earlier_checks("/with/steps/1/with/steps/1") == [
+    assert checks_tested(draft, "/with/steps/1/with/steps/1") == [
         "/with/steps/0",
         "/with/steps/1/with/steps/0",
     ]
@@ -463,7 +464,7 @@ def test_notes_say_what_a_checks_place_does_to_it() -> None:
     draft = workflow_draft()
     assert draft.notes("/with/steps/1") == []
     draft.update("/with/steps/0", {"name": "Capital", "weight": 0.5})
-    incorrect = Condition((ConditionRow("/with/steps/0", "incorrect"),))
+    incorrect = Condition((CheckRow("/with/steps/0", "incorrect"),))
     draft.update("/with/steps/1", {"weight": -1, "if": incorrect})
     assert draft.notes("/with/steps/0") == [], "a weight All must be correct doesn't use"
     draft.update("", {"marks_by": "total"})

@@ -3,7 +3,8 @@
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, get_args, get_origin
+from types import NoneType, UnionType
+from typing import Annotated, Any, Union, get_args, get_origin
 
 from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError, create_model
 from pydantic.fields import FieldInfo
@@ -24,7 +25,14 @@ from ...steps.templates import (
     validate,
 )
 from .expand import EXPANDED_NAMES, ComposedSettings
-from .file import TEMPLATE_KEYS, DeclaredSetting, MethodFile, SettingType, method_file_error
+from .file import (
+    SETTING_TYPE_LABELS,
+    TEMPLATE_KEYS,
+    DeclaredSetting,
+    MethodFile,
+    SettingType,
+    method_file_error,
+)
 
 SETTING_TYPES: dict[SettingType, Any] = {
     "number": Number,
@@ -71,9 +79,13 @@ class _SettingTypes:
             raise method_file_error(message, pointer("settings", setting_name))
         title = declared_setting.title or f"Setting {setting_name}"
         if setting_name in self.setting_types:
-            if declared_setting.type is not None:
+            annotation, field_info = self.setting_types[setting_name]
+            if declared_setting.type is not None and not setting_type_fits(
+                declared_setting.type, annotation
+            ):
                 raise method_file_error(
-                    f"{title} takes its type from the field it fills.",
+                    f"{title} is a {SETTING_TYPE_LABELS[declared_setting.type]} setting, which "
+                    f"can't fill {field_info.title or 'its field'}.",
                     pointer("settings", setting_name, "type"),
                 )
             return
@@ -262,6 +274,25 @@ class _SettingTypes:
             else (annotation, item_field_info)
             for item_field_name, (annotation, item_field_info) in item_fields.items()
         }
+
+
+def setting_type_fits(setting_type: SettingType, annotation: Any) -> bool:
+    """Whether a setting of ``setting_type`` may fill a field of ``annotation``, constraints and
+    None aside."""
+    return _plain_type(SETTING_TYPES[setting_type]) == _plain_type(annotation)
+
+
+def _plain_type(annotation: Any) -> object:
+    """``Annotated[str, …] | None`` as ``str``."""
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _plain_type(get_args(annotation)[0])
+    if origin in (Union, UnionType):
+        members = [member for member in get_args(annotation) if member is not NoneType]
+        return _plain_type(members[0]) if len(members) == 1 else annotation
+    if origin is list:
+        return list[_plain_type(get_args(annotation)[0])]  # type: ignore[misc]
+    return annotation
 
 
 def setting_name_problem(name: str) -> str | None:

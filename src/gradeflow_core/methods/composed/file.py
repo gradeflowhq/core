@@ -2,7 +2,15 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from ...common.hints import hint
 from ...common.problems import InvalidError, Problem
@@ -29,6 +37,14 @@ class DeclaredItemField(BaseModel):
 
 
 SettingType = Literal["number", "integer", "text", "boolean", "text_list", "number_list"]
+SETTING_TYPE_LABELS: dict[str, str] = {
+    "number": "Number",
+    "integer": "Whole number",
+    "text": "Text",
+    "boolean": "Yes/No",
+    "text_list": "List of text",
+    "number_list": "List of numbers",
+}
 
 
 class DeclaredSetting(BaseModel):
@@ -38,16 +54,7 @@ class DeclaredSetting(BaseModel):
     type: SettingType | None = Field(
         default=None,
         title="Type",
-        json_schema_extra=hint(
-            labels={
-                "number": "Number",
-                "integer": "Whole number",
-                "text": "Text",
-                "boolean": "Yes/No",
-                "text_list": "List of text",
-                "number_list": "List of numbers",
-            }
-        ),
+        json_schema_extra=hint(labels=SETTING_TYPE_LABELS),
     )
     description: str | None = None
     default: JsonValue = None
@@ -55,14 +62,33 @@ class DeclaredSetting(BaseModel):
     unless its default is empty."""
     advanced: bool | None = None
     """Whether most people leave it at its default; by default, as for the setting it fills."""
-    choices: list[str] | None = None
-    """Fewer choices than the setting it fills allows."""
+    choices: list[str] | list[int | float] | None = None
+    """The values it may have, of its type or among the options of the setting it fills."""
     labels: dict[str, str] | None = None
     applies_when: dict[str, list[JsonValue]] | None = None
     """It applies only when other settings have these values."""
     items: dict[str, DeclaredItemField] | None = None
     """For a list a repeated step goes through: the fields ``item.…`` names, titled for it
     rather than as the settings they fill."""
+
+    @field_validator("choices")
+    @classmethod
+    def _choices_of_its_type(
+        cls, choices: list[str] | list[int | float] | None, info: ValidationInfo
+    ) -> list[str] | list[int | float] | None:
+        setting_type = info.data.get("type")
+        if not choices or setting_type is None:
+            return choices
+        match setting_type:
+            case "text" if not all(isinstance(choice, str) for choice in choices):
+                raise ValueError("Each choice must be text.")
+            case "number" if any(isinstance(choice, str) for choice in choices):
+                raise ValueError("Each choice must be a number.")
+            case "integer" if not all(isinstance(choice, int) for choice in choices):
+                raise ValueError("Each choice must be a whole number.")
+            case "boolean" | "text_list" | "number_list":
+                raise ValueError(f"A {SETTING_TYPE_LABELS[setting_type]} setting has no choices.")
+        return choices
 
 
 class MethodFile(BaseModel):

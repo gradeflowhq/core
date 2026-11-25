@@ -13,7 +13,7 @@ from pydantic.fields import FieldInfo
 from ..common.documents import dump_yaml, load_yaml
 from ..common.error_formatting import IDENTIFIER_RULE
 from ..common.exceptions import EditingError
-from ..common.hints import hint_of
+from ..common.hints import HINT_KEY, hint_of
 from ..common.paths import parts_of, pointer, value_at
 from ..common.problems import InvalidError, Problem, invalid_errors, validation_problems
 from ..common.schemas import JsonDict, json_schema
@@ -21,8 +21,13 @@ from ..common.text import quoted
 from ..marking.examples import method_step_data
 from ..methods.catalogue import BUILTINS
 from ..methods.collection import Methods, method_of
-from ..methods.composed.declared_settings import SETTING_TYPES, setting_name_problem
+from ..methods.composed.declared_settings import (
+    SETTING_TYPES,
+    setting_name_problem,
+    setting_type_fits,
+)
 from ..methods.composed.file import (
+    SETTING_TYPE_LABELS,
     TEMPLATE_KEYS,
     WORKFLOW_KEYS,
     WORKFLOW_REF,
@@ -34,6 +39,7 @@ from ..methods.composed.file import (
 from ..questions import new_question
 from ..questions.question_set import QuestionSet
 from ..questions.types import ALL_QUESTION_TYPES, QuestionId, QuestionType
+from ..steps.conditions import YES_NO_TESTS, ConditionRow, ConditionSubject, SettingRow
 from ..steps.example import Example, ExampleRow, missing_answers_message
 from ..steps.method import Method
 from ..steps.names import method_ref
@@ -57,7 +63,12 @@ from .drafts import (
     fields_of,
     first_unused_name,
 )
-from .setting_schemas import declared_setting_schema, default_schema
+from .setting_schemas import (
+    choice_labels,
+    declared_setting_schema,
+    default_schema,
+    resolved_schema,
+)
 
 METADATA_KEYS = tuple(
     key
@@ -243,14 +254,24 @@ class MethodDraft(Draft):
         )
 
     def schema(self, path: str) -> JsonDict:
+        """The step's schema, with the declared settings its text may include as
+        ``template_parts``."""
         schema = super().schema(path)
-        if path:
-            return schema
         properties = schema["properties"].items()
+        if not path:
+            return {
+                **schema,
+                "properties": {
+                    key: value for key, value in properties if key not in STEP_OWN_PROPERTIES
+                },
+            }
+        if not (parts := self._setting_parts):
+            return schema
         return {
             **schema,
             "properties": {
-                key: value for key, value in properties if key not in STEP_OWN_PROPERTIES
+                key: _with_template_parts(value, parts, is_setting=key not in STEP_OWN_PROPERTIES)
+                for key, value in properties
             },
         }
 
@@ -301,6 +322,65 @@ class MethodDraft(Draft):
     @property
     def _template_names(self) -> Mapping[str, Shape]:
         return {"settings": dict.fromkeys(self._declared_settings, "any")}
+
+    @property
+    def _setting_subjects(self) -> list[ConditionSubject]:
+        """Yes/No settings and settings with choices."""
+        subjects = []
+        for name, declaration in self._declared_settings.items():
+            schema = self._value_schema(name) or {}
+            rows: dict[ConditionRow, str]
+            if schema.get("type") == "boolean":
+                rows = {SettingRow(name, value): words for value, words in YES_NO_TESTS.items()}
+            elif options := schema.get("enum"):
+                labels = choice_labels(schema)
+                rows = {
+                    SettingRow(name, option): f"is {labels.get(str(option), option)}"
+                    for option in options
+                }
+            else:
+                continue
+            subjects.append(ConditionSubject(_setting_title(name, declaration), rows))
+        return subjects
+
+    @property
+    def _setting_parts(self) -> dict[str, str]:
+        """Settings of free text or a number, as template parts: ``{{ settings.unit }}`` by its
+        title."""
+        return {
+            f"{{{{ settings.{name} }}}}": _setting_title(name, declaration)
+            for name, declaration in self._declared_settings.items()
+            if (schema := self._value_schema(name))
+            and schema.get("type") in ("string", "number", "integer")
+            and "enum" not in schema
+        }
+
+    def _value_schema(self, name: str) -> JsonDict | None:
+        """The schema of a declared setting's value, from the field it fills or else its type;
+        None if it has neither or isn't valid."""
+        field_info = self._filled_field_info(name)
+        try:
+            declaration = DeclaredSetting.model_validate(self._declared_settings[name])
+        except ValidationError:
+            return None
+        if field_info is None and declaration.type is not None:
+            field_info = FieldInfo.from_annotation(SETTING_TYPES[declaration.type])
+        return resolved_schema(default_schema(declaration, field_info)) if field_info else None
+
+    def _filled_field_info(self, name: str) -> FieldInfo | None:
+        """The first field the setting ``name`` fills."""
+        for path in self.paths():
+            if (method := self.method(path)) is None:
+                continue
+            settings = method.settings_model_at(self.position(path)).model_fields
+            for key, value in fields_of(self._step_data(path)).items():
+                if (
+                    self.bound_setting(value) == name
+                    and (path or key in settings)
+                    and _can_setting_fill(key, settings)
+                ):
+                    return settings.get(key) or STEP_OWN_PROPERTIES.get(key)
+        return None
 
     def _resolved_value(self, value: Any, test_values: Mapping[str, Any] = {}) -> Any:
         """``value``, or the default of the declared setting it is bound to, else its value in
@@ -499,7 +579,9 @@ class MethodDraft(Draft):
                 field_info = FieldInfo.from_annotation(SETTING_TYPES[declaration.type])
                 default_value_schema = default_schema(declaration, field_info)
         return declared_setting_schema(
-            default_value_schema, self._schema_of(field) if field else None
+            default_value_schema,
+            self._schema_of(field) if field else None,
+            is_typed="type" in self._declared_settings[name],
         )
 
     def add_declared_setting(self, name: str) -> None:
@@ -525,14 +607,22 @@ class MethodDraft(Draft):
             *((pointer("choices", index), choice) for index, choice in enumerate(choices)),
             *([("/default", declaration["default"])] if "default" in declaration else []),
         ]
-        annotations = [
-            self._annotation_of(field)
-            for field in self.configurable_fields()
-            if field.bound_setting == name
+        bound_fields = [
+            field for field in self.configurable_fields() if field.bound_setting == name
         ]
+        annotations = [self._annotation_of(field) for field in bound_fields]
+        problems = []
         if setting_type := declaration.get("type"):
+            problems += [
+                Problem(
+                    f"A {SETTING_TYPE_LABELS[setting_type]} setting can't fill {field.title}.",
+                    field="/type",
+                )
+                for field, annotation in zip(bound_fields, annotations, strict=True)
+                if not setting_type_fits(setting_type, annotation)
+            ]
             annotations.append(SETTING_TYPES[setting_type])
-        problems = [
+        problems += [
             Problem(message, field=value_path)
             for annotation in annotations
             for value_path, value in values_to_check
@@ -635,6 +725,8 @@ class MethodDraft(Draft):
             if "default" in declaration and self._rejection_reason(
                 self._annotation_of(field), declaration["default"]
             ):
+                continue
+            if "type" in declaration and not setting_type_fits(declaration["type"], annotation):
                 continue
             compatible_setting_names.append(name)
         return compatible_setting_names
@@ -745,7 +837,11 @@ class MethodDraft(Draft):
             return None
         if cardinality is not None:
             return "A list of steps is written as a template."
-        if has_template(value) and self.bound_setting(value) is None:
+        if (
+            has_template(value)
+            and self.bound_setting(value) is None
+            and self._rejection_reason(field.rebuild_annotation(), value)
+        ):
             return f"{field.title or path} is written as a template."
         return None
 
@@ -886,6 +982,38 @@ def _example_data(example: Example) -> dict[str, Any]:
     data = example.model_dump(mode="json", by_alias=True, exclude_defaults=True)
     data["questions"] = QuestionSet(example.questions).dump()
     return data
+
+
+def _with_template_parts(
+    property_schema: JsonDict, parts: dict[str, str], *, is_setting: bool
+) -> JsonDict:
+    """``property_schema`` with ``parts`` added to its ``template_parts``, or given them if it is a
+    setting of plain text."""
+    hint_values = property_schema.get(HINT_KEY, {})
+    if "template_parts" in hint_values or (is_setting and _is_plain_text(property_schema)):
+        template_parts = {**hint_values.get("template_parts", {}), **parts}
+        return {**property_schema, HINT_KEY: {**hint_values, "template_parts": template_parts}}
+    return property_schema
+
+
+def _is_plain_text(property_schema: JsonDict) -> bool:
+    """Whether the schema is of text or a list of text, without options or a ``kind``."""
+    schema = (
+        property_schema.get("items", {})
+        if property_schema.get("type") == "array"
+        else property_schema
+    )
+    json_types = schema.get("type")
+    return (
+        "string" in (json_types if isinstance(json_types, list) else [json_types])
+        and "enum" not in schema
+        and "kind" not in schema.get(HINT_KEY, {})
+        and "kind" not in property_schema.get(HINT_KEY, {})
+    )
+
+
+def _setting_title(name: str, declaration: Mapping[str, Any]) -> str:
+    return str(declaration.get("title") or name)
 
 
 def _holds_steps(method: Method) -> bool:

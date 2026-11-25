@@ -3,7 +3,7 @@ answer for later steps to read."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
@@ -26,11 +26,12 @@ from ..common.paths import is_within, pointer
 from ..common.problems import InvalidError, Problem, validation_problem, validation_problems
 from ..common.text import capitalized
 from ..questions.types import QuestionId
-from .conditions import condition_note
+from .conditions import ConditionSubject, condition_note
 from .input_sources import InputSource, OtherAnswerSource, input_source
 from .method import Method
 from .outcome import Outcome
 from .settings import IDENTIFIER, Number, Settings, step_cardinality
+from .templates import evaluate, reference_expression, top_level_names
 
 METHODS_CONTEXT_KEY = "methods"
 """The validation context key of the methods by ref, for settings that hold steps."""
@@ -155,12 +156,27 @@ class Step(BaseModel):
         method, settings = method_and_settings(self)
         return method.describe(settings)
 
-    def notes(self, check_labels: Mapping[str, str], weight_note: str | None) -> list[str]:
-        """Its ``weight_note``, if it is a check, and condition in words, naming each check its
-        condition reads by ``check_labels``, by ID: ``50% of the marks``, ``Only when Units isn't
-        correct``."""
+    def condition_holds(self) -> bool | None:
+        """Whether its condition holds, if it reads only its scope, such as its method's settings;
+        None if it reads anything else, such as an earlier check."""
+        if self.if_ is None:
+            return True
+        expression = reference_expression(self.if_)
+        if expression is None or not top_level_names(expression) <= self.resolution.scope.keys():
+            return None
+        return bool(evaluate(expression, self.resolution.scope))
+
+    def notes(
+        self, condition_subjects: Iterable[ConditionSubject], weight_note: str | None
+    ) -> list[str]:
+        """Its ``weight_note``, if it is a check, and its condition in words:
+        ``50% of the marks``, ``Only when Units isn't correct``."""
         weight = weight_note if self.resolution.gives_marks else None
-        condition = condition_note(self.if_, check_labels) if self.if_ else None
+        condition = (
+            condition_note(self.if_, condition_subjects)
+            if self.if_ and self.condition_holds() is None
+            else None
+        )
         return [note for note in (weight, condition) if note]
 
     def described_in_list(self, notes: Sequence[str], default_name: str | None = None) -> str:

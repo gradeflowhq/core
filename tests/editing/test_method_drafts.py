@@ -15,8 +15,8 @@ from gradeflow_core import (
 )
 from gradeflow_core.editing import (
     HINT_KEY,
+    CheckRow,
     Condition,
-    ConditionRow,
     EditingError,
     ExampleRow,
     MethodDraft,
@@ -386,7 +386,7 @@ def test_bound_setting_keeps_its_condition_reference_after_reload() -> None:
     draft = number_range_draft()
     draft.bind_new_setting("/with/steps/0/with/min_value")
     draft.add("/with/steps/1", "gradeflow/full-marks@1")
-    draft.update("/with/steps/1", {"if": Condition((ConditionRow("/with/steps/0", "correct"),))})
+    draft.update("/with/steps/1", {"if": Condition((CheckRow("/with/steps/0", "correct"),))})
     reopened = reopen(draft)
     assert reopened.problems == []
     assert isinstance(reopened.values("/with/steps/1")["if"], Condition)

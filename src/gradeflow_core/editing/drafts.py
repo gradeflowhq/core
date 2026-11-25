@@ -22,7 +22,15 @@ from ..methods.collection import Methods
 from ..questions.question_set import QuestionSet
 from ..questions.types import QuestionId
 from ..steps.combining import Combination
-from ..steps.conditions import Condition, condition_template, read_condition
+from ..steps.conditions import (
+    CheckRow,
+    Condition,
+    ConditionRow,
+    ConditionSubject,
+    check_subject,
+    condition_template,
+    read_condition,
+)
 from ..steps.input_sources import (
     ANSWER_INPUT,
     AnswerValueSource,
@@ -280,11 +288,7 @@ class Draft:
             }
         properties |= settings_schema["properties"]
         required += settings_schema.get("required", [])
-        shows_condition = (
-            "if" in step_data
-            or bool(self.earlier_checks(path))
-            or any(self._template_names.values())
-        )
+        shows_condition = "if" in step_data or bool(self.condition_subjects(path))
         is_transform = self._is_transform(path)
         properties |= {
             key: _step_property(key)
@@ -423,15 +427,16 @@ class Draft:
         if method:
             step_data["with"] = method.settings_read_at(settings_of(step_data), self.position(path))
         values = fields_of(step_data)
-        if isinstance(values.get("if"), str):
-            paths = self._paths_by_id(self.earlier_checks(path))
-            if (condition := read_condition(values["if"])) is not None and all(
-                row.check in paths for row in condition.rows
-            ):
-                values["if"] = replace(
-                    condition,
-                    rows=tuple(replace(row, check=paths[row.check]) for row in condition.rows),
-                )
+        if isinstance(values.get("if"), str) and (condition := read_condition(values["if"])):
+            paths = self._paths_by_id(self._earlier_checks(path))
+            rows = tuple(
+                replace(row, check=paths.get(row.check, row.check))
+                if isinstance(row, CheckRow)
+                else row
+                for row in condition.rows
+            )
+            if set(rows) <= self._condition_rows(path):
+                values["if"] = replace(condition, rows=rows)
         return values
 
     def update(self, path: str, values: Mapping[str, Any]) -> None:
@@ -644,11 +649,14 @@ class Draft:
         notes = [step.question] if step.question else []
         if input_label := self._input_label(path):
             notes.append(f"Reads {input_label}")
-        check_labels = {
-            step_id: self.label(check_path)
-            for step_id, check_path in self._paths_by_id(self.earlier_checks(path)).items()
-        }
-        return notes + step.notes(check_labels, self._weight_note(path))
+        subjects = [
+            *(
+                check_subject(step_id, self.label(check_path))
+                for step_id, check_path in self._paths_by_id(self._earlier_checks(path)).items()
+            ),
+            *self._setting_subjects,
+        ]
+        return notes + step.notes(subjects, self._weight_note(path))
 
     def _weight_note(self, path: str) -> str | None:
         """What the step at ``path`` is worth among the steps of its list; None outside one."""
@@ -693,7 +701,23 @@ class Draft:
         step = place.step if place else None
         return "" if step is None or step.resolution.data_problems else step.describe()
 
-    def earlier_checks(self, path: str) -> list[str]:
+    def condition_subjects(self, path: str) -> list[ConditionSubject]:
+        """What the condition of the step at ``path`` may test: earlier checks by path, then
+        settings."""
+        return [
+            *(check_subject(check, self.label(check)) for check in self._earlier_checks(path)),
+            *self._setting_subjects,
+        ]
+
+    def _condition_rows(self, path: str) -> set[ConditionRow]:
+        """Each row the condition of the step at ``path`` may have."""
+        return {row for subject in self.condition_subjects(path) for row in subject.rows}
+
+    @property
+    def _setting_subjects(self) -> list[ConditionSubject]:
+        return []
+
+    def _earlier_checks(self, path: str) -> list[str]:
         """Paths of checks whose results the condition at ``path`` may read: those before it
         in its list, and in the lists holding it."""
         return [
@@ -778,12 +802,15 @@ class Draft:
         return str(step_id) if step_id else None
 
     def _condition_template(self, path: str, condition: Condition) -> str:
-        """The condition as the check's ``if``, giving each check it reads an ID if it has none."""
-        earlier_check_paths = set(self.earlier_checks(path))
+        """The condition as the step's ``if``, giving each check it reads an ID. Rows it can't
+        test are dropped."""
+        condition_rows = self._condition_rows(path)
         rows = tuple(
             replace(row, check=self._step_id(row.check) or self._give_id(row.check))
+            if isinstance(row, CheckRow)
+            else row
             for row in condition.rows
-            if row.check in earlier_check_paths
+            if row in condition_rows
         )
         return condition_template(replace(condition, rows=rows))
 

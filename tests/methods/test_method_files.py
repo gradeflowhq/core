@@ -1,5 +1,5 @@
 import re
-from typing import get_args
+from typing import Literal, get_args
 
 import pytest
 
@@ -400,6 +400,33 @@ def test_a_composed_method_without_a_description_is_listed_under_its_label() -> 
     )
 
 
+def test_a_configured_method_leaves_out_the_steps_its_settings_turn_off() -> None:
+    methods = with_sample_files(
+        term=METHOD_FILE_HEADER
+        + """settings:
+  brief: {type: boolean, default: false}
+steps:
+  - {id: a, uses: gradeflow/key-point@1, with: {point: a}}
+  - if: "{{ settings.brief }}"
+    uses: gradeflow/length@1
+    with: {max_length: 3, unit: words}
+  - if: "{{ not steps.a.output.correct }}"
+    uses: gradeflow/key-point@1
+    with: {point: b}
+"""
+    )
+
+    def described(brief: bool) -> str:
+        step = {"uses": "sample/term@1", "with": {"brief": brief}}
+        return valid_step(step, methods.by_ref).describe()
+
+    step_reading_a_check = "- **Only when Key Point isn't correct:** Includes `b`."
+    assert described(brief=False) == f"All of these:\n- Includes `a`.\n{step_reading_a_check}"
+    assert described(brief=True) == (
+        f"All of these:\n- Includes `a`.\n- Has at most `3` words.\n{step_reading_a_check}"
+    )
+
+
 def test_a_setting_applies_for_a_list_of_values_not_one() -> None:
     method_file = METHOD_FILE_HEADER + (
         "settings:\n  match: {default: exact}\n"
@@ -482,14 +509,26 @@ def test_a_setting_no_field_types_gives_its_type() -> None:
         with_sample_files(topic=method_file)
 
 
-def test_a_setting_that_fills_a_field_takes_its_type() -> None:
+@pytest.mark.parametrize("setting_type", [None, "text"])
+def test_a_setting_that_fills_a_field_takes_its_type(setting_type: str | None) -> None:
+    declaration = f"{{type: {setting_type}}}" if setting_type else "{}"
+    method_file = METHOD_FILE_HEADER + (
+        f"settings:\n  point: {declaration}\n"
+        "steps:\n  - uses: gradeflow/key-point@1\n"
+        '    with: {point: "{{ settings.point }}"}\n'
+    )
+    method = with_sample_files(point=method_file).by_ref["sample/point@1"]
+    assert method.settings.model_fields["point"].annotation is str
+
+
+def test_a_typed_setting_fills_only_a_field_of_its_type() -> None:
     method_file = METHOD_FILE_HEADER + (
         "settings:\n  point: {type: number}\n"
         "steps:\n  - uses: gradeflow/key-point@1\n"
         '    with: {point: "{{ settings.point }}"}\n'
     )
     with pytest.raises(
-        MethodFileError, match=re.escape("Setting point takes its type from the field it fills.")
+        MethodFileError, match=re.escape("Setting point is a Number setting, which can't fill")
     ):
         with_sample_files(point=method_file)
 
@@ -509,3 +548,12 @@ def test_a_typed_setting_needs_no_field_or_template() -> None:
     )
     method = with_sample_files(minimum=method_file).by_ref["sample/minimum@1"]
     assert method.settings.model_fields["minimum"].annotation is int
+
+
+def test_a_number_setting_with_choices_takes_only_those() -> None:
+    method_file = code_method_file(
+        "  step: {type: number, default: 1, choices: [0.5, 1]}\n",
+        """'correct = answer == settings["step"]'""",
+    )
+    settings = with_sample_files(step=method_file).by_ref["sample/step@1"].settings
+    assert settings.model_fields["step"].annotation == Literal[0.5, 1]

@@ -3,7 +3,8 @@
 from typing import Any
 
 from pydantic import Field, TypeAdapter
-from pydantic_core import PydanticUndefined
+from pydantic.json_schema import GenerateJsonSchema
+from pydantic_core import PydanticUndefined, core_schema
 
 type JsonDict = dict[str, Any]
 
@@ -14,6 +15,20 @@ def type_field(default: Any = PydanticUndefined) -> Any:
     return Field(default=default, frozen=True, json_schema_extra={"readOnly": True})
 
 
+class _SchemaGenerator(GenerateJsonSchema):
+    def literal_schema(self, schema: core_schema.LiteralSchema) -> JsonDict:
+        """Pydantic leaves a literal of ints and floats untyped."""
+        literal = super().literal_schema(schema)
+        if "type" not in literal and all(
+            isinstance(value, int | float) and not isinstance(value, bool)
+            for value in schema["expected"]
+        ):
+            literal["type"] = "number"
+        return literal
+
+
 def json_schema(model: Any) -> JsonDict:  # Any: what TypeAdapter takes
     """The JSON schema of what ``model`` accepts, with a union of plain types as a type array."""
-    return TypeAdapter(model).json_schema(mode="validation", union_format="primitive_type_array")
+    return TypeAdapter(model).json_schema(
+        mode="validation", union_format="primitive_type_array", schema_generator=_SchemaGenerator
+    )

@@ -12,6 +12,7 @@ from ..questions.base import Question
 from ..questions.question_set import QuestionSet
 from ..questions.types import ALL_QUESTION_TYPES, QuestionId
 from .combining import COMBINATIONS, MARKS_BY_LABELS, MarksBy, combine
+from .conditions import check_subject
 from .context import Context
 from .example import examples_beside
 from .input_sources import StepOutputSource, input_source
@@ -156,17 +157,18 @@ class Workflow(Method[WorkflowSettings]):
         if settings.output == "step_output":
             return "\n".join(inner_step.describe() for inner_step in settings.steps)
         combination = COMBINATIONS[settings.marks_by]
-        check_labels = {
-            inner_step.id: inner_step.name or inner_step.method_label
+        checks = [
+            check_subject(inner_step.id, inner_step.name or inner_step.method_label)
             for inner_step in settings.steps
             if inner_step.id
-        }
+        ]
         weight_notes = combination.weight_notes(
             [inner_step.weight for inner_step in settings.steps]
         )
         step_list_markdown = markdown_list(
-            inner_step.described_in_list(inner_step.notes(check_labels, weight_note))
+            inner_step.described_in_list(inner_step.notes(checks, weight_note))
             for inner_step, weight_note in zip(settings.steps, weight_notes, strict=True)
+            if inner_step.condition_holds() is not False
         )
         return f"{combination.description_heading()}\n{step_list_markdown}"
 
