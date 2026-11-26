@@ -1,10 +1,9 @@
 """Language models a person brings: any OpenAI-compatible endpoint and its token."""
 
+import asyncio
 import itertools
 import math
-import re
 from collections.abc import Collection, Iterable
-from functools import lru_cache
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -12,10 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from ..common.exceptions import GradeFlowError
 
 if TYPE_CHECKING:
-    import openai
-    from openai.types.chat import ChatCompletion
     from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenLogprob
-    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.exceptions import ModelAPIError
+    from pydantic_ai.messages import ModelResponse
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+    from pydantic_ai.providers.openai import OpenAIProvider
 
 TIMEOUT_SECONDS = 600
 MAX_RETRIES = 5
@@ -23,7 +23,6 @@ MAX_RETRIES = 5
 LIST_TIMEOUT_SECONDS = 15
 LIST_MAX_RETRIES = 1
 """A person waits while the models are listed."""
-_THINKING_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 class ServiceError(GradeFlowError):
@@ -54,44 +53,31 @@ _MISSING_EXTRA = (
 )
 
 
-def _client(
-    endpoint: ModelEndpoint, *, timeout: float = TIMEOUT_SECONDS, max_retries: int = MAX_RETRIES
-) -> openai.OpenAI:
+def _provider(endpoint: ModelEndpoint) -> OpenAIProvider:
     try:
         import openai
+        from pydantic_ai.providers.openai import OpenAIProvider
     except ImportError as error:
         raise ServiceError(_MISSING_EXTRA) from error
     # An endpoint can't send requests on to another address, inside a network it would otherwise
     # reach only through the endpoint.
-    return openai.OpenAI(
+    return OpenAIProvider(
         base_url=endpoint.url,
         api_key=endpoint.api_key.get_secret_value(),
-        timeout=timeout,
-        max_retries=max_retries,
-        http_client=openai.DefaultHttpxClient(follow_redirects=False),
+        http_client=openai.DefaultAsyncHttpxClient(follow_redirects=False),
     )
 
 
 def chat_model(endpoint: ModelEndpoint, model: str) -> OpenAIChatModel:
-    """``model`` at ``endpoint``, for a PydanticAI agent."""
-    try:
-        import openai
-        from pydantic_ai.models.openai import OpenAIChatModel
-        from pydantic_ai.providers.openai import OpenAIProvider
-    except ImportError as error:
-        raise ServiceError(_MISSING_EXTRA) from error
-    provider = OpenAIProvider(
-        base_url=endpoint.url,
-        api_key=endpoint.api_key.get_secret_value(),
-        # No redirects, as for the core's own client.
-        http_client=openai.DefaultAsyncHttpxClient(follow_redirects=False),
-    )
+    """``model`` at ``endpoint``, for PydanticAI."""
+    provider = _provider(endpoint)
+    from pydantic_ai.models.openai import OpenAIChatModel
+
     return OpenAIChatModel(
-        model, provider=provider, settings={"timeout": TIMEOUT_SECONDS, "max_retries": MAX_RETRIES}
+        model,
+        provider=provider,
+        settings={"timeout": TIMEOUT_SECONDS, "max_retries": MAX_RETRIES},
     )
-
-
-_cached_client = lru_cache(maxsize=8)(_client)
 
 
 ReasoningEffort = Literal["none", "low", "medium", "high"]
@@ -108,8 +94,8 @@ def ask(
     reasoning_effort: ReasoningEffort | None,
     max_tokens: int,
 ) -> str:
-    """What one reply from ``model`` says, at temperature 0, without reasoning it wrote inline."""
-    reply = _complete(
+    """What one reply from ``model`` says, at temperature 0, without its reasoning."""
+    response = _complete(
         endpoint,
         model,
         system_prompt,
@@ -118,7 +104,7 @@ def ask(
         logprobs=False,
         max_tokens=max_tokens,
     )
-    return _THINKING_BLOCK.sub("", reply.choices[0].message.content or "").strip()
+    return (response.text or "").strip()
 
 
 def ask_token_logprobs(
@@ -126,7 +112,7 @@ def ask_token_logprobs(
 ) -> list[ChatCompletionTokenLogprob]:
     """The tokens of one reply from ``model``, at temperature 0 without reasoning, each with its
     likeliest alternatives."""
-    reply = _complete(
+    response = _complete(
         endpoint,
         model,
         system_prompt,
@@ -135,8 +121,10 @@ def ask_token_logprobs(
         logprobs=True,
         max_tokens=max_tokens,
     )
-    logprobs = reply.choices[0].logprobs
-    return (logprobs.content or []) if logprobs else []
+    from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenLogprob
+
+    tokens = (response.provider_details or {}).get("logprobs", [])
+    return [ChatCompletionTokenLogprob.model_validate(token) for token in tokens]
 
 
 def _complete(
@@ -148,29 +136,35 @@ def _complete(
     reasoning_effort: ReasoningEffort | None,
     logprobs: bool,
     max_tokens: int,
-) -> ChatCompletion:
-    client = _cached_client(endpoint)
-    import openai
+) -> ModelResponse:
+    openai_model = chat_model(endpoint, model)
+    from pydantic_ai.direct import model_request
+    from pydantic_ai.exceptions import ModelAPIError, ModelRequestRejectedError
+    from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
 
     reasoning_effort = (
         None if (endpoint.url, model) in _MODELS_REFUSING_EFFORT else reasoning_effort
     )
+    settings: OpenAIChatModelSettings = {"temperature": 0, "max_tokens": max_tokens}
+    if logprobs:
+        settings |= {"openai_logprobs": True, "openai_top_logprobs": 10}
+    if reasoning_effort is not None:
+        # PydanticAI leaves out an effort for models it doesn't know.
+        settings |= {"extra_body": {"reasoning_effort": reasoning_effort}}
+
+    async def send_request() -> ModelResponse:
+        async with openai_model.client:
+            return await model_request(
+                openai_model,
+                [ModelRequest([SystemPromptPart(system_prompt), UserPromptPart(prompt)])],
+                model_settings=settings,
+            )
+
     try:
-        return client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0,
-            max_tokens=max_tokens,
-            logprobs=True if logprobs else openai.omit,
-            top_logprobs=10 if logprobs else openai.omit,
-            reasoning_effort=openai.omit if reasoning_effort is None else reasoning_effort,
-        )
-    except openai.BadRequestError as error:
+        return asyncio.run(send_request())
+    except ModelRequestRejectedError as error:
         if reasoning_effort is None or "reasoning_effort" not in str(error):
-            raise ServiceError(failure_message(error)) from None
+            raise service_error(error) from None
         _MODELS_REFUSING_EFFORT.add((endpoint.url, model))
         return _complete(
             endpoint,
@@ -181,17 +175,8 @@ def _complete(
             logprobs=logprobs,
             max_tokens=max_tokens,
         )
-    except openai.OpenAIError as error:
-        fails_every_request = isinstance(
-            error,
-            openai.APIConnectionError
-            | openai.AuthenticationError
-            | openai.PermissionDeniedError
-            | openai.NotFoundError,
-        )
-        raise ServiceError(
-            failure_message(error), fails_every_request=fails_every_request
-        ) from None
+    except ModelAPIError as error:
+        raise service_error(error) from None
 
 
 def _normalized_probabilities(
@@ -237,36 +222,48 @@ def option_probabilities(
 
 def list_models(endpoint: ModelEndpoint) -> list[str]:
     """The endpoint's models, newest first when it says when each was made."""
-    client = _client(endpoint, timeout=LIST_TIMEOUT_SECONDS, max_retries=LIST_MAX_RETRIES)
+    client = _provider(endpoint).client.with_options(
+        timeout=LIST_TIMEOUT_SECONDS, max_retries=LIST_MAX_RETRIES
+    )
     import openai
 
+    async def fetch_models() -> list[openai.types.Model]:
+        async with client:
+            return [model async for model in client.models.list()]
+
     try:
-        with client:
-            models = list(client.models.list())
+        models = asyncio.run(fetch_models())
     except openai.NotFoundError:
         raise ServiceError(
             "No models were found at this address. Check it: it often ends in /v1."
         ) from None
-    except openai.OpenAIError as error:
-        raise ServiceError(failure_message(error)) from None
+    except openai.APIStatusError as error:
+        raise _error_for_status(error.status_code) from None
+    except openai.OpenAIError:
+        raise _error_for_status(None) from None
     if any(model.created for model in models):
         models.sort(key=lambda model: model.created, reverse=True)
     return [model.id for model in models]
 
 
-def failure_message(error: openai.OpenAIError) -> str:
-    """Why a request failed, as a sentence a lecturer can act on."""
-    import openai
+def service_error(error: ModelAPIError) -> ServiceError:
+    from pydantic_ai.exceptions import ModelHTTPError
 
-    match error:
-        case openai.AuthenticationError() | openai.PermissionDeniedError():
-            return "The AI service refused the token."
-        case openai.NotFoundError():
-            return "The AI service has no such model."
-        case openai.RateLimitError():
-            return "The AI service is limiting requests."
-        case openai.APIConnectionError():
-            return "Couldn't reach the AI service."
-        case openai.APIStatusError():
-            return f"The AI service answered {error.status_code}."
-    return "The AI service failed."
+    return _error_for_status(error.status_code if isinstance(error, ModelHTTPError) else None)
+
+
+def _error_for_status(status_code: int | None) -> ServiceError:
+    """Why a request failed, as a sentence a lecturer can act on. ``None`` means the service
+    wasn't reached."""
+    match status_code:
+        case None:
+            message = "Couldn't reach the AI service."
+        case 401 | 403:
+            message = "The AI service refused the token."
+        case 404:
+            message = "The AI service has no such model."
+        case 429:
+            message = "The AI service is limiting requests."
+        case _:
+            message = f"The AI service answered {status_code}."
+    return ServiceError(message, fails_every_request=status_code in (None, 401, 403, 404))

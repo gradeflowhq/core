@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from gradeflow_core import GradeFlowError
 from gradeflow_core.models import model_service
-from tests.fake_models import ENDPOINT, fake_client, install_client
+from tests.fake_models import ENDPOINT, install_service
 
 
 def tokens(top_logprobs: list[dict[str, object]]) -> list[ChatCompletionTokenLogprob]:
@@ -44,7 +44,7 @@ def test_service_failures_use_domain_errors(
     def respond(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(status, json={"error": {"message": "Refused."}})
 
-    install_client(monkeypatch, fake_client(respond))
+    install_service(monkeypatch, respond)
     call = (
         partial(
             model_service.ask,
@@ -65,23 +65,27 @@ def test_service_failures_use_domain_errors(
     assert str(exc_info.value) == message
 
 
-def test_listing_models_waits_briefly_and_closes_its_client(
+def test_listing_models_waits_briefly_retries_once_and_closes_its_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    requests: list[httpx2.Request] = []
+
     def respond(request: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(200, json={"object": "list", "data": []})
+        requests.append(request)
+        status = 500 if len(requests) == 1 else 200
+        return httpx2.Response(status, json={"object": "list", "data": []})
 
-    clients: list[tuple[openai.OpenAI, dict[str, object]]] = []
+    clients: list[httpx2.AsyncClient] = []
 
-    def client(endpoint: model_service.ModelEndpoint, **options: object) -> openai.OpenAI:
-        clients.append((fake_client(respond)(endpoint), options))
-        return clients[-1][0]
+    def client(**_: object) -> httpx2.AsyncClient:
+        clients.append(httpx2.AsyncClient(transport=httpx2.MockTransport(respond)))
+        return clients[-1]
 
-    install_client(monkeypatch, client)
-    model_service.list_models(ENDPOINT)
-    model_service.list_models(ENDPOINT)
-    assert [options for _, options in clients] == [{"timeout": 15, "max_retries": 1}] * 2
-    assert all(listing_client.is_closed() for listing_client, _ in clients)
+    monkeypatch.setattr(openai, "DefaultAsyncHttpxClient", client)
+    assert model_service.list_models(ENDPOINT) == []
+    assert len(requests) == 2
+    assert requests[0].extensions["timeout"]["read"] == 15
+    assert all(listing_client.is_closed for listing_client in clients)
 
 
 def test_an_endpoint_refuses_unknown_fields() -> None:

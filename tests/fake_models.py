@@ -275,26 +275,17 @@ def reply(content: str, tokens: list[dict[str, Any]]) -> httpx2.Response:
     )
 
 
-def fake_client(
-    respond: Callable[[httpx2.Request], httpx2.Response],
-) -> Callable[..., openai.OpenAI]:
-    """A client for every endpoint, served by ``respond``."""
-
-    def client(endpoint: ModelEndpoint, **_: object) -> openai.OpenAI:
-        return openai.OpenAI(
-            base_url=endpoint.url,
-            api_key=endpoint.api_key.get_secret_value(),
-            max_retries=0,
-            http_client=httpx2.Client(transport=httpx2.MockTransport(respond)),
-        )
-
-    return client
-
-
-def install_client(monkeypatch: pytest.MonkeyPatch, client: Callable[..., openai.OpenAI]) -> None:
-    """Every request to a model service made by ``client``."""
-    monkeypatch.setattr(model_service, "_client", client)
-    monkeypatch.setattr(model_service, "_cached_client", client)
+def install_service(
+    monkeypatch: pytest.MonkeyPatch, respond: Callable[[httpx2.Request], httpx2.Response]
+) -> None:
+    """Every request to a model service answered by ``respond``, without retrying."""
+    monkeypatch.setattr(
+        openai,
+        "DefaultAsyncHttpxClient",
+        lambda **_: httpx2.AsyncClient(transport=httpx2.MockTransport(respond)),
+    )
+    monkeypatch.setattr(model_service, "MAX_RETRIES", 0)
+    monkeypatch.setattr(model_service, "LIST_MAX_RETRIES", 0)
 
 
 def example_drafts(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
@@ -319,12 +310,7 @@ def fake_models(monkeypatch: pytest.MonkeyPatch) -> InstallFakeModels:
 
     def install(verdicts: VerdictFunction) -> FakeModels:
         fake = FakeModels(verdicts)
-        install_client(monkeypatch, fake_client(fake.respond))
-        monkeypatch.setattr(
-            openai,
-            "DefaultAsyncHttpxClient",
-            lambda **_: httpx2.AsyncClient(transport=httpx2.MockTransport(fake.respond)),
-        )
+        install_service(monkeypatch, fake.respond)
         return fake
 
     return install

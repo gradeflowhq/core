@@ -28,7 +28,7 @@ from .mark import mark
 from .mark_scheme import MarkScheme
 
 if TYPE_CHECKING:
-    from pydantic_ai import Agent, ModelAPIError
+    from pydantic_ai import Agent
     from pydantic_ai.models import Model
 
 MAX_MARKINGS = 3
@@ -111,7 +111,7 @@ def draft_marking(
                 raise GradeFlowError(NO_VALID_MARKING) from None
             return drafted
         except ModelAPIError as error:
-            raise model_service.ServiceError(_failure_message(error)) from None
+            raise model_service.service_error(error) from None
         history = result.all_messages()
         if drafted is not None and result.output.marking.dump() == drafted.marking.dump():
             return drafted
@@ -170,17 +170,6 @@ def _problem_line(problem: Problem) -> str:
 
 def _uses_custom_code(data: dict[str, Any]) -> bool:
     return any(reference.startswith(f"{CustomCode.name}@") for reference in methods_used(data))
-
-
-def _failure_message(error: ModelAPIError) -> str:
-    import openai
-
-    cause = error.__cause__
-    return (
-        model_service.failure_message(cause)
-        if isinstance(cause, openai.OpenAIError)
-        else "The AI service failed."
-    )
 
 
 def _draft_prompt(
