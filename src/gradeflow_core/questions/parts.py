@@ -25,7 +25,7 @@ class AnswerPart(BaseModel):
     name: str = Field(
         pattern=IDENTIFIER,
         title="Name",
-        description="A check reads it as `{{ answer.year }}`.",
+        description="Checks refer to a part named `year` as `{{ answer.year }}`.",
     )
     type: ValueType = Field(
         default="text", title="Type", json_schema_extra=hint(labels=VALUE_TYPE_LABELS)
