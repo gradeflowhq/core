@@ -27,6 +27,8 @@ ModelRole = Literal[DecisionRole, "draft"]
 ROLES: tuple[ModelRole, ...] = get_args(ModelRole)
 PASSING_MODELS_PER_ROLE = 2
 """Models that must pass in a role before trying stops."""
+DRAFT_TRIAL_TIME_LIMIT_SECONDS = 15 * 60
+"""Seconds after which a draft trial starts no more examples."""
 
 
 class ModelTrial(BaseModel):
@@ -158,13 +160,17 @@ def _drafting_row_counts(endpoint: model_service.ModelEndpoint) -> tuple[int, in
     """How many example rows the draft model's markings gave their declared marks, and how many
     were tried: each example's question, with its title as the description, and the description
     of its marking as the instructions. A service failure ends the trial; an example it couldn't
-    draft misses all its rows."""
+    draft, or didn't start within ``DRAFT_TRIAL_TIME_LIMIT_SECONDS``, has none of its rows
+    matched."""
+    deadline = time.monotonic() + DRAFT_TRIAL_TIME_LIMIT_SECONDS
     rows_matched = rows_tried = 0
     for reference, example in _drafting_examples():
         questions = QuestionSet(example.questions)
         [(key, question)] = questions.items()
         step = valid_step(method_step_data(reference, key, example.with_), BUILTINS.by_ref)
         rows_tried += len(example.rows)
+        if time.monotonic() > deadline:
+            continue
         try:
             drafted = draft_marking(
                 QuestionSet({key: question.model_copy(update={"description": example.title})}),

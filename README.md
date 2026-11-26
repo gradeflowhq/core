@@ -118,8 +118,9 @@ for model in list_models(endpoint):
 
 `try_models` tries the endpoint's newest models in each role until two pass: as the fast and then
 the careful model on Answer Criteria's own examples, and as the draft model drafting markings for
-the basic methods' examples. It yields each `ModelTrial` as it ends, skips those passed as `tried`
-unless the service failed on them, and calls `on_start` as each starts.
+the basic methods' examples. After 15 minutes a draft trial starts no more examples, and those it
+never started count as missed. It yields each `ModelTrial` as it ends, skips those passed as
+`tried` unless the service failed on them, and calls `on_start` as each starts.
 `best_models` picks, in each role, the one with the most answers right, then the fastest.
 `list_models` lists the endpoint's models, and `try_model` tries one of them in one role.
 

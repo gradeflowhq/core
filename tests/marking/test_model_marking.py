@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -15,6 +16,7 @@ from gradeflow_core import (
     try_model,
     try_models,
 )
+from gradeflow_core.marking import model_choice
 from gradeflow_core.marking.model_choice import ModelRole
 from gradeflow_core.questions.text import TextQuestion
 from tests.fake_models import (
@@ -22,6 +24,7 @@ from tests.fake_models import (
     FAST_MODEL_ENDPOINT,
     InstallFakeModels,
     Verdict,
+    example_drafts,
     example_verdicts,
 )
 
@@ -289,3 +292,17 @@ def test_a_draft_model_is_tried_on_markings_of_the_basic_methods_examples(
     trial = try_model(ENDPOINT, "draft", "decider")
     assert (trial.rows_matched, trial.rows_tried) == (17, 36)
     assert trial.failure == "Missed 19 of 36 example answers."
+
+
+def test_a_draft_trial_starts_no_examples_after_its_time_limit(
+    fake_models: InstallFakeModels, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def slow_draft_reply(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        time.sleep(0.05)
+        return example_drafts(model, messages)
+
+    fake_models(example_verdicts).drafts = slow_draft_reply
+    monkeypatch.setattr(model_choice, "DRAFT_TRIAL_TIME_LIMIT_SECONDS", 0.01)
+    trial = try_model(ENDPOINT, "draft", "decider")
+    assert (trial.rows_matched, trial.rows_tried) == (4, 36), "only the first example drafted"
+    assert trial.failure == "Missed 32 of 36 example answers."
