@@ -157,9 +157,10 @@ updated = draft_marking(
 ```
 
 The model gets the methods for the question's type, the question, the instructions and the
-students' distinct answers. Problems in a marking go back to the model. The marking then marks every
-answer, and the model keeps it or revises it from the marks each answer got, twice at most. Custom
-Code is offered only after the first review.
+students' distinct answers. Problems in a marking go back to the model, as does a pattern over 60
+characters. The marking then marks every answer, and the model keeps it or revises it from the marks
+each answer got, twice at most. Answer Criteria in a marking marks the answers with the endpoint's
+fast and careful models.
 
 `draft_marking` returns a `Drafted`: the marking and a one-sentence summary of what it gives marks
 for, or what changed. `on_stage` hears each stage. It raises `GradeFlowError` without a draft model

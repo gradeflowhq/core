@@ -23,7 +23,6 @@ SHEETS = [
 ]
 PARIS = {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["Paris"]}}
 PARIS_OR_LYON = {"uses": "gradeflow/accepted-answers@1", "with": {"answers": ["Paris", "Lyon"]}}
-CUSTOM_CODE = {"uses": "gradeflow/custom-code@1", "with": {"code": "proportion = 1"}}
 PARIS_AND_1889 = {
     "uses": "gradeflow/part-by-part@1",
     "with": {
@@ -87,8 +86,8 @@ def test_the_model_reads_the_instructions_the_methods_and_the_normalized_answers
     assert "1 mark for Paris." in task
     assert "What is the capital of France?" in task
     assert "(`gradeflow/accepted-answers@1`)" in task
-    assert "gradeflow/custom-code@1" not in task, "a last resort, offered after a review"
-    assert "gradeflow/answer-criteria@1" not in task, "asks a language model itself"
+    assert "(`gradeflow/custom-code@1`)" in task
+    assert "(`gradeflow/answer-criteria@1`)" in task
     assert '| "paris" | 3 |' in task, "lowercased, as the question reads it"
     assert "| (blank) | 1 |" in task
     review = conversations[1][-1]["content"]
@@ -102,11 +101,16 @@ def test_a_marking_with_problems_goes_back_to_the_model(fake_models: InstallFake
     assert "The marking has problems:\n- /with" in conversations[1][-1]["content"]
 
 
-def test_custom_code_is_refused_until_a_review_offers_it(fake_models: InstallFakeModels) -> None:
-    conversations = script_replies(fake_models(example_verdicts), CUSTOM_CODE, PARIS, CUSTOM_CODE)
-    assert draft().marking.dump() == {"question": "Q1", **CUSTOM_CODE}
-    assert "Custom Code isn't available. Use GradeFlow's methods." in str(conversations[1])
-    assert "(`gradeflow/custom-code@1`)" in conversations[2][-1]["content"]
+def test_a_long_pattern_goes_back_to_the_model(fake_models: InstallFakeModels) -> None:
+    long_pattern = {
+        "uses": "gradeflow/workflow@1",
+        "with": {
+            "steps": [{"uses": "gradeflow/pattern@1", "with": {"pattern": "^(" + "a|" * 30 + ")$"}}]
+        },
+    }
+    conversations = script_replies(fake_models(example_verdicts), long_pattern, PARIS)
+    assert draft().marking.dump() == {"question": "Q1", **PARIS}
+    assert "- /with/steps/0/with/pattern: The pattern is 64 characters" in str(conversations[1])
 
 
 def test_the_model_revises_the_marking_from_its_review(fake_models: InstallFakeModels) -> None:
@@ -126,15 +130,6 @@ def test_updating_starts_from_the_current_marking(fake_models: InstallFakeModels
     assert stages[0] == "Updating the marking"
     task = conversations[0][-1]["content"]
     assert '# The current marking\n\n{"uses": "gradeflow/accepted-answers@1"' in task
-
-
-def test_a_current_marking_of_custom_code_keeps_it_on_offer(
-    fake_models: InstallFakeModels,
-) -> None:
-    conversations = script_replies(fake_models(example_verdicts), CUSTOM_CODE)
-    current = MarkScheme.load([{"question": "Q1", **CUSTOM_CODE}]).markings[0]
-    assert draft(marking=current).marking.dump() == {"question": "Q1", **CUSTOM_CODE}
-    assert "(`gradeflow/custom-code@1`)" in conversations[0][-1]["content"]
 
 
 def test_drafting_fails_when_ai_writes_no_usable_marking(
