@@ -183,3 +183,10 @@ def test_a_revision_with_problems_keeps_the_marking_before_it(
         fake_models(example_verdicts), PARIS, {"uses": "gradeflow/nothing@1", "with": {}}
     )
     assert draft().marking.dump() == {"question": "Q1", **PARIS}
+
+
+def test_the_draft_model_is_not_asked_for_json_mode(fake_models: InstallFakeModels) -> None:
+    fake = fake_models(example_verdicts)
+    script_replies(fake, PARIS)
+    draft()
+    assert all("response_format" not in request for request in fake.requests)

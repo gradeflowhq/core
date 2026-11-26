@@ -79,7 +79,7 @@ class FakeModels:
         prompt = body["messages"][-1]["content"]
         answers = _ANSWER.findall(prompt)
         if model in self.rejects_reasoning_effort and "reasoning_effort" in body:
-            message = "Unsupported parameter: reasoning_effort."
+            message = f'"{model}" does not support thinking'
             return httpx2.Response(400, json={"error": {"message": message}})
         if self.answers_per_reply is not None and len(answers) > self.answers_per_reply:
             return reply("I can't tell.", [])

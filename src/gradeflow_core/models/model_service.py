@@ -77,6 +77,9 @@ def chat_model(endpoint: ModelEndpoint, model: str) -> OpenAIChatModel:
         model,
         provider=provider,
         settings={"timeout": TIMEOUT_SECONDS, "max_retries": MAX_RETRIES},
+        # vLLM refuses JSON mode while its engine runs another structured-output backend. The
+        # prompt describes the JSON instead.
+        profile={"supports_json_object_output": False},
     )
 
 
@@ -139,7 +142,7 @@ def _complete(
 ) -> ModelResponse:
     openai_model = chat_model(endpoint, model)
     from pydantic_ai.direct import model_request
-    from pydantic_ai.exceptions import ModelAPIError, ModelRequestRejectedError
+    from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, UnexpectedModelBehavior
     from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
 
     reasoning_effort = (
@@ -162,11 +165,11 @@ def _complete(
 
     try:
         return asyncio.run(send_request())
-    except ModelRequestRejectedError as error:
-        if reasoning_effort is None or "reasoning_effort" not in str(error):
+    except ModelHTTPError as error:
+        # Services word a refused effort differently, so a 400 is retried once without it.
+        if reasoning_effort is None or error.status_code != 400:
             raise service_error(error) from None
-        _MODELS_REFUSING_EFFORT.add((endpoint.url, model))
-        return _complete(
+        response = _complete(
             endpoint,
             model,
             system_prompt,
@@ -175,8 +178,12 @@ def _complete(
             logprobs=logprobs,
             max_tokens=max_tokens,
         )
+        _MODELS_REFUSING_EFFORT.add((endpoint.url, model))
+        return response
     except ModelAPIError as error:
         raise service_error(error) from None
+    except UnexpectedModelBehavior:
+        raise ServiceError("The AI service failed.") from None
 
 
 def _normalized_probabilities(

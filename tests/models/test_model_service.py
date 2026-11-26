@@ -65,6 +65,16 @@ def test_service_failures_use_domain_errors(
     assert str(exc_info.value) == message
 
 
+def test_a_reply_that_isnt_a_chat_completion_is_a_service_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_service(monkeypatch, lambda request: httpx2.Response(200, text="<html>"))
+    with pytest.raises(model_service.ServiceError, match="The AI service failed"):
+        model_service.ask(
+            ENDPOINT, "model", "system", "prompt", reasoning_effort=None, max_tokens=4
+        )
+
+
 def test_listing_models_waits_briefly_retries_once_and_closes_its_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
