@@ -100,6 +100,18 @@ def test_each_criterion_met_gives_its_marks_or_its_penalty(fake_models: InstallF
     assert correct.model_names == ("decider",)
 
 
+def test_a_criterion_s_full_stop_isnt_doubled(fake_models: InstallFakeModels) -> None:
+    fake_models(lambda model, answer, criterion: "yes" if "sum" in criterion else "no")
+    criteria = [{**criterion, "text": f"{criterion['text']}."} for criterion in CRITERIA]
+    [unsummed] = mark_with_criteria(UNSUMMED_ANSWER, settings={"criteria": criteria})
+    assert unsummed.feedback == (
+        "Correct total: Not met.\nShows the working: Not met.\nPenalty: Forgot to sum."
+    )
+    assert describe(answer_criteria(criteria=criteria[:1])) == (
+        "AI checks the answer for Correct total (2 marks)."
+    )
+
+
 def test_criteria_give_marks_of_the_question_up_to_its_full_marks(
     fake_models: InstallFakeModels,
 ) -> None:

@@ -175,7 +175,7 @@ class AnswerCriteria(Method[AnswerCriteriaSettings]):
 
     def describe(self, settings: AnswerCriteriaSettings) -> str:
         lines = [
-            f"{escaped_markdown(criterion.text)} ({marks_text(criterion.marks)})"
+            f"{escaped_markdown(criterion.text.removesuffix('.'))} ({marks_text(criterion.marks)})"
             for criterion in settings.criteria
         ]
         if settings.marks_by == "best_fit":
@@ -282,9 +282,9 @@ def _total_feedback(
         if outcome.correct and criterion.marks > 0:
             lines.append(outcome.feedback)
         elif outcome.correct and criterion.marks < 0:
-            lines.append(f"Penalty: {criterion.text}.")
+            lines.append(f"Penalty: {as_sentence(criterion.text)}")
         elif not outcome.marked or (criterion.marks > 0 and proportion < FULL_MARKS_PROPORTION):
-            lines.append(f"{criterion.text}: {outcome.feedback}")
+            lines.append(f"{criterion.text.removesuffix('.')}: {outcome.feedback}")
     return "\n".join(dict.fromkeys(lines))
 
 
