@@ -105,7 +105,10 @@ def test_a_name_with_an_underscore_or_listed_is_one_variable() -> None:
     assert parse("u_1 v_1 + rate_2").variables == {"u_1", "v_1", "rate_2"}
     listed = frozenset({"u1", "v1", "side"})
     assert parse("u1 v1 + 2side x", variables=listed).variables == {"u1", "v1", "side", "x"}
-    assert parse("u1v1", variables=listed).variables == {"u", "v"}
+    assert parse("u1v1 + xside + u2", variables=listed).variables == {"u1", "v1", "x", "side", "u"}
+    assert parse("N0e", variables=frozenset({"N", "N0"})).variables == {"N0"}, (
+        "the longest listed variable matches first"
+    )
     assert parse("Q1 + Q1a", names_as_written=True).variables == {"Q1", "Q1a"}
 
 

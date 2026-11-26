@@ -66,9 +66,9 @@ class EquivalentExpression(AnswerMethod[EquivalentExpressionSettings]):
         "Expressions use `+ - * / ^` and brackets. Names split into single letters and numbers, "
         "which multiply: `2xy` is 2 × x × y, and `u2v` is u × 2 × v. A name with an "
         "underscore, like `u_1`, a Greek letter's name, like `alpha`, and a name in **Variables** "
-        "are one variable. You can use `pi`, `e`, `sqrt`, `exp`, `abs`, `ln`, `log` (base 10), "
-        "`sin`, `cos`, `tan`, `asin`, `acos` and `atan`. An answer that can't be read needs "
-        "marking.\n\n"
+        "are one variable, even inside a longer name: with `N0` listed, `N0e` is N0 × e. You can "
+        "use `pi`, `e`, `sqrt`, `exp`, `abs`, `ln`, `log` (base 10), `sin`, `cos`, `tan`, `asin`, "
+        "`acos` and `atan`. An answer that can't be read needs marking.\n\n"
         "To also require one form, such as factorised, add a Pattern check beside it in a "
         "Workflow."
     )

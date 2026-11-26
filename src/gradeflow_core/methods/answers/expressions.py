@@ -74,8 +74,8 @@ def parse(
     expression_text: str, *, names_as_written: bool = False, variables: frozenset[str] = frozenset()
 ) -> Expression:
     """``expression_text`` as an expression, its names split as SymPy's ``split_symbols`` splits
-    them, apart from ``variables``. With ``names_as_written``, each name is a variable as written,
-    such as Q1, and so is anything in square brackets, such as [1a]."""
+    them, keeping each of ``variables`` as one variable. With ``names_as_written``, each name is
+    a variable as written, such as Q1, and so is anything in square brackets, such as [1a]."""
     if len(expression_text) > MAX_LENGTH:
         raise ValueError(f"An expression can't be longer than {MAX_LENGTH} characters.")
     try:
@@ -107,16 +107,21 @@ def _tokens(expression_text: str, names_as_written: bool, variables: frozenset[s
             tokens.append(f"[{match['bracketed'].strip()}]")
         elif (name := match["name"]) is None:
             tokens.append("^" if match[0].strip() == "**" else match[0].strip())
-        elif (
-            names_as_written
-            or name in RESERVED_NAMES
-            or name in variables
-            or not _is_splittable(name)
-        ):
+        elif names_as_written or name in RESERVED_NAMES or not _is_splittable(name):
             tokens.append(name)
         else:
-            tokens.extend(_DIGITS_OR_CHARACTER.findall(name))
+            tokens.extend(_split_name(name, variables))
     return tokens
+
+
+def _split_name(name: str, variables: frozenset[str]) -> list[str]:
+    """``name`` split into single letters and runs of digits, as SymPy's ``split_symbols`` splits
+    it, except that each of ``variables`` in it stays one token, the longest variable matching
+    first: with N0 listed, N0e is N0 × e."""
+    variable_patterns = [
+        re.escape(variable) for variable in sorted(variables, key=len, reverse=True)
+    ]
+    return re.findall("|".join([*variable_patterns, _DIGITS_OR_CHARACTER.pattern]), name)
 
 
 def _is_splittable(name: str) -> bool:

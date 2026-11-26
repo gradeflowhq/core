@@ -99,11 +99,17 @@ def test_listed_variables_are_read_whole() -> None:
     }
     assert proportions(
         mark_all(kernel, ["u1*v1 + u2*v2", "v2 u2 + v1 u1", "u1 v2 + u2 v1", "u1v1 + u2v2"])
-    ) == [1, 1, 0, 0]
-    assert mark(kernel, "u1v1 + u2v2").feedback == (
-        "Uses u and v. Expected an expression equal to “u1 v1 + u2 v2”."
+    ) == [1, 1, 0, 1]
+    assert mark(kernel, "u3v1 + u2v2").feedback == (
+        "Uses u. Expected an expression equal to “u1 v1 + u2 v2”."
     )
     assert describe(kernel) == "Equals `u1 v1 + u2 v2`, with variables u1, u2, v1 and V2."
+    exponential_growth = {
+        "uses": EQUIVALENT_EXPRESSION,
+        "with": {"answers": ["N0 e^(rt)"], "variables": ["N0"]},
+    }
+    answers = ["N0e^(rt)", "N0 exp(tr)", "N e^(rt)"]
+    assert proportions(mark_all(exponential_growth, answers)) == [1, 1, 0]
 
 
 def test_listed_variables_must_be_names_that_arent_taken() -> None:
