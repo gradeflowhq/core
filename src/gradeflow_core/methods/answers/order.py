@@ -31,7 +31,7 @@ class OrderSettings(Settings):
         min_length=2,
         title="Correct order",
         description="First to last.",
-        json_schema_extra={"uniqueItems": True, **hint(item_label="item")},
+        json_schema_extra={"uniqueItems": True, **hint(lists_answer_items=True, item_label="item")},
     )
     marks_for: Literal["exact", "items_in_order", "pairs_in_order"] = Field(
         default="items_in_order",

@@ -1,10 +1,7 @@
-from dataclasses import replace
-
 import pytest
 
 from gradeflow_core import QuestionSet
 from gradeflow_core.editing import Position
-from gradeflow_core.questions.list import ListQuestion
 from gradeflow_core.steps.input_sources import AnswerPartSource
 
 QUESTIONS = QuestionSet.load(
@@ -45,12 +42,8 @@ def test_the_values_read_are_as_the_question_reads_them(
 
 
 def test_a_check_of_items_reads_each_item_or_its_part() -> None:
-    list_question = QUESTIONS["Q3"]
-    assert isinstance(list_question, ListQuestion)
-    item_question = list_question.item_question()
-    position = replace(
-        Position(QUESTIONS, "Q3"), input_question=item_question, is_in_item_check=True
-    )
+    position = Position(QUESTIONS, "Q3").item_check_position
+    assert position is not None
     answer = "overfitting, add L2, imbalance, , , "
     assert position.values_read(answer) == ["overfitting, add l2", "imbalance, "]
     change_position, refusal = position.reading(AnswerPartSource("change"), {})
@@ -58,3 +51,8 @@ def test_a_check_of_items_reads_each_item_or_its_part() -> None:
     assert change_position.values_read(answer) == ["add l2"]
     assert position.reading(AnswerPartSource("fix"), {})[1] == "The answer has no part named fix."
     assert position.input_kind == "item"
+
+
+def test_only_a_list_question_has_an_item_check_position() -> None:
+    assert Position(QUESTIONS, "Q1").item_check_position is None
+    assert Position(QUESTIONS, None).item_check_position is None

@@ -4,6 +4,7 @@ from typing import Literal
 
 from ..common.schemas import JsonDict
 from ..questions.base import Question
+from ..questions.list import ListQuestion
 from ..questions.multipart import MultipartQuestion
 from ..questions.question_set import QuestionSet
 from ..questions.reading import write_answer
@@ -67,6 +68,14 @@ class Position:
             case AnswerSource() if self.is_in_item_check:
                 return "item"
         return None
+
+    @property
+    def item_check_position(self) -> Position | None:
+        """Where a check of one item of its list is; None if it reads no list."""
+        question = self.question_model
+        if not isinstance(question, ListQuestion):
+            return None
+        return replace(self, input_question=question.item_question(), is_in_item_check=True)
 
     def values_read(self, answer: str) -> list[str]:
         """What a check here reads of ``answer``, as its question reads it: the answer, one of its

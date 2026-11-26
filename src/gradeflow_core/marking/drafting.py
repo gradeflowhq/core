@@ -15,7 +15,6 @@ from ..methods.collection import Methods
 from ..methods.text.extract import ExtractSettings
 from ..methods.text.pattern import PatternSettings
 from ..models import model_service
-from ..questions.list import ListQuestion
 from ..questions.multipart import MultipartQuestion
 from ..questions.question_set import QuestionSet
 from ..questions.submissions import AnswerSheet
@@ -300,17 +299,11 @@ def _positions(deps: _Deps) -> Iterator[Position]:
     """Where the question's checks can read: its answer, each part of it, or each item."""
     root = marking_position(deps.questions, deps.question_id)
     yield root
-    match deps.questions[deps.question_id]:
-        case MultipartQuestion() as question:
-            for part in question.parts:
-                yield root.reading(AnswerPartSource(part.name), {})[0]
-        case ListQuestion() as question:
-            yield Position(
-                deps.questions,
-                deps.question_id,
-                input_question=question.item_question(),
-                is_in_item_check=True,
-            )
+    if isinstance(question := deps.questions[deps.question_id], MultipartQuestion):
+        for part in question.parts:
+            yield root.reading(AnswerPartSource(part.name), {})[0]
+    if (item_check_position := root.item_check_position) is not None:
+        yield item_check_position
 
 
 def _method_description(method: Method, position: Position) -> str:

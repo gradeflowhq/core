@@ -66,12 +66,7 @@ class ItemByItem(Method[ItemByItemSettings]):
     def inner_position(self, position: Position, *, is_in_list: bool) -> Position:
         """A check of one item of the list."""
         inner_position = super().inner_position(position, is_in_list=is_in_list)
-        question = position.question_model
-        if not isinstance(question, ListQuestion):
-            return inner_position
-        return replace(
-            inner_position, input_question=question.item_question(), is_in_item_check=True
-        )
+        return inner_position.item_check_position or inner_position
 
     def initial_settings(self, position: Position) -> dict[str, Any]:
         question = position.question_model

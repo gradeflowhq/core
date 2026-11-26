@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from gradeflow_core import InvalidError
+from gradeflow_core import BUILTINS, InvalidError
 from gradeflow_core.editing import Position, compatible_methods
 from gradeflow_core.questions.list import ListQuestion
 from gradeflow_core.questions.parts import AnswerPart
@@ -113,6 +113,12 @@ def test_it_marks_a_list_of_text_or_numbers() -> None:
     }
     assert "gradeflow/order" in names["Q1"]
     assert "gradeflow/order" not in names["Q2"]
+
+
+def test_the_correct_order_lists_items() -> None:
+    position = Position(QuestionSet({"Q1": TEXT_LIST}), "Q1")
+    properties = BUILTINS.find("gradeflow/order@1").settings_schema(position)["properties"]
+    assert properties["order"]["x-gradeflow"] == {"lists_answer_items": True, "item_label": "item"}
 
 
 def test_each_item_must_be_readable() -> None:

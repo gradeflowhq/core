@@ -29,6 +29,8 @@ class Hint(BaseModel):
     """Read from the method as written, before settings fill it in, so a declared setting can't."""
     lists_answers: bool = False
     """The field lists accepted or model answers."""
+    lists_answer_items: bool = False
+    """The field lists items of a list answer."""
     item_label: str | None = None
     """What one entry of a list field is called, such as "question"."""
     template_parts: dict[str, str] | None = None
