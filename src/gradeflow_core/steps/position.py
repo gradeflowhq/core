@@ -69,8 +69,8 @@ class Position:
         return None
 
     def values_read(self, answer: str) -> list[str]:
-        """What a check here reads of ``answer`` to its question, as written: the answer, one of
-        its parts, or each item or that part of each; empty if blank or unreadable."""
+        """What a check here reads of ``answer``, as its question reads it: the answer, one of its
+        parts, or each item or that part of each; empty if blank or unreadable."""
         if self.question is None or (question := self.questions.get(self.question)) is None:
             return []
         try:
