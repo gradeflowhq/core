@@ -27,7 +27,7 @@ POINT_MEANING_CUTOFFS: dict[Strictness, float] = {"lenient": -0.05, "normal": 0.
 
 
 class KeyPointSettings(Settings):
-    point: NonBlankText = Field(title="Point")
+    point: NonBlankText = Field(title="Point", json_schema_extra=hint(multiline=True))
     match: MatchMode = MATCH_FIELD
     strictness: Strictness = STRICTNESS_FIELD
     whole_words: bool = Field(

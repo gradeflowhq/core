@@ -17,6 +17,9 @@ class Hint(BaseModel):
     kind: Literal["step", "output_step", "code", "markdown", "feedback", "condition"] | None = None
     """What kind of value the field holds. "markdown" is Markdown with LaTeX formulas between $
     signs. A list of steps says "step" on its items."""
+    multiline: bool = False
+    """Text that may contain line breaks, such as a model answer. Text without it is a single
+    line."""
     language: Literal["python"] | None = None
     advanced: bool = False
     """An option most people leave at its default."""

@@ -167,6 +167,17 @@ def test_only_fields_of_whole_answers_take_them(
     assert properties[field].get("x-gradeflow", {}).get("lists_answers", False) == lists_answers
 
 
+def test_only_criteria_model_answers_and_key_points_are_multiline() -> None:
+    multiline_titles = {
+        node["title"]
+        for place in PLACES
+        for method in methods_at(place)
+        for node in schema_nodes(schema_at(method.name, place))
+        if node.get(HINT_KEY, {}).get("multiline")
+    }
+    assert multiline_titles == {"Criterion", "Model answer", "Points"}
+
+
 def new_check(method: str, place: str) -> dict[str, Any]:
     """A new check of ``method`` at ``place``: a new marking, a check added to a list, or, as
     adding can't choose a value, a check whose method changed."""

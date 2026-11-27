@@ -70,7 +70,7 @@ _ANSWER_TAG = re.compile(r"<(?=\s*/?\s*answer)", re.IGNORECASE)
 
 
 class Criterion(Settings):
-    text: NonBlankText = Field(title="Criterion")
+    text: NonBlankText = Field(title="Criterion", json_schema_extra=hint(multiline=True))
     marks: Number = Field(default=1, title="Marks")
 
 
@@ -89,6 +89,7 @@ class AnswerCriteriaSettings(Settings):
         default=None,
         title="Model answer",
         description="A worked answer the AI compares answers with.",
+        json_schema_extra=hint(multiline=True),
     )
     decide_with: Literal["fast", "careful", "fast_then_careful"] = Field(
         default="fast",
