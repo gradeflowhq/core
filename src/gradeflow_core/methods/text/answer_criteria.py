@@ -182,7 +182,7 @@ class AnswerCriteria(Method[AnswerCriteriaSettings]):
         if settings.marks_by == "best_fit":
             return f"AI picks the criterion that best fits the answer:\n{markdown_list(lines)}"
         if len(lines) == 1:
-            return f"AI checks the answer for {lines[0]}."
+            return f"AI checks the answer against this criterion: {lines[0]}."
         return f"AI checks the answer for each of these:\n{markdown_list(lines)}"
 
     def mark_students(

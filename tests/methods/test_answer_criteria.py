@@ -54,7 +54,8 @@ def test_criteria_are_listed_as_written_with_their_marks() -> None:
     )
     one_criterion = [{"text": "States that the complexity is O(n log n)", "marks": 0.5}]
     assert describe(answer_criteria(criteria=one_criterion)) == (
-        "AI checks the answer for States that the complexity is O\\(n log n\\) (0.5 marks)."
+        "AI checks the answer against this criterion: "
+        "States that the complexity is O\\(n log n\\) (0.5 marks)."
     )
 
 
@@ -108,7 +109,7 @@ def test_a_criterion_s_full_stop_isnt_doubled(fake_models: InstallFakeModels) ->
         "Correct total: Not met.\nShows the working: Not met.\nPenalty: Forgot to sum."
     )
     assert describe(answer_criteria(criteria=criteria[:1])) == (
-        "AI checks the answer for Correct total (2 marks)."
+        "AI checks the answer against this criterion: Correct total (2 marks)."
     )
 
 
