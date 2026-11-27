@@ -375,7 +375,7 @@ class _CriteriaRequests:
                 itertools.product(batch, self.criterion_texts), (model,), NO_REPLY
             )
 
-        return self._ask_in_batches(decide_batch, answers, "Deciding criteria")
+        return self._ask_in_batches(decide_batch, answers, "Checking answers")
 
     def _fast_verdicts(self, model: str, batch: Sequence[str]) -> Verdicts | None:
         """The fast model's verdicts on ``batch``, or None if its reply can't be read."""
@@ -449,7 +449,9 @@ class _CriteriaRequests:
                 return _undecided_verdicts(pairs_to_ask(batch), models, NO_REPLY)
             return verdicts
 
-        return self._ask_in_batches(decide_batch, list(criteria_to_ask), "Deciding carefully")
+        return self._ask_in_batches(
+            decide_batch, list(criteria_to_ask), "Rechecking unsure answers"
+        )
 
     def _careful_verdicts(
         self,
@@ -504,14 +506,16 @@ class _CriteriaRequests:
         progress_step: str,
     ) -> Verdicts:
         """What ``decide_batch`` decides for each batch of ``answers``, asking several batches at a
-        time."""
+        time and reporting the answers done."""
         batches = list(itertools.batched(answers, self.endpoint.answers_per_request, strict=False))
         verdicts: Verdicts = {}
+        answers_done = 0
         with ThreadPoolExecutor(CONCURRENT_REQUESTS) as pool:
-            for batches_done, batch_verdicts in enumerate(pool.map(decide_batch, batches), 1):
+            for batch, batch_verdicts in zip(batches, pool.map(decide_batch, batches), strict=True):
                 verdicts |= batch_verdicts
+                answers_done += len(batch)
                 self.report_progress(
-                    Progress(completed=batches_done, total=len(batches), step=progress_step)
+                    Progress(completed=answers_done, total=len(answers), step=progress_step)
                 )
         return verdicts
 

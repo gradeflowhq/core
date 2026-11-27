@@ -17,7 +17,7 @@ from .outcome import Span, StepResult, Transformed, TransformResult
 
 @dataclass(frozen=True)
 class Progress:
-    """How far a step of marking has got, such as 12 of 30 requests to a language model."""
+    """How far a step of marking has got, such as 12 of 30 answers checked by a language model."""
 
     completed: int
     total: int

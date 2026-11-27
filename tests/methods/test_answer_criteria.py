@@ -268,7 +268,7 @@ def test_the_careful_model_thinks_as_hard_as_asked_or_as_it_would(
     assert fake.requests[-1].get("reasoning_effort") == sent
 
 
-def test_marking_reports_its_requests(fake_models: InstallFakeModels) -> None:
+def test_marking_reports_the_answers_checked(fake_models: InstallFakeModels) -> None:
     fake_models(example_verdicts)
     progress_reports: list[Progress] = []
     mark_with_criteria(
@@ -279,8 +279,8 @@ def test_marking_reports_its_requests(fake_models: InstallFakeModels) -> None:
         on_progress=progress_reports.append,
     )
     assert progress_reports == [
-        Progress(completed=1, total=2, step="Deciding criteria"),
-        Progress(completed=2, total=2, step="Deciding criteria"),
+        Progress(completed=2, total=3, step="Checking answers"),
+        Progress(completed=3, total=3, step="Checking answers"),
     ]
 
 
